@@ -1,0 +1,22 @@
+# Binaries and builds
+/builds/
+*.exe
+*.app
+
+# Logs
+*.log
+*.bak
+*.tmp
+
+# Data
+*.json
+my_calendar.json
+/data/
+
+# Agent/AI config
+AGENTS.md
+.agents/
+.gemini/
+
+# Docs
+Техническое задание на разработку myCalendar.txt
