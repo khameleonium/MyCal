@@ -41,5 +41,4 @@ go build -o mycalendar .
 
 ---
 *Автор: Илья Ульянов*
-*Компания: fic0bit*
 *Почта: siriusx666@gmail.com*
