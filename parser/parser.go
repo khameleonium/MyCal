@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -49,6 +50,14 @@ func ParseTime(input string) (time.Time, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return time.Time{}, ErrEmptyTime
+	}
+
+	if match, _ := regexp.MatchString(`^\d{1,2}$`, input); match {
+		if input == "24" {
+			input = "00:00"
+		} else {
+			input = input + ":00"
+		}
 	}
 
 	normalized := normalizeTime(input)
@@ -123,7 +132,7 @@ func ValidateDate(rawInput string, parsed time.Time) bool {
 	return IsDateNormalized(normalized, parsed)
 }
 
-var sepRegexp = regexp.MustCompile(`[.\-]`)
+var sepRegexp = regexp.MustCompile(`[.\-/\\]`)
 
 func normalizeSeparators(s string) string {
 	s = strings.TrimSpace(s)
@@ -141,3 +150,127 @@ func splitDateTime(input string) []string {
 	}
 	return []string{input}
 }
+
+// ParsePeriod parses a period string and returns start and end dates.
+// Supported formats:
+// - YYYY (e.g., 2025) -> 01-01-YYYY to 31-12-YYYY
+// - MM-YYYY (e.g., 12.2025) -> 01-12-2025 to 31-12-2025
+// - MM (e.g., 12) -> 01-12-CurrentYear to 31-12-CurrentYear
+// - MM-MM (e.g., 10-12) -> 01-10-CurrentYear to 31-12-CurrentYear
+// - DD-MM-DD-MM (e.g., 01.12-15.12) -> 01-12-CurrentYear to 15-12-CurrentYear
+// - FullDate - FullDate -> parses using ParseDate
+func ParsePeriod(input string) (time.Time, time.Time, error) {
+	input = strings.TrimSpace(input)
+
+	now := time.Now()
+	currYear := now.Year()
+
+	if input == "" {
+		start := time.Date(currYear, 1, 1, 0, 0, 0, 0, time.Local)
+		end := time.Date(currYear, 12, 31, 0, 0, 0, 0, time.Local)
+		return start, end, nil
+	}
+
+	// 1. Check for standard two full dates with space or common range separators
+	cleanInput := strings.ReplaceAll(input, " - ", " ")
+	cleanInput = strings.ReplaceAll(cleanInput, " — ", " ")
+	parts := strings.Fields(cleanInput)
+	if len(parts) == 2 {
+		d1, err1 := ParseDate(parts[0], time.Time{})
+		d2, err2 := ParseDate(parts[1], time.Time{})
+		if err1 == nil && err2 == nil {
+			if d1.After(d2) {
+				d1, d2 = d2, d1
+			}
+			return d1, d2, nil
+		}
+	}
+
+	// 2. Normalize separators to handle tokens separated by '.', '/', '\', '-'
+	normalized := normalizeSeparators(input)
+	for strings.Contains(normalized, "--") {
+		normalized = strings.ReplaceAll(normalized, "--", "-")
+	}
+
+	tokens := strings.Split(normalized, "-")
+
+	// 1 token: YYYY or MM
+	if len(tokens) == 1 {
+		if len(tokens[0]) == 4 { // YYYY
+			year, err := strconv.Atoi(tokens[0])
+			if err == nil {
+				start := time.Date(year, 1, 1, 0, 0, 0, 0, time.Local)
+				end := time.Date(year, 12, 31, 0, 0, 0, 0, time.Local)
+				return start, end, nil
+			}
+		} else if len(tokens[0]) == 1 || len(tokens[0]) == 2 { // MM
+			month, err := strconv.Atoi(tokens[0])
+			if err == nil && month >= 1 && month <= 12 {
+				start := time.Date(currYear, time.Month(month), 1, 0, 0, 0, 0, time.Local)
+				end := time.Date(currYear, time.Month(month), lastDayOfMonth(currYear, month), 0, 0, 0, 0, time.Local)
+				return start, end, nil
+			}
+		}
+	}
+
+	// 2 tokens: MM-YYYY or MM-MM
+	if len(tokens) == 2 {
+		v1, err1 := strconv.Atoi(tokens[0])
+		v2, err2 := strconv.Atoi(tokens[1])
+		if err1 == nil && err2 == nil {
+			if len(tokens[1]) == 4 { // MM-YYYY
+				if v1 >= 1 && v1 <= 12 {
+					start := time.Date(v2, time.Month(v1), 1, 0, 0, 0, 0, time.Local)
+					end := time.Date(v2, time.Month(v1), lastDayOfMonth(v2, v1), 0, 0, 0, 0, time.Local)
+					return start, end, nil
+				}
+			} else if len(tokens[1]) <= 2 { // MM-MM
+				if v1 >= 1 && v1 <= 12 && v2 >= 1 && v2 <= 12 {
+					start := time.Date(currYear, time.Month(v1), 1, 0, 0, 0, 0, time.Local)
+					end := time.Date(currYear, time.Month(v2), lastDayOfMonth(currYear, v2), 0, 0, 0, 0, time.Local)
+					if start.After(end) {
+						start, end = end, start
+					}
+					return start, end, nil
+				}
+			}
+		}
+	}
+
+	// 4 tokens: DD-MM-DD-MM (e.g. 01.12-15.12)
+	if len(tokens) == 4 {
+		d1, err1 := ParseDate(tokens[0]+"-"+tokens[1], time.Time{})
+		d2, err2 := ParseDate(tokens[2]+"-"+tokens[3], time.Time{})
+		if err1 == nil && err2 == nil {
+			if d1.After(d2) {
+				d1, d2 = d2, d1
+			}
+			return d1, d2, nil
+		}
+	}
+
+	// 6 tokens: DD-MM-YYYY-DD-MM-YYYY
+	if len(tokens) == 6 {
+		d1, err1 := ParseDate(tokens[0]+"-"+tokens[1]+"-"+tokens[2], time.Time{})
+		d2, err2 := ParseDate(tokens[3]+"-"+tokens[4]+"-"+tokens[5], time.Time{})
+		if err1 == nil && err2 == nil {
+			if d1.After(d2) {
+				d1, d2 = d2, d1
+			}
+			return d1, d2, nil
+		}
+	}
+
+	// Fallback: try parsing as a single date
+	d, err := ParseDate(input, time.Time{})
+	if err == nil {
+		return d, d, nil
+	}
+
+	return time.Time{}, time.Time{}, fmt.Errorf("не удалось распознать период: %s", input)
+}
+
+func lastDayOfMonth(year, month int) int {
+	return time.Date(year, time.Month(month+1), 0, 0, 0, 0, 0, time.Local).Day()
+}
+

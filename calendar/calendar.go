@@ -208,14 +208,18 @@ func (s *Service) DeleteEntry(id string) error {
 		return fmt.Errorf("запись с ID %s не найдена", id)
 	}
 
-	de := &s.data.Entries[di]
-	de.Sessions = append(de.Sessions[:si], de.Sessions[si+1:]...)
+	s.data.Entries[di].Sessions = append(s.data.Entries[di].Sessions[:si], s.data.Entries[di].Sessions[si+1:]...)
 
-	if len(de.Sessions) == 0 {
+	if len(s.data.Entries[di].Sessions) == 0 {
 		s.data.Entries = append(s.data.Entries[:di], s.data.Entries[di+1:]...)
 	}
 
 	return nil
+}
+
+// DeleteAll removes all entries.
+func (s *Service) DeleteAll() {
+	s.data.Entries = []models.DateEntry{}
 }
 
 // DeleteByPeriod removes all DateEntries in [start, end] inclusive.
@@ -250,6 +254,16 @@ func (s *Service) GetMonthEntries(refDate time.Time) []models.DateEntry {
 	firstDay := time.Date(refDate.Year(), refDate.Month(), 1, 0, 0, 0, 0, refDate.Location())
 	lastDay := firstDay.AddDate(0, 1, -1)
 	return s.FindByPeriod(firstDay, lastDay)
+}
+
+// GetAllEntries returns all entries in the calendar.
+func (s *Service) GetAllEntries() []models.DateEntry {
+	result := make([]models.DateEntry, len(s.data.Entries))
+	copy(result, s.data.Entries)
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Date < result[j].Date
+	})
+	return result
 }
 
 // TotalHours calculates the total number of hours across all sessions.

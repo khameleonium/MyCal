@@ -440,36 +440,40 @@ func (a *App) doEdit(id string) {
 func (a *App) viewEntries(filter string) {
 	fmt.Println()
 	fmt.Println(color.Yellow(hdrSep + " Просмотр записей " + hdrSep))
-	fmt.Println("  1. Записи на этой неделе")
-	fmt.Println("  2. Записи за этот месяц")
-	fmt.Println("  3. Указать период вручную")
+	fmt.Println(" w | 1. Записи за эту неделю")
+	fmt.Println(" m | 2. Записи за этот месяц")
+	fmt.Println(" p | 3. Указать период вручную")
+	fmt.Println(" a | 4. Все записи")
+	fmt.Println(" q | 0. Назад")
 
 	choice := strings.TrimSpace(a.prompt(""))
+	choice = strings.ToLower(choice)
 
 	var entries []models.DateEntry
 	var periodLabel string
 
 	switch choice {
-	case "1":
+	case "1", "w", "ц":
 		entries = a.svc.GetWeekEntries(a.resolveDate())
 		monday, sunday := weekBounds(a.resolveDate())
 		periodLabel = color.Magenta(parser.FormatDate(monday) + " — " + parser.FormatDate(sunday))
-	case "2":
+	case "2", "m", "ь":
 		entries = a.svc.GetMonthEntries(a.resolveDate())
 		firstDay := time.Date(a.resolveDate().Year(), a.resolveDate().Month(), 1, 0, 0, 0, 0, a.resolveDate().Location())
 		lastDay := firstDay.AddDate(0, 1, -1)
 		periodLabel = color.Magenta(parser.FormatDate(firstDay) + " — " + parser.FormatDate(lastDay))
-	case "3":
-		startDate, ok1 := a.dialogDate("Начальная дата:", "DD-MM-YYYY, DD.MM.YYYY, YYYY-MM-DD; 0 — отмена")
-		if !ok1 {
-			return
-		}
-		endDate, ok2 := a.dialogDate("Конечная дата:", "DD-MM-YYYY, DD.MM.YYYY, YYYY-MM-DD; 0 — отмена")
-		if !ok2 {
+	case "3", "p", "з":
+		startDate, endDate, ok := a.dialogPeriod("Введите период:", "Например: 2025, 12.2025, 10-12, 01.12-15.12; 0 — отмена")
+		if !ok {
 			return
 		}
 		entries = a.svc.FindByPeriod(startDate, endDate)
 		periodLabel = color.Magenta(parser.FormatDate(startDate) + " — " + parser.FormatDate(endDate))
+	case "4", "a", "ф":
+		entries = a.svc.GetAllEntries()
+		periodLabel = color.Magenta("Все записи")
+	case "0", "q", "й":
+		return
 	default:
 		fmt.Println(color.Red(errMark + " Некорректный выбор"))
 		return
@@ -541,23 +545,28 @@ func (a *App) deleteEntry() {
 	for {
 		fmt.Println()
 		fmt.Println(color.Yellow(hdrSep + " Удаление записи " + hdrSep))
-		fmt.Println("  1. По ID / дате и времени")
-		fmt.Println("  2. Все записи за день")
-		fmt.Println("  3. За период")
-		fmt.Println("  0. Назад")
+		fmt.Println(" i | 1. По ID / дате и времени")
+		fmt.Println(" d | 2. Все записи за день")
+		fmt.Println(" p | 3. За период")
+		fmt.Println(" a | 4. Удалить все записи")
+		fmt.Println(" q | 0. Назад")
 
 		choice := strings.TrimSpace(a.prompt(""))
+		choice = strings.ToLower(choice)
 		switch choice {
-		case "1":
+		case "1", "i", "ш":
 			a.deleteBySearch()
 			return
-		case "2":
+		case "2", "d", "в":
 			a.deleteByDate()
 			return
-		case "3":
+		case "3", "p", "з":
 			a.deleteByPeriod()
 			return
-		case "0":
+		case "4", "a", "ф":
+			a.deleteAll()
+			return
+		case "0", "q", "й":
 			return
 		default:
 			fmt.Println(color.Red(errMark + " Некорректный выбор (0–3)"))
@@ -601,12 +610,8 @@ func (a *App) deleteByDate() {
 }
 
 func (a *App) deleteByPeriod() {
-	startDate, ok1 := a.dialogDate("Начальная дата:", "DD-MM-YYYY, DD.MM.YYYY, YYYY-MM-DD; 0 — отмена")
-	if !ok1 {
-		return
-	}
-	endDate, ok2 := a.dialogDate("Конечная дата:", "DD-MM-YYYY, DD.MM.YYYY, YYYY-MM-DD; 0 — отмена")
-	if !ok2 {
+	startDate, endDate, ok := a.dialogPeriod("Введите период для удаления:", "Например: 2025, 12.2025, 10-12, 01.12-15.12; 0 — отмена")
+	if !ok {
 		return
 	}
 	start := time.Date(startDate.Year(), startDate.Month(), startDate.Day(), 0, 0, 0, 0, startDate.Location())
@@ -644,6 +649,33 @@ func (a *App) deletePeriod(entries []models.DateEntry, start, end time.Time, lab
 		return
 	}
 	fmt.Println(color.Green(okMark + " Удалено " + strconv.Itoa(count) + " записей"))
+}
+
+func (a *App) deleteAll() {
+	entries := a.svc.GetAllEntries()
+	totalSessions := 0
+	for _, de := range entries {
+		totalSessions += len(de.Sessions)
+	}
+	if totalSessions == 0 {
+		fmt.Println(color.Yellow(warnMark + " Нет записей для удаления"))
+		return
+	}
+
+	fmt.Println(color.Yellow("\n" + warnMark + " Будет удалено " + strconv.Itoa(totalSessions) + " записей (ВСЕ записи)"))
+	confirm := strings.TrimSpace(a.dialogPrompt("",
+		color.Yellow(askMark+" Вы уверены, что хотите удалить ВСЕ записи? (Да/Нет)")))
+	if !isConfirm(confirm) {
+		fmt.Println(color.Yellow(warnMark + " Удаление отменено"))
+		return
+	}
+
+	a.svc.DeleteAll()
+	if err := a.svc.Save(context.Background()); err != nil {
+		fmt.Println(color.Red(errMark + " Ошибка сохранения: " + err.Error()))
+		return
+	}
+	fmt.Println(color.Green(okMark + " Все записи успешно удалены"))
 }
 
 func (a *App) doDelete(id string) {
@@ -702,28 +734,31 @@ func (a *App) todayView() {
 func (a *App) exportCSV() {
 	fmt.Println()
 	fmt.Println(color.Yellow(hdrSep + " Экспорт в CSV " + hdrSep))
-	fmt.Println("  1. Записи на этой неделе")
-	fmt.Println("  2. Записи за этот месяц")
-	fmt.Println("  3. Указать период вручную")
+	fmt.Println(" w | 1. Записи за эту неделю")
+	fmt.Println(" m | 2. Записи за этот месяц")
+	fmt.Println(" p | 3. Указать период вручную")
+	fmt.Println(" a | 4. Экспортировать все записи")
+	fmt.Println(" q | 0. Назад")
 
 	choice := strings.TrimSpace(a.prompt(""))
+	choice = strings.ToLower(choice)
 
 	var entries []models.DateEntry
 	switch choice {
-	case "1":
+	case "1", "w", "ц":
 		entries = a.svc.GetWeekEntries(a.resolveDate())
-	case "2":
+	case "2", "m", "ь":
 		entries = a.svc.GetMonthEntries(a.resolveDate())
-	case "3":
-		startDate, ok1 := a.dialogDate("Начальная дата:", "DD-MM-YYYY, DD.MM.YYYY, YYYY-MM-DD; 0 — отмена")
-		if !ok1 {
-			return
-		}
-		endDate, ok2 := a.dialogDate("Конечная дата:", "DD-MM-YYYY, DD.MM.YYYY, YYYY-MM-DD; 0 — отмена")
-		if !ok2 {
+	case "3", "p", "з":
+		startDate, endDate, ok := a.dialogPeriod("Введите период для экспорта:", "Например: 2025, 12.2025, 10-12; 0 — отмена")
+		if !ok {
 			return
 		}
 		entries = a.svc.FindByPeriod(startDate, endDate)
+	case "4", "a", "ф":
+		entries = a.svc.GetAllEntries()
+	case "0", "q", "й":
+		return
 	default:
 		fmt.Println(color.Red(errMark + " Некорректный выбор"))
 		return
@@ -772,26 +807,27 @@ func (a *App) settingsMenu() {
 	for {
 		fmt.Println()
 		fmt.Println(color.Yellow(hdrSep + " Настройки " + hdrSep))
-		fmt.Printf("  1. Режим хранения         [%s]\n", splitModeLabels[a.cfg.SplitMode])
-		fmt.Printf("  2. Имя файла данных       [%s]\n", a.cfg.DataFileName)
-		fmt.Printf("  3. Продолж. по умолчанию  [%d мин]\n", a.cfg.DefaultDuration)
-		fmt.Printf("  4. Тип по умолчанию       [%s]\n", a.cfg.DefaultType)
-		fmt.Printf("  5. Путь к данным          [%s]\n", dataPathDisplay(a.cfg.DataPath))
-		fmt.Printf("  6. Проверка даты          [%s]\n", dateCheckLabels[a.cfg.DateCheckMode])
-		fmt.Printf("  7. Дата                   [%s]\n", a.dateDisplay())
-		fmt.Println("  0. Сохранить и выйти")
+		fmt.Printf(" m | 1. Режим хранения         [%s]\n", splitModeLabels[a.cfg.SplitMode])
+		fmt.Printf(" n | 2. Имя файла данных       [%s]\n", a.cfg.DataFileName)
+		fmt.Printf(" l | 3. Продолж. по умолчанию  [%d мин]\n", a.cfg.DefaultDuration)
+		fmt.Printf(" t | 4. Тип по умолчанию       [%s]\n", a.cfg.DefaultType)
+		fmt.Printf(" p | 5. Путь к данным          [%s]\n", dataPathDisplay(a.cfg.DataPath))
+		fmt.Printf(" c | 6. Проверка даты          [%s]\n", dateCheckLabels[a.cfg.DateCheckMode])
+		fmt.Printf(" d | 7. Дата                   [%s]\n", a.dateDisplay())
+		fmt.Println(" q | 0. Сохранить и выйти")
 
 		input := strings.TrimSpace(a.prompt(""))
+		input = strings.ToLower(input)
 		switch input {
-		case "1":
+		case "1", "m", "ь":
 			a.cfg.SplitMode = nextSplitMode(a.cfg.SplitMode)
-		case "2":
+		case "2", "n", "т":
 			fmt.Print("Имя файла данных > ")
 			name := strings.TrimSpace(a.readLine())
 			if name != "" && !isCancelled(name) {
 				a.cfg.DataFileName = name
 			}
-		case "3":
+		case "3", "l", "д":
 			fmt.Printf("Продолжительность по умолчанию (мин) [%d] > ", a.cfg.DefaultDuration)
 			durStr := strings.TrimSpace(a.readLine())
 			if durStr != "" && !isCancelled(durStr) {
@@ -801,23 +837,23 @@ func (a *App) settingsMenu() {
 					fmt.Println(color.Yellow(warnMark + " Некорректное значение"))
 				}
 			}
-		case "4":
+		case "4", "t", "е":
 			fmt.Printf("Тип по умолчанию [%s] > ", a.cfg.DefaultType)
 			typ := strings.TrimSpace(a.readLine())
 			if typ != "" && !isCancelled(typ) {
 				a.cfg.DefaultType = typ
 			}
-		case "5":
+		case "5", "p", "з":
 			fmt.Printf("Путь к данным [%s] > ", dataPathDisplay(a.cfg.DataPath))
 			path := strings.TrimSpace(a.readLine())
 			if path != "" && !isCancelled(path) {
 				a.cfg.DataPath = path
 			}
-		case "6":
+		case "6", "c", "с":
 			a.cfg.DateCheckMode = nextDateCheckMode(a.cfg.DateCheckMode)
-		case "7":
+		case "7", "d", "в":
 			a.dateSettings()
-		case "0":
+		case "0", "q", "й":
 			if a.cfg.SplitMode != oldMode {
 				if err := a.svc.Save(context.Background()); err != nil {
 					fmt.Println(color.Red(errMark + " Ошибка: " + err.Error()))
@@ -897,17 +933,18 @@ func (a *App) dateSettings() {
 		fmt.Println()
 		fmt.Println(color.Yellow("  Дата"))
 		fmt.Printf("  Текущая: %s\n", color.Magenta(parser.FormatDate(a.resolveDate())))
-		fmt.Println("  1. Системное время")
-		fmt.Println("  2. Ввести дату вручную")
-		fmt.Println("  0. Назад")
+		fmt.Println(" s | 1. Системное время")
+		fmt.Println(" m | 2. Ввести дату вручную")
+		fmt.Println(" q | 0. Назад")
 
 		input := strings.TrimSpace(a.prompt(""))
+		input = strings.ToLower(input)
 		switch input {
-		case "1":
+		case "1", "s", "ы":
 			a.cfg.UseSystemDate = true
 			fmt.Println(color.Green(okMark + " Используется системное время"))
 			return
-		case "2":
+		case "2", "m", "ь":
 			date, ok := a.dialogDate("Текущая дата:", "DD-MM-YYYY, DD.MM.YYYY, YYYY-MM-DD; 0 — отмена")
 			if ok {
 				a.cfg.CustomDate = date.Format("2006-01-02")
@@ -915,7 +952,7 @@ func (a *App) dateSettings() {
 				fmt.Println(color.Green(okMark + " Установлено: " + color.Magenta(parser.FormatDate(date))))
 			}
 			return
-		case "0":
+		case "0", "q", "й":
 			return
 		default:
 			fmt.Println(color.Red(errMark + " Некорректный выбор (0–2)"))
@@ -942,6 +979,21 @@ func (a *App) dialogPrompt(title, help string) string {
 	}
 	fmt.Print("> ")
 	return a.readLine()
+}
+
+func (a *App) dialogPeriod(title, help string) (time.Time, time.Time, bool) {
+	for {
+		input := a.dialogPrompt(title, help)
+		if isCancelled(input) {
+			return time.Time{}, time.Time{}, false
+		}
+		start, end, err := parser.ParsePeriod(input)
+		if err != nil {
+			fmt.Println(color.Red(errMark + " " + err.Error()))
+			continue
+		}
+		return start, end, true
+	}
 }
 
 func (a *App) dialogDate(title, help string) (time.Time, bool) {
