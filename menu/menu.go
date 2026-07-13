@@ -30,7 +30,7 @@ const (
 	warnMark = "[!]"
 	askMark  = "[?]"
 
-	listFmt = "  %2d. %-6s %-18s %-20s %-8s [%s]"
+	listFmt = "  %2d. %-8s %-18s %-20s %-8s [%s]"
 	statFmt = "  %-24s %s"
 )
 
@@ -111,14 +111,13 @@ func (a *App) Run() {
 		fmt.Println()
 		fmt.Println(color.Yellow(hdrSep + " Мои записи " + hdrSep))
 		fmt.Println(" a | 1. Добавить запись")
-		fmt.Println(" e | 2. Редактировать запись")
-		fmt.Println(" v | 3. Посмотреть записи")
-		fmt.Println(" d | 4. Удалить запись")
-		fmt.Println(" t | 5. Сегодня")
-		fmt.Println(" x | 6. Экспорт в CSV")
-		fmt.Println(" s | 7. Настройки")
-		fmt.Println(" h | 8. Справка")
-		fmt.Println(" q | 9. Выход")
+		fmt.Println(" v | 2. Посмотреть записи")
+		fmt.Println(" d | 3. Удалить запись")
+		fmt.Println(" t | 4. Сегодня")
+		fmt.Println(" x | 5. Экспорт в CSV")
+		fmt.Println(" s | 6. Настройки")
+		fmt.Println(" h | 7. Справка")
+		fmt.Println(" q | 8. Выход")
 
 		input := a.prompt("")
 		choice := a.resolveHotkey(strings.TrimSpace(input))
@@ -127,20 +126,18 @@ func (a *App) Run() {
 		case "1":
 			a.addEntry()
 		case "2":
-			a.editEntry()
-		case "3":
 			a.viewEntries("")
-		case "4":
+		case "3":
 			a.deleteEntry()
-		case "5":
+		case "4":
 			a.todayView()
-		case "6":
+		case "5":
 			a.exportCSV()
-		case "7":
+		case "6":
 			a.settingsMenu()
-		case "8":
+		case "7":
 			PrintHelp()
-		case "9":
+		case "8":
 			fmt.Println()
 			return
 		default:
@@ -154,22 +151,20 @@ func (a *App) resolveHotkey(input string) string {
 	switch lower {
 	case "a", "д":
 		return "1"
-	case "e", "р":
-		return "2"
 	case "v", "п":
-		return "3"
+		return "2"
 	case "d", "у":
-		return "4"
+		return "3"
 	case "t", "с":
-		return "5"
+		return "4"
 	case "x", "э":
-		return "6"
+		return "5"
 	case "s", "н":
-		return "7"
+		return "6"
 	case "h", "?", "м":
-		return "8"
+		return "7"
 	case "q", "в":
-		return "9"
+		return "8"
 	}
 	return input
 }
@@ -255,8 +250,12 @@ func (a *App) addEntryLoop(quickAdd bool) {
 		if len(conflicts) > 0 {
 			fmt.Println(color.Yellow("\n" + warnMark + " На эту дату и время уже есть записи:"))
 			for i := range conflicts {
+				timeStr := conflicts[i].Time
+				if conflicts[i].IsRepeat {
+					timeStr = "* " + timeStr
+				}
 				fmt.Printf(listFmt+"\n",
-					i+1, conflicts[i].Time, color.Green(conflicts[i].Name), conflicts[i].Type,
+					i+1, timeStr, color.Green(conflicts[i].Name), conflicts[i].Type,
 					color.Orange(fmt.Sprintf("%d мин", conflicts[i].Duration)),
 					color.Yellow(conflicts[i].ID))
 			}
@@ -266,7 +265,7 @@ func (a *App) addEntryLoop(quickAdd bool) {
 			case "1":
 				id := a.askID()
 				if id != "" {
-					a.doEdit(id)
+					a.doInteractiveEdit(id)
 				}
 				if quickAdd {
 					continue
@@ -393,36 +392,7 @@ func (a *App) printConflictMenu() {
 	fmt.Println("  4. Вернуться в меню")
 }
 
-// ----------------------------------- 2. Редактирование -----------------------------------
-
-func (a *App) editEntry() {
-	fmt.Println()
-	fmt.Println(color.Yellow(hdrSep + " Редактирование записи " + hdrSep))
-
-	input := a.dialogPrompt("Дата и время или ID записи:",
-		"Например: 29-12-2025 10:51 или 20251229105142; 0 — отмена")
-	if isCancelled(input) {
-		return
-	}
-	sessions := a.searchSessions(input)
-	if len(sessions) == 0 {
-		return
-	}
-
-	var target *models.Session
-	if len(sessions) == 1 {
-		target = &sessions[0]
-	} else {
-		target = a.pickSession(sessions)
-		if target == nil {
-			return
-		}
-	}
-
-	a.doEdit(target.ID)
-}
-
-func (a *App) doEdit(id string) {
+func (a *App) doInteractiveEdit(id string) {
 	sessions := a.svc.FindByID(id)
 	if len(sessions) == 0 {
 		fmt.Println(color.Red(errMark + " Запись не найдена"))
@@ -430,84 +400,177 @@ func (a *App) doEdit(id string) {
 	}
 	session := &sessions[0]
 
-	if strings.HasSuffix(session.Name, "_r") {
+	if session.IsRepeat && session.OriginalID != session.ID {
+		fmt.Println()
 		fmt.Println(color.Yellow(warnMark + " Это зависимая повторяющаяся запись."))
-		fmt.Println(color.Yellow("Для внесения изменений, пожалуйста, редактируйте оригинал: " + session.Name))
+		fmt.Println("  1. Изменить только эту запись")
+		fmt.Println("  2. Изменить всю серию (оригинал)")
+		fmt.Println("  0. Отмена")
+		choice := strings.TrimSpace(a.prompt("> "))
 		
-		confirm := strings.ToLower(strings.TrimSpace(a.prompt("Редактировать оригинал? (y/n) > ")))
-		if confirm == "y" || confirm == "yes" || confirm == "д" || confirm == "да" {
-			a.doEdit(session.Name)
+		if choice == "2" {
+			a.doInteractiveEdit(session.OriginalID)
+			return
+		} else if choice != "1" {
+			fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
+			return
 		}
-		return
 	}
 
 	a.showSessionDetail(*session)
-	fmt.Println("Введите новые значения (Enter — без изменений, 0 — отмена)")
+	
 	fmt.Println()
-
-	newTime := a.dialogPrompt("Время ["+session.Time+"]:", "")
-	if isCancelled(newTime) {
+	fmt.Println("Что редактируем?")
+	fmt.Println("1. Наименование")
+	fmt.Println("2. Тип")
+	fmt.Println("3. Время")
+	fmt.Println("4. Продолжительность")
+	fmt.Println("5. Комментарий")
+	fmt.Println("6. Статус")
+	fmt.Println("7. Полностью")
+	fmt.Println("0. Отмена")
+	
+	choice := strings.TrimSpace(a.prompt("> "))
+	
+	if choice == "0" || isCancelled(choice) {
 		fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
 		return
-	}
-
-	newName := a.askNameEdit(session.Name)
-	if isCancelled(newName) {
-		fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
-		return
-	}
-
-	newType := a.dialogPrompt("Тип ["+session.Type+"]:", "")
-	if isCancelled(newType) {
-		fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
-		return
-	}
-
-	durStr := a.dialogPrompt("Продолжительность ["+
-		color.Orange(fmt.Sprintf("%d", session.Duration))+"]:", "")
-	if isCancelled(durStr) {
-		fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
-		return
-	}
-
-	newNotes := a.dialogPrompt("Комментарий ["+session.Notes+"]:", "")
-	if isCancelled(newNotes) {
-		fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
-		return
-	}
-
-	newStatus := a.dialogPrompt("Статус ["+session.Status+"]:", "")
-	if isCancelled(newStatus) {
-		fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
-		return
-	}
-
-	if newTime != "" {
-		tm, err := parser.ParseTime(newTime)
-		if err != nil {
-			fmt.Println(color.Red(errMark + " Некорректное время"))
-			return
-		}
-		newTime = tm.Format("15:04")
-	}
-
-	var newDuration int
-	if durStr != "" {
-		var err error
-		newDuration, err = strconv.Atoi(strings.TrimSpace(durStr))
-		if err != nil || newDuration <= 0 {
-			fmt.Println(color.Red(errMark + " Некорректная продолжительность"))
-			return
-		}
 	}
 
 	updated := models.Session{
-		Time:     newTime,
-		Name:     newName,
-		Type:     newType,
-		Duration: newDuration,
-		Notes:    newNotes,
-		Status:   newStatus,
+		Time:     "",
+		Name:     "",
+		Type:     "",
+		Duration: 0,
+		Notes:    "",
+		Status:   "",
+	}
+
+	switch choice {
+	case "1":
+		newName := a.askNameEdit(session.Name)
+		if isCancelled(newName) {
+			fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
+			return
+		}
+		updated.Name = newName
+	case "2":
+		newType, ok := a.askType()
+		if !ok {
+			fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
+			return
+		}
+		updated.Type = newType
+	case "3":
+		newTime := a.dialogPrompt("Время ["+session.Time+"]:", "")
+		if isCancelled(newTime) {
+			fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
+			return
+		}
+		if newTime != "" {
+			tm, err := parser.ParseTime(newTime)
+			if err != nil {
+				fmt.Println(color.Red(errMark + " Некорректное время"))
+				return
+			}
+			updated.Time = tm.Format("15:04")
+		}
+	case "4":
+		durStr := a.dialogPrompt("Продолжительность ["+
+			color.Orange(fmt.Sprintf("%d", session.Duration))+"]:", "")
+		if isCancelled(durStr) {
+			fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
+			return
+		}
+		if durStr != "" {
+			var err error
+			newDuration, err := strconv.Atoi(strings.TrimSpace(durStr))
+			if err != nil || newDuration <= 0 {
+				fmt.Println(color.Red(errMark + " Некорректная продолжительность"))
+				return
+			}
+			updated.Duration = newDuration
+		}
+	case "5":
+		newNotes := a.dialogPrompt("Комментарий ["+session.Notes+"]:", "")
+		if isCancelled(newNotes) {
+			fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
+			return
+		}
+		updated.Notes = newNotes
+	case "6":
+		newStatus, ok := a.askStatus()
+		if !ok {
+			fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
+			return
+		}
+		updated.Status = newStatus
+	case "7":
+		fmt.Println("Введите новые значения (Enter — без изменений, 0 — отмена)")
+		fmt.Println()
+
+		newTime := a.dialogPrompt("Время ["+session.Time+"]:", "")
+		if isCancelled(newTime) {
+			fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
+			return
+		}
+
+		newName := a.askNameEdit(session.Name)
+		if isCancelled(newName) {
+			fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
+			return
+		}
+
+		newType := a.dialogPrompt("Тип ["+session.Type+"]:", "")
+		if isCancelled(newType) {
+			fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
+			return
+		}
+
+		durStr := a.dialogPrompt("Продолжительность ["+
+			color.Orange(fmt.Sprintf("%d", session.Duration))+"]:", "")
+		if isCancelled(durStr) {
+			fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
+			return
+		}
+
+		newNotes := a.dialogPrompt("Комментарий ["+session.Notes+"]:", "")
+		if isCancelled(newNotes) {
+			fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
+			return
+		}
+
+		newStatus := a.dialogPrompt("Статус ["+session.Status+"]:", "")
+		if isCancelled(newStatus) {
+			fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
+			return
+		}
+
+		if newTime != "" {
+			tm, err := parser.ParseTime(newTime)
+			if err != nil {
+				fmt.Println(color.Red(errMark + " Некорректное время"))
+				return
+			}
+			updated.Time = tm.Format("15:04")
+		}
+
+		if durStr != "" {
+			var err error
+			newDuration, err := strconv.Atoi(strings.TrimSpace(durStr))
+			if err != nil || newDuration <= 0 {
+				fmt.Println(color.Red(errMark + " Некорректная продолжительность"))
+				return
+			}
+			updated.Duration = newDuration
+		}
+		updated.Name = newName
+		updated.Type = newType
+		updated.Notes = newNotes
+		updated.Status = newStatus
+	default:
+		fmt.Println(color.Red(errMark + " Некорректный выбор (0–7)"))
+		return
 	}
 
 	if err := a.svc.EditEntry(id, updated); err != nil {
@@ -598,7 +661,7 @@ func (a *App) viewEntries(filter string) {
 
 	for {
 		fmt.Println()
-		fmt.Print("Номер или ID для подробностей  |  /текст — фильтр  |  Enter — назад > ")
+		fmt.Print("Номер/ID для подробн.  |  \\ном/\\ID — ред.  |  /текст — фильтр  |  Enter — назад > ")
 		idInput := strings.TrimSpace(a.readLine())
 		if idInput == "" {
 			return
@@ -620,17 +683,41 @@ func (a *App) viewEntries(filter string) {
 			continue
 		}
 
+		isEdit := false
+		if strings.HasPrefix(idInput, "\\") {
+			isEdit = true
+			idInput = strings.TrimPrefix(idInput, "\\")
+		}
+
 		idx, err := strconv.Atoi(idInput)
 		if err == nil && idx >= 1 && idx <= len(allSessions) {
-			a.showSessionDetail(allSessions[idx-1])
+			if isEdit {
+				sess := allSessions[idx-1]
+				a.doInteractiveEdit(sess.ID)
+			} else {
+				a.showSessionDetail(allSessions[idx-1])
+			}
 			continue
 		}
 
 		sessions := a.svc.FindByID(idInput)
 		if len(sessions) > 0 {
-			for _, sess := range sessions {
-				hydratedSess := a.svc.HydrateSession(sess)
-				a.showSessionDetail(hydratedSess)
+			if isEdit {
+				var target *models.Session
+				if len(sessions) == 1 {
+					target = &sessions[0]
+				} else {
+					target = a.pickSession(sessions)
+					if target == nil {
+						continue
+					}
+				}
+				a.doInteractiveEdit(target.ID)
+			} else {
+				for _, sess := range sessions {
+					hydratedSess := a.svc.HydrateSession(sess)
+					a.showSessionDetail(hydratedSess)
+				}
 			}
 			continue
 		}
@@ -854,7 +941,7 @@ func (a *App) todayView() {
 	fmt.Printf("\nОбщее время: %s | Всего записей: %s\n", color.Orange(fmt.Sprintf("%.1f ч", hours)), color.Green(fmt.Sprintf("%d", totalSessions)))
 
 	a.printStats(allSessions)
-	a.detailLoop(allSessions, "Номер или ID для подробностей (Enter — назад) > ")
+	a.detailLoop(allSessions, "Номер/ID ('all' - все, '\\ном' или '\\ID' - ред., Enter — назад) > ")
 }
 
 // ----------------------------------- 6. Экспорт -----------------------------------
@@ -1606,8 +1693,12 @@ func (a *App) searchSessions(input string) []models.Session {
 func (a *App) pickSession(sessions []models.Session) *models.Session {
 	fmt.Println("\nНайдено несколько записей:")
 	for i, s := range sessions {
+		timeStr := s.Time
+		if s.IsRepeat {
+			timeStr = "* " + timeStr
+		}
 		fmt.Printf(listFmt+"\n",
-			i+1, s.Time, color.Green(s.Name), s.Type,
+			i+1, timeStr, color.Green(s.Name), s.Type,
 			color.Orange(fmt.Sprintf("%d мин", s.Duration)),
 			color.Yellow(s.ID))
 	}
@@ -1622,6 +1713,11 @@ func (a *App) pickSession(sessions []models.Session) *models.Session {
 }
 
 func (a *App) showSessionDetail(s models.Session) {
+	fresh := a.svc.FindByID(s.ID)
+	if len(fresh) > 0 {
+		s = a.svc.HydrateSession(fresh[0])
+	}
+
 	fmt.Println()
 	fmt.Println(sep)
 	fmt.Printf("  ИД:              %s\n", color.Yellow(s.ID))
@@ -1630,12 +1726,17 @@ func (a *App) showSessionDetail(s models.Session) {
 	fmt.Printf("  Имя:             %s\n", color.Green(s.Name))
 	fmt.Printf("  Тип:             %s\n", s.Type)
 	fmt.Printf("  Продолжительность: %s\n", color.Orange(fmt.Sprintf("%d мин", s.Duration)))
-	if s.Notes != "" {
-		fmt.Printf("  Комментарий:      %s\n", s.Notes)
+	notes := s.Notes
+	if notes == "" {
+		notes = "—"
 	}
-	if s.Status != "" {
-		fmt.Printf("  Статус:           %s\n", s.Status)
+	fmt.Printf("  Комментарий:      %s\n", notes)
+
+	status := s.Status
+	if status == "" {
+		status = "—"
 	}
+	fmt.Printf("  Статус:           %s\n", status)
 	fmt.Println(sep)
 }
 
@@ -1648,8 +1749,12 @@ func (a *App) printEntries(entries []models.DateEntry) []models.Session {
 
 		for _, s := range de.Sessions {
 			num := len(all) + 1
+			timeStr := s.Time
+			if s.IsRepeat {
+				timeStr = "* " + timeStr
+			}
 			fmt.Printf(listFmt+"\n",
-				num, s.Time, color.Green(s.Name), s.Type,
+				num, timeStr, color.Green(s.Name), s.Type,
 				color.Orange(fmt.Sprintf("%d мин", s.Duration)),
 				color.Yellow(s.ID))
 			all = append(all, s)
@@ -1788,17 +1893,41 @@ func (a *App) detailLoop(allSessions []models.Session, prompt string) {
 			continue
 		}
 
+		isEdit := false
+		if strings.HasPrefix(idInput, "\\") {
+			isEdit = true
+			idInput = strings.TrimPrefix(idInput, "\\")
+		}
+
 		idx, err := strconv.Atoi(idInput)
 		if err == nil && idx >= 1 && idx <= len(allSessions) {
-			a.showSessionDetail(allSessions[idx-1])
+			if isEdit {
+				sess := allSessions[idx-1]
+				a.doInteractiveEdit(sess.ID)
+			} else {
+				a.showSessionDetail(allSessions[idx-1])
+			}
 			continue
 		}
 
 		sessions := a.svc.FindByID(idInput)
 		if len(sessions) > 0 {
-			for _, sess := range sessions {
-				hydratedSess := a.svc.HydrateSession(sess)
-				a.showSessionDetail(hydratedSess)
+			if isEdit {
+				var target *models.Session
+				if len(sessions) == 1 {
+					target = &sessions[0]
+				} else {
+					target = a.pickSession(sessions)
+					if target == nil {
+						continue
+					}
+				}
+				a.doInteractiveEdit(target.ID)
+			} else {
+				for _, sess := range sessions {
+					hydratedSess := a.svc.HydrateSession(sess)
+					a.showSessionDetail(hydratedSess)
+				}
 			}
 			continue
 		}
@@ -1899,5 +2028,5 @@ func (a *App) showPeriod(entries []models.DateEntry, label string) {
 	}
 	fmt.Printf("\nОбщее время: %s | Всего записей: %s\n", color.Orange(fmt.Sprintf("%.1f ч", hours)), color.Green(fmt.Sprintf("%d", totalSessions)))
 	a.printStats(allSessions)
-	a.detailLoop(allSessions, "Номер или ID для подробностей (Enter — назад) > ")
+	a.detailLoop(allSessions, "Номер/ID ('all' - все, '\\ном' или '\\ID' - ред., Enter — назад) > ")
 }

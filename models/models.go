@@ -112,6 +112,8 @@ type Session struct {
 	Duration int    `json:"duration"`
 	Notes    string `json:"notes"`
 	Status   string `json:"status"`
+	IsRepeat   bool   `json:"-"`
+	OriginalID string `json:"-"`
 }
 
 // Date extracts the date from the session ID in YYYY-MM-DD format.

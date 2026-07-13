@@ -174,12 +174,26 @@ func (s *Service) hydrate(entries []models.DateEntry) []models.DateEntry {
 				origs := s.FindByID(session.Name)
 				if len(origs) > 0 {
 					orig := origs[0]
-					session.Type = orig.Type
-					session.Duration = orig.Duration
-					session.Notes = orig.Notes
-					session.Status = orig.Status
+					if session.Type == "" {
+						session.Type = orig.Type
+					}
+					if session.Duration == 0 {
+						session.Duration = orig.Duration
+					}
+					if session.Notes == "" {
+						session.Notes = orig.Notes
+					}
+					if session.Status == "" {
+						session.Status = orig.Status
+					}
 					session.Name = orig.Name
+					session.IsRepeat = true
+					session.OriginalID = orig.ID
 				}
+			}
+			if strings.HasSuffix(session.ID, "_r") {
+				session.IsRepeat = true
+				session.OriginalID = session.ID
 			}
 			hydratedDE.Sessions[j] = session
 		}
@@ -194,12 +208,26 @@ func (s *Service) HydrateSession(session models.Session) models.Session {
 		origs := s.FindByID(session.Name)
 		if len(origs) > 0 {
 			orig := origs[0]
-			session.Type = orig.Type
-			session.Duration = orig.Duration
-			session.Notes = orig.Notes
-			session.Status = orig.Status
+			if session.Type == "" {
+				session.Type = orig.Type
+			}
+			if session.Duration == 0 {
+				session.Duration = orig.Duration
+			}
+			if session.Notes == "" {
+				session.Notes = orig.Notes
+			}
+			if session.Status == "" {
+				session.Status = orig.Status
+			}
 			session.Name = orig.Name
+			session.IsRepeat = true
+			session.OriginalID = orig.ID
 		}
+	}
+	if strings.HasSuffix(session.ID, "_r") {
+		session.IsRepeat = true
+		session.OriginalID = session.ID
 	}
 	return session
 }
