@@ -119,16 +119,17 @@ func (s *Service) GenerateID(date, tm time.Time) string {
 	return fmt.Sprintf("%s%02d", base, sec)
 }
 
-// FindByID locates a session by its ID.
-func (s *Service) FindByID(id string) (*models.Session, int, int) {
+// FindByID locates all sessions by ID.
+func (s *Service) FindByID(id string) []models.Session {
+	var results []models.Session
 	for di := range s.data.Entries {
 		for si := range s.data.Entries[di].Sessions {
 			if s.data.Entries[di].Sessions[si].ID == id {
-				return &s.data.Entries[di].Sessions[si], di, si
+				results = append(results, s.data.Entries[di].Sessions[si])
 			}
 		}
 	}
-	return nil, -1, -1
+	return results
 }
 
 // FindByDate returns the DateEntry for a given date string (YYYY-MM-DD).
@@ -161,13 +162,66 @@ func (s *Service) FindByPeriod(start, end time.Time) []models.DateEntry {
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Date < result[j].Date
 	})
-	return result
+	return s.hydrate(result)
 }
 
-// EditEntry updates the session identified by its ID.
+func (s *Service) hydrate(entries []models.DateEntry) []models.DateEntry {
+	hydrated := make([]models.DateEntry, len(entries))
+	for i, de := range entries {
+		hydratedDE := models.DateEntry{Date: de.Date, Sessions: make([]models.Session, len(de.Sessions))}
+		for j, session := range de.Sessions {
+			if strings.HasSuffix(session.Name, "_r") {
+				origs := s.FindByID(session.Name)
+				if len(origs) > 0 {
+					orig := origs[0]
+					session.Type = orig.Type
+					session.Duration = orig.Duration
+					session.Notes = orig.Notes
+					session.Status = orig.Status
+					session.Name = orig.Name
+				}
+			}
+			hydratedDE.Sessions[j] = session
+		}
+		hydrated[i] = hydratedDE
+	}
+	return hydrated
+}
+
+// HydrateSession returns a hydrated copy of a single session.
+func (s *Service) HydrateSession(session models.Session) models.Session {
+	if strings.HasSuffix(session.Name, "_r") {
+		origs := s.FindByID(session.Name)
+		if len(origs) > 0 {
+			orig := origs[0]
+			session.Type = orig.Type
+			session.Duration = orig.Duration
+			session.Notes = orig.Notes
+			session.Status = orig.Status
+			session.Name = orig.Name
+		}
+	}
+	return session
+}
+
+// EditEntry updates the session identified by its ID. If multiple match, updates the first one.
 func (s *Service) EditEntry(id string, updated models.Session) error {
-	session, di, _ := s.FindByID(id)
-	if session == nil {
+	var session *models.Session
+	var di int
+	found := false
+outer:
+	for i := range s.data.Entries {
+		for j := range s.data.Entries[i].Sessions {
+			if s.data.Entries[i].Sessions[j].ID == id {
+				session = &s.data.Entries[i].Sessions[j]
+				di = i
+				found = true
+				break outer
+			}
+		}
+	}
+
+	if !found {
 		return fmt.Errorf("запись с ID %s не найдена", id)
 	}
 
@@ -201,20 +255,40 @@ func (s *Service) EditEntry(id string, updated models.Session) error {
 	return nil
 }
 
-// DeleteEntry removes a session by its ID.
-func (s *Service) DeleteEntry(id string) error {
-	session, di, si := s.FindByID(id)
-	if session == nil {
-		return fmt.Errorf("запись с ID %s не найдена", id)
+// DeleteEntry removes ALL sessions by their ID. Returns number of deleted entries.
+func (s *Service) DeleteEntry(id string) int {
+	count := 0
+	for i := len(s.data.Entries) - 1; i >= 0; i-- {
+		de := &s.data.Entries[i]
+		for j := len(de.Sessions) - 1; j >= 0; j-- {
+			if de.Sessions[j].ID == id {
+				de.Sessions = append(de.Sessions[:j], de.Sessions[j+1:]...)
+				count++
+			}
+		}
+		if len(de.Sessions) == 0 {
+			s.data.Entries = append(s.data.Entries[:i], s.data.Entries[i+1:]...)
+		}
 	}
+	return count
+}
 
-	s.data.Entries[di].Sessions = append(s.data.Entries[di].Sessions[:si], s.data.Entries[di].Sessions[si+1:]...)
-
-	if len(s.data.Entries[di].Sessions) == 0 {
-		s.data.Entries = append(s.data.Entries[:di], s.data.Entries[di+1:]...)
+// DeleteRepeats removes all duplicate sessions that reference the given original ID.
+func (s *Service) DeleteRepeats(originalID string) int {
+	count := 0
+	for i := len(s.data.Entries) - 1; i >= 0; i-- {
+		de := &s.data.Entries[i]
+		for j := len(de.Sessions) - 1; j >= 0; j-- {
+			if de.Sessions[j].Name == originalID {
+				de.Sessions = append(de.Sessions[:j], de.Sessions[j+1:]...)
+				count++
+			}
+		}
+		if len(de.Sessions) == 0 {
+			s.data.Entries = append(s.data.Entries[:i], s.data.Entries[i+1:]...)
+		}
 	}
-
-	return nil
+	return count
 }
 
 // DeleteAll removes all entries.
@@ -263,7 +337,7 @@ func (s *Service) GetAllEntries() []models.DateEntry {
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].Date < result[j].Date
 	})
-	return result
+	return s.hydrate(result)
 }
 
 // TotalHours calculates the total number of hours across all sessions.

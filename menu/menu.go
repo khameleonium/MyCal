@@ -117,7 +117,8 @@ func (a *App) Run() {
 		fmt.Println(" t | 5. Сегодня")
 		fmt.Println(" x | 6. Экспорт в CSV")
 		fmt.Println(" s | 7. Настройки")
-		fmt.Println(" q | 8. Выход")
+		fmt.Println(" h | 8. Справка")
+		fmt.Println(" q | 9. Выход")
 
 		input := a.prompt("")
 		choice := a.resolveHotkey(strings.TrimSpace(input))
@@ -138,6 +139,8 @@ func (a *App) Run() {
 		case "7":
 			a.settingsMenu()
 		case "8":
+			PrintHelp()
+		case "9":
 			fmt.Println()
 			return
 		default:
@@ -161,10 +164,12 @@ func (a *App) resolveHotkey(input string) string {
 		return "5"
 	case "x", "э":
 		return "6"
-	case "s", "ы":
+	case "s", "н":
 		return "7"
-	case "q", "в":
+	case "h", "?", "м":
 		return "8"
+	case "q", "в":
+		return "9"
 	}
 	return input
 }
@@ -209,7 +214,7 @@ func (a *App) addEntryLoop(quickAdd bool) {
 			return
 		}
 
-		name := a.askRequired("Наименование записи:")
+		name := a.askName("Наименование записи:")
 		if name == "" {
 			return
 		}
@@ -282,7 +287,43 @@ func (a *App) addEntryLoop(quickAdd bool) {
 			}
 		}
 
+		fmt.Print("\nПовторять запись? (d - каждый день, w - каждую неделю, m - каждый месяц, Enter - нет) > ")
+		repeatMode := strings.ToLower(strings.TrimSpace(a.readLine()))
+		
+		var repeatUntil time.Time
+		if repeatMode == "d" || repeatMode == "w" || repeatMode == "m" || repeatMode == "в" || repeatMode == "ц" || repeatMode == "ь" {
+			switch repeatMode {
+			case "в": repeatMode = "d" // cyrillic 'в' is 'd' key, wait, d is 'в' on russian layout
+			case "ц": repeatMode = "w" // w is 'ц'
+			case "ь": repeatMode = "m" // m is 'ь'
+			}
+			
+			for {
+				fmt.Print("До какой даты повторять? (DD.MM.YYYY, 0 - отмена) > ")
+				untilStr := strings.TrimSpace(a.readLine())
+				if isCancelled(untilStr) {
+					repeatMode = ""
+					break
+				}
+				untilDate, err := parser.ParseDate(untilStr, a.resolveDate())
+				if err != nil {
+					fmt.Println(color.Red(errMark + " Неверный формат даты."))
+					continue
+				}
+				if untilDate.Before(date) {
+					fmt.Println(color.Red(errMark + " Дата окончания не может быть раньше начальной."))
+					continue
+				}
+				repeatUntil = untilDate
+				break
+			}
+		}
+
 		id := a.svc.GenerateID(date, tm)
+		if repeatMode != "" {
+			id += "_r"
+		}
+
 		session := models.Session{
 			ID:       id,
 			Time:     timeStr,
@@ -300,6 +341,34 @@ func (a *App) addEntryLoop(quickAdd bool) {
 			}
 			return
 		}
+
+		count := 1
+		if repeatMode != "" {
+			currDate := date
+			for {
+				switch repeatMode {
+				case "d":
+					currDate = currDate.AddDate(0, 0, 1)
+				case "w":
+					currDate = currDate.AddDate(0, 0, 7)
+				case "m":
+					currDate = currDate.AddDate(0, 1, 0)
+				}
+				if currDate.After(repeatUntil) {
+					break
+				}
+				
+				repID := a.svc.GenerateID(currDate, tm)
+				repSession := models.Session{
+					ID:       repID,
+					Time:     timeStr,
+					Name:     id,
+				}
+				a.svc.AddEntry(repSession)
+				count++
+			}
+		}
+
 		if err := a.svc.Save(context.Background()); err != nil {
 			fmt.Println(color.Red(errMark + " Ошибка сохранения: " + err.Error()))
 			if quickAdd {
@@ -307,7 +376,12 @@ func (a *App) addEntryLoop(quickAdd bool) {
 			}
 			return
 		}
-		fmt.Println(color.Green(okMark + " Запись добавлена  ID: " + color.Yellow(id)))
+
+		if count > 1 {
+			fmt.Println(color.Green(okMark + fmt.Sprintf(" Добавлено %d записей. Оригинал ID: ", count) + color.Yellow(id)))
+		} else {
+			fmt.Println(color.Green(okMark + " Запись добавлена  ID: " + color.Yellow(id)))
+		}
 	}
 }
 
@@ -349,9 +423,21 @@ func (a *App) editEntry() {
 }
 
 func (a *App) doEdit(id string) {
-	session, _, _ := a.svc.FindByID(id)
-	if session == nil {
+	sessions := a.svc.FindByID(id)
+	if len(sessions) == 0 {
 		fmt.Println(color.Red(errMark + " Запись не найдена"))
+		return
+	}
+	session := &sessions[0]
+
+	if strings.HasSuffix(session.Name, "_r") {
+		fmt.Println(color.Yellow(warnMark + " Это зависимая повторяющаяся запись."))
+		fmt.Println(color.Yellow("Для внесения изменений, пожалуйста, редактируйте оригинал: " + session.Name))
+		
+		confirm := strings.ToLower(strings.TrimSpace(a.prompt("Редактировать оригинал? (y/n) > ")))
+		if confirm == "y" || confirm == "yes" || confirm == "д" || confirm == "да" {
+			a.doEdit(session.Name)
+		}
 		return
 	}
 
@@ -365,7 +451,7 @@ func (a *App) doEdit(id string) {
 		return
 	}
 
-	newName := a.dialogPrompt("Имя ["+color.Green(session.Name)+"]:", "")
+	newName := a.askNameEdit(session.Name)
 	if isCancelled(newName) {
 		fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
 		return
@@ -502,7 +588,11 @@ func (a *App) viewEntries(filter string) {
 	allSessions := a.printEntries(entries)
 
 	hours := calendar.TotalHours(entries)
-	fmt.Printf("\nОбщее время: %s\n", color.Orange(fmt.Sprintf("%.1f ч", hours)))
+	totalSessions := 0
+	for _, de := range entries {
+		totalSessions += len(de.Sessions)
+	}
+	fmt.Printf("\nОбщее время: %s | Всего записей: %s\n", color.Orange(fmt.Sprintf("%.1f ч", hours)), color.Green(fmt.Sprintf("%d", totalSessions)))
 
 	a.printStats(allSessions)
 
@@ -523,15 +613,25 @@ func (a *App) viewEntries(filter string) {
 			continue
 		}
 
+		if idInput == "all" || idInput == "все" || idInput == "a" || idInput == "ф" {
+			for _, s := range allSessions {
+				a.showSessionDetail(s)
+			}
+			continue
+		}
+
 		idx, err := strconv.Atoi(idInput)
 		if err == nil && idx >= 1 && idx <= len(allSessions) {
 			a.showSessionDetail(allSessions[idx-1])
 			continue
 		}
 
-		sess, _, _ := a.svc.FindByID(idInput)
-		if sess != nil {
-			a.showSessionDetail(*sess)
+		sessions := a.svc.FindByID(idInput)
+		if len(sessions) > 0 {
+			for _, sess := range sessions {
+				hydratedSess := a.svc.HydrateSession(sess)
+				a.showSessionDetail(hydratedSess)
+			}
 			continue
 		}
 
@@ -679,29 +779,53 @@ func (a *App) deleteAll() {
 }
 
 func (a *App) doDelete(id string) {
-	session, _, _ := a.svc.FindByID(id)
-	if session == nil {
+	sessions := a.svc.FindByID(id)
+	if len(sessions) == 0 {
 		fmt.Println(color.Red(errMark + " Запись не найдена"))
 		return
 	}
+	session := sessions[0]
 
-	confirm := strings.TrimSpace(a.dialogPrompt(
-		fmt.Sprintf("Запись: %s | %s | %s",
-			color.Green(session.Name), color.Magenta(session.Date()), session.Time),
-		color.Yellow(askMark+" Удалить? (Да/Нет)")))
+	isOriginalRepeat := strings.HasSuffix(id, "_r")
 
+	promptStr := fmt.Sprintf("Запись: %s | %s | %s",
+		color.Green(session.Name), color.Magenta(session.Date()), session.Time)
+	
+	if isOriginalRepeat {
+		promptStr += "\n" + color.Yellow(warnMark + " ВНИМАНИЕ: Это оригинальная повторяющаяся запись. Удалить её вместе со всеми повторениями?")
+	} else if len(sessions) > 1 {
+		promptStr += "\n" + color.Yellow(warnMark + fmt.Sprintf(" Будет удалено %d записей с этим ID. Продолжить? (Да/Нет)", len(sessions)))
+	} else {
+		promptStr += "\n" + color.Yellow(askMark+" Удалить? (Да/Нет)")
+	}
+
+	confirm := strings.TrimSpace(a.dialogPrompt(promptStr, ">"))
 	confirmLower := strings.ToLower(confirm)
 
 	if confirmLower == "да" || confirmLower == "д" || confirmLower == "yes" || confirmLower == "y" {
-		if err := a.svc.DeleteEntry(id); err != nil {
-			fmt.Println(color.Red(errMark + " Ошибка: " + err.Error()))
+		if isOriginalRepeat {
+			count := a.svc.DeleteRepeats(id)
+			count += a.svc.DeleteEntry(id)
+			if err := a.svc.Save(context.Background()); err != nil {
+				fmt.Println(color.Red(errMark + " Ошибка сохранения: " + err.Error()))
+				return
+			}
+			fmt.Println(color.Green(okMark + fmt.Sprintf(" Удалено %d записей (включая все повторения)", count)))
 			return
 		}
+
+		count := a.svc.DeleteEntry(id)
 		if err := a.svc.Save(context.Background()); err != nil {
 			fmt.Println(color.Red(errMark + " Ошибка сохранения: " + err.Error()))
 			return
 		}
-		fmt.Println(color.Green(okMark + " Запись удалена"))
+		if count > 1 {
+			fmt.Println(color.Green(okMark + fmt.Sprintf(" Успешно удалено %d записей", count)))
+		} else if count == 1 {
+			fmt.Println(color.Green(okMark + " Запись успешно удалена"))
+		} else {
+			fmt.Println(color.Yellow(warnMark + " Запись не найдена"))
+		}
 	} else {
 		fmt.Println(color.Yellow(warnMark + " Удаление отменено"))
 	}
@@ -723,7 +847,11 @@ func (a *App) todayView() {
 
 	allSessions := a.printEntries(entries)
 	hours := calendar.TotalHours(entries)
-	fmt.Printf("\nОбщее время: %s\n", color.Orange(fmt.Sprintf("%.1f ч", hours)))
+	totalSessions := 0
+	for _, de := range entries {
+		totalSessions += len(de.Sessions)
+	}
+	fmt.Printf("\nОбщее время: %s | Всего записей: %s\n", color.Orange(fmt.Sprintf("%.1f ч", hours)), color.Green(fmt.Sprintf("%d", totalSessions)))
 
 	a.printStats(allSessions)
 	a.detailLoop(allSessions, "Номер или ID для подробностей (Enter — назад) > ")
@@ -769,6 +897,10 @@ func (a *App) exportCSV() {
 		return
 	}
 
+	a.exportEntries(entries)
+}
+
+func (a *App) exportEntries(entries []models.DateEntry) {
 	fileName := fmt.Sprintf("export_%s.csv", time.Now().Format("20060102_150405"))
 	file, err := os.Create(fileName)
 	if err != nil {
@@ -814,6 +946,14 @@ func (a *App) settingsMenu() {
 		fmt.Printf(" p | 5. Путь к данным          [%s]\n", dataPathDisplay(a.cfg.DataPath))
 		fmt.Printf(" c | 6. Проверка даты          [%s]\n", dateCheckLabels[a.cfg.DateCheckMode])
 		fmt.Printf(" d | 7. Дата                   [%s]\n", a.dateDisplay())
+		
+		silentAddStr := "Вкл"
+		if !a.cfg.SilentAddNames {
+			silentAddStr = "Выкл"
+		}
+		fmt.Printf(" u | 8. Частые имена           [%d шт]\n", len(a.cfg.CustomNames))
+		fmt.Printf(" i | 9. Добавление частых имён без вопроса [%s]\n", silentAddStr)
+
 		fmt.Println(" q | 0. Сохранить и выйти")
 
 		input := strings.TrimSpace(a.prompt(""))
@@ -853,6 +993,10 @@ func (a *App) settingsMenu() {
 			a.cfg.DateCheckMode = nextDateCheckMode(a.cfg.DateCheckMode)
 		case "7", "d", "в":
 			a.dateSettings()
+		case "8", "u", "г":
+			a.customNamesSettings()
+		case "9", "i", "ш":
+			a.cfg.SilentAddNames = !a.cfg.SilentAddNames
 		case "0", "q", "й":
 			if a.cfg.SplitMode != oldMode {
 				if err := a.svc.Save(context.Background()); err != nil {
@@ -869,7 +1013,7 @@ func (a *App) settingsMenu() {
 			}
 			return
 		default:
-			fmt.Println(color.Red(errMark + " Некорректный выбор (0–7)"))
+			fmt.Println(color.Red(errMark + " Некорреный выбор (0–9)"))
 		}
 	}
 }
@@ -956,6 +1100,57 @@ func (a *App) dateSettings() {
 			return
 		default:
 			fmt.Println(color.Red(errMark + " Некорректный выбор (0–2)"))
+		}
+	}
+}
+
+func (a *App) customNamesSettings() {
+	for {
+		fmt.Println()
+		fmt.Println(color.Yellow("  Частые имена (для автодополнения)"))
+		if len(a.cfg.CustomNames) == 0 {
+			fmt.Println("  (Список пуст)")
+		} else {
+			for i, name := range a.cfg.CustomNames {
+				fmt.Printf("  %d. %s\n", i+1, name)
+			}
+		}
+		fmt.Println(sep)
+		fmt.Println(" a | 1. Добавить имя")
+		fmt.Println(" r | 2. Удалить имя")
+		fmt.Println(" q | 0. Назад")
+
+		input := strings.TrimSpace(a.prompt(""))
+		input = strings.ToLower(input)
+		switch input {
+		case "1", "a", "ф":
+			fmt.Print("Новое имя > ")
+			name := strings.TrimSpace(a.readLine())
+			if name != "" && !isCancelled(name) {
+				a.cfg.CustomNames = append(a.cfg.CustomNames, name)
+				fmt.Println(color.Green(okMark + " Добавлено"))
+			}
+		case "2", "r", "к":
+			if len(a.cfg.CustomNames) == 0 {
+				fmt.Println(color.Yellow(warnMark + " Список пуст"))
+				continue
+			}
+			fmt.Print("Номер для удаления > ")
+			idxStr := strings.TrimSpace(a.readLine())
+			if isCancelled(idxStr) {
+				continue
+			}
+			idx, err := strconv.Atoi(idxStr)
+			if err == nil && idx >= 1 && idx <= len(a.cfg.CustomNames) {
+				a.cfg.CustomNames = append(a.cfg.CustomNames[:idx-1], a.cfg.CustomNames[idx:]...)
+				fmt.Println(color.Green(okMark + " Удалено"))
+			} else {
+				fmt.Println(color.Red(errMark + " Неверный номер"))
+			}
+		case "0", "q", "й":
+			return
+		default:
+			fmt.Println(color.Red(errMark + " Некорректный выбор"))
 		}
 	}
 }
@@ -1104,6 +1299,123 @@ func (a *App) askRequired(title string) string {
 	}
 }
 
+func (a *App) askName(title string) string {
+	for {
+		fmt.Println(title)
+		if len(a.cfg.CustomNames) > 0 {
+			fmt.Println("Введите текст, 0 для отмены, или '/' для выбора из частых имён")
+		} else {
+			fmt.Println("Обязательное поле; 0 — отмена")
+		}
+		fmt.Print("> ")
+		input := strings.TrimSpace(a.readLine())
+
+		if isCancelled(input) {
+			return ""
+		}
+
+		if input == "/" && len(a.cfg.CustomNames) > 0 {
+			fmt.Println(color.Yellow("\n  Частые имена:"))
+			for i, cn := range a.cfg.CustomNames {
+				fmt.Printf("  %d. %s\n", i+1, cn)
+			}
+			fmt.Print("Выберите номер (0 - отмена) > ")
+			idxStr := strings.TrimSpace(a.readLine())
+			if isCancelled(idxStr) {
+				continue
+			}
+			idx, err := strconv.Atoi(idxStr)
+			if err == nil && idx >= 1 && idx <= len(a.cfg.CustomNames) {
+				return a.cfg.CustomNames[idx-1]
+			}
+			fmt.Println(color.Red(errMark + " Неверный выбор"))
+			continue
+		}
+
+		if input != "" {
+			a.handleNameFrequency(input)
+			return input
+		}
+
+		fmt.Println(color.Yellow(warnMark + " Поле не может быть пустым"))
+	}
+}
+
+func (a *App) askNameEdit(currentName string) string {
+	title := "Имя [" + color.Green(currentName) + "]:"
+	for {
+		fmt.Println(title)
+		if len(a.cfg.CustomNames) > 0 {
+			fmt.Println("Введите текст (Enter — без изменений, 0 для отмены, '/' для выбора из частых имён)")
+		} else {
+			fmt.Println("Enter — без изменений, 0 — отмена")
+		}
+		fmt.Print("> ")
+		input := strings.TrimSpace(a.readLine())
+
+		if isCancelled(input) {
+			return cancelWord
+		}
+
+		if input == "" {
+			return "" // No change
+		}
+
+		if input == "/" && len(a.cfg.CustomNames) > 0 {
+			fmt.Println(color.Yellow("\n  Частые имена:"))
+			for i, cn := range a.cfg.CustomNames {
+				fmt.Printf("  %d. %s\n", i+1, cn)
+			}
+			fmt.Print("Выберите номер (0 - отмена) > ")
+			idxStr := strings.TrimSpace(a.readLine())
+			if isCancelled(idxStr) {
+				continue
+			}
+			idx, err := strconv.Atoi(idxStr)
+			if err == nil && idx >= 1 && idx <= len(a.cfg.CustomNames) {
+				return a.cfg.CustomNames[idx-1]
+			}
+			fmt.Println(color.Red(errMark + " Неверный выбор"))
+			continue
+		}
+
+		a.handleNameFrequency(input)
+		return input
+	}
+}
+
+func (a *App) handleNameFrequency(name string) {
+	// Skip if already in custom names
+	for _, cn := range a.cfg.CustomNames {
+		if strings.EqualFold(cn, name) {
+			return
+		}
+	}
+
+	count := 1 // including this new one
+	entries := a.svc.GetAllEntries()
+	for _, de := range entries {
+		for _, s := range de.Sessions {
+			if strings.EqualFold(s.Name, name) {
+				count++
+			}
+		}
+	}
+
+	if count >= 3 {
+		if a.cfg.SilentAddNames {
+			a.cfg.CustomNames = append(a.cfg.CustomNames, name)
+			config.Save(context.Background(), a.cfgPath, a.cfg)
+		} else {
+			if a.getYesNo(fmt.Sprintf(`Имя "%s" часто используется. Добавить в список для быстрого выбора?`, name)) {
+				a.cfg.CustomNames = append(a.cfg.CustomNames, name)
+				config.Save(context.Background(), a.cfgPath, a.cfg)
+				fmt.Println(color.Green(okMark + " Добавлено"))
+			}
+		}
+	}
+}
+
 func (a *App) askType() (string, bool) {
 	types := a.svc.AllTypes()
 	fmt.Println()
@@ -1216,8 +1528,8 @@ func (a *App) askID() string {
 			fmt.Println(color.Red(errMark + " Некорректный ID (должно быть 14 цифр)"))
 			continue
 		}
-		sess, _, _ := a.svc.FindByID(id)
-		if sess != nil {
+		sessions := a.svc.FindByID(id)
+		if len(sessions) > 0 {
 			return id
 		}
 		fmt.Println(color.Yellow(warnMark + " Запись с таким ID не найдена"))
@@ -1231,13 +1543,15 @@ func (a *App) searchSessions(input string) []models.Session {
 		return nil
 	}
 
-	if len(input) == models.IDLen && isDigits(input) {
-		sess, _, _ := a.svc.FindByID(input)
-		if sess != nil {
-			return []models.Session{*sess}
+	if len(input) == models.IDLen || (len(input) > models.IDLen && strings.HasSuffix(input, "_r")) {
+		if isDigits(strings.ReplaceAll(input, "_r", "")) {
+			sessions := a.svc.FindByID(input)
+			if len(sessions) > 0 {
+				return sessions
+			}
+			fmt.Println(color.Yellow(warnMark + " Запись с таким ID не найдена"))
+			return nil
 		}
-		fmt.Println(color.Yellow(warnMark + " Запись с таким ID не найдена"))
-		return nil
 	}
 
 	var datePart, timePart string
@@ -1413,6 +1727,51 @@ func isDigits(s string) bool {
 	return true
 }
 
+func (a *App) getYesNo(promptStr string) bool {
+	for {
+		fmt.Print(promptStr + " (y/n) > ")
+		ans := strings.ToLower(strings.TrimSpace(a.readLine()))
+		if ans == "y" || ans == "yes" || ans == "да" || ans == "д" {
+			return true
+		}
+		if ans == "n" || ans == "no" || ans == "нет" || ans == "н" {
+			return false
+		}
+	}
+}
+
+// CheckIntegrity runs a Data Doctor on startup to clean up orphaned repeats.
+func (a *App) CheckIntegrity() {
+	entries := a.svc.GetAllEntries()
+	var orphaned []struct{ ID, Name string }
+
+	for _, de := range entries {
+		for _, s := range de.Sessions {
+			if strings.HasSuffix(s.Name, "_r") {
+				origs := a.svc.FindByID(s.Name)
+				if len(origs) == 0 {
+					orphaned = append(orphaned, struct{ ID, Name string }{s.ID, s.Name})
+				}
+			}
+		}
+	}
+
+	if len(orphaned) > 0 {
+		fmt.Println(color.Yellow(warnMark + fmt.Sprintf(" Data Doctor: Обнаружено %d осиротевших повторений (отсутствует оригинальная запись).", len(orphaned))))
+		if a.getYesNo("Удалить их для очистки базы данных?") {
+			deleted := 0
+			for _, o := range orphaned {
+				deleted += a.svc.DeleteEntry(o.ID)
+			}
+			if err := a.svc.Save(context.Background()); err != nil {
+				fmt.Println(color.Red(errMark + " Ошибка при сохранении: " + err.Error()))
+			} else {
+				fmt.Println(color.Green(okMark + fmt.Sprintf(" Успешно удалено %d записей.", deleted)))
+			}
+		}
+	}
+}
+
 func (a *App) detailLoop(allSessions []models.Session, prompt string) {
 	for {
 		fmt.Println()
@@ -1422,15 +1781,25 @@ func (a *App) detailLoop(allSessions []models.Session, prompt string) {
 			return
 		}
 
+		if idInput == "all" || idInput == "все" || idInput == "a" || idInput == "ф" {
+			for _, s := range allSessions {
+				a.showSessionDetail(s)
+			}
+			continue
+		}
+
 		idx, err := strconv.Atoi(idInput)
 		if err == nil && idx >= 1 && idx <= len(allSessions) {
 			a.showSessionDetail(allSessions[idx-1])
 			continue
 		}
 
-		sess, _, _ := a.svc.FindByID(idInput)
-		if sess != nil {
-			a.showSessionDetail(*sess)
+		sessions := a.svc.FindByID(idInput)
+		if len(sessions) > 0 {
+			for _, sess := range sessions {
+				hydratedSess := a.svc.HydrateSession(sess)
+				a.showSessionDetail(hydratedSess)
+			}
 			continue
 		}
 
@@ -1524,7 +1893,11 @@ func (a *App) showPeriod(entries []models.DateEntry, label string) {
 
 	allSessions := a.printEntries(entries)
 	hours := calendar.TotalHours(entries)
-	fmt.Printf("\nОбщее время: %s\n", color.Orange(fmt.Sprintf("%.1f ч", hours)))
+	totalSessions := 0
+	for _, de := range entries {
+		totalSessions += len(de.Sessions)
+	}
+	fmt.Printf("\nОбщее время: %s | Всего записей: %s\n", color.Orange(fmt.Sprintf("%.1f ч", hours)), color.Green(fmt.Sprintf("%d", totalSessions)))
 	a.printStats(allSessions)
 	a.detailLoop(allSessions, "Номер или ID для подробностей (Enter — назад) > ")
 }

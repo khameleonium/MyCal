@@ -43,6 +43,7 @@ func main() {
 	}
 
 	app := menu.NewApp(svc, cfg, cfgPath)
+	app.CheckIntegrity()
 	app.Run()
 }
 
@@ -62,21 +63,28 @@ func handleCommand(svc *calendar.Service, cfg *models.Config) {
 	app := menu.NewApp(svc, cfg, config.ResolveConfigPath())
 
 	cmd := strings.ToLower(os.Args[1])
+	args := os.Args[2:]
+
 	switch cmd {
 	case "add", "a":
-		app.AddEntryQuick()
+		app.AddByArgs(args)
+	case "view", "v":
+		app.ViewByArgs(args)
+	case "delete", "d":
+		app.DeleteByArgs(args)
+	case "export", "e":
+		app.ExportByArgs(args)
 	case "today", "t":
 		app.TodayView()
 	case "week", "w":
 		app.WeekView()
 	case "month", "m":
 		app.MonthView()
+	case "help", "-h", "--help":
+		menu.PrintHelp()
 	default:
 		fmt.Fprintf(os.Stderr, "Неизвестная команда: %s\n", cmd)
-		fmt.Fprintln(os.Stderr, "  add | a     — быстрое добавление записей")
-		fmt.Fprintln(os.Stderr, "  today | t   — записи на сегодня")
-		fmt.Fprintln(os.Stderr, "  week | w    — записи на этой неделе")
-		fmt.Fprintln(os.Stderr, "  month | m   — записи за этот месяц")
+		menu.PrintHelp()
 		os.Exit(1)
 	}
 }

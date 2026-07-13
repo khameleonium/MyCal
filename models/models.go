@@ -30,8 +30,10 @@ type Config struct {
 	DataFileName    string `json:"data_file_name"`
 	DateCheckMode   string `json:"date_check_mode"`
 	UseSystemDate   bool   `json:"use_system_date"`
-	CustomDate      string `json:"custom_date"`
+	CustomDate      string   `json:"custom_date"`
 	CustomStatuses  []string `json:"custom_statuses"`
+	CustomNames     []string `json:"custom_names"`
+	SilentAddNames  bool     `json:"silent_add_names"`
 }
 
 // UnmarshalJSON implements custom unmarshalling with defaults.
@@ -46,6 +48,8 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		UseSystemDate   *bool    `json:"use_system_date"`
 		CustomDate      string   `json:"custom_date"`
 		CustomStatuses  []string `json:"custom_statuses"`
+		CustomNames     []string `json:"custom_names"`
+		SilentAddNames  *bool    `json:"silent_add_names"`
 	}
 	var raw rawConfig
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -78,6 +82,12 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	}
 	c.CustomDate = raw.CustomDate
 	c.CustomStatuses = raw.CustomStatuses
+	c.CustomNames = raw.CustomNames
+	if raw.SilentAddNames != nil {
+		c.SilentAddNames = *raw.SilentAddNames
+	} else {
+		c.SilentAddNames = false
+	}
 
 	return nil
 }
@@ -106,7 +116,7 @@ type Session struct {
 
 // Date extracts the date from the session ID in YYYY-MM-DD format.
 func (s Session) Date() string {
-	if len(s.ID) == IDLen {
+	if len(s.ID) >= IDLen {
 		return s.ID[0:4] + "-" + s.ID[4:6] + "-" + s.ID[6:8]
 	}
 	return ""
