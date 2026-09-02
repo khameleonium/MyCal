@@ -33,14 +33,14 @@ func (a *App) addEntryLoop(quick bool, presetDate *time.Time) {
 		}
 		first = false
 
-		if !a.addOne(presetDate) && !quick {
+		if !a.addOne(presetDate) {
 			return
 		}
 	}
 }
 
-// addOne runs one pass of the wizard. It returns true if the caller may
-// continue looping (quick mode) and false when the user cancelled.
+// addOne runs one pass of the wizard. It returns true only when an entry was
+// saved; any cancellation returns false and ends the (quick) loop.
 func (a *App) addOne(presetDate *time.Time) bool {
 	var date time.Time
 	if presetDate != nil {
@@ -74,19 +74,19 @@ func (a *App) addOne(presetDate *time.Time) bool {
 	notes := a.dialogPrompt("Комментарий (Enter — пропустить, 0 — отмена):", "")
 	if isCancelled(notes) || a.stdinClosed {
 		fmt.Println(color.Yellow(warnMark + " Добавление отменено"))
-		return true
+		return false
 	}
 	status, ok := a.askStatus()
 	if !ok {
 		fmt.Println(color.Yellow(warnMark + " Добавление отменено"))
-		return true
+		return false
 	}
 
 	dateStr := date.Format("2006-01-02")
 	timeStr := tm.Format("15:04")
 
 	if !a.resolveConflicts(dateStr, timeStr) {
-		return true
+		return false
 	}
 
 	repeatMode, repeatUntil, ok := a.askRepeat(date)
@@ -103,14 +103,14 @@ func (a *App) addOne(presetDate *time.Time) bool {
 		Duration: duration, Notes: notes, Status: status,
 	}); err != nil {
 		fmt.Println(color.Red(errMark + " Ошибка: " + err.Error()))
-		return true
+		return false
 	}
 
 	count := 1 + a.materializeRepeats(id, date, tm, timeStr, repeatMode, repeatUntil)
 
 	if err := a.svc.Save(a.ctx); err != nil {
 		fmt.Println(color.Red(errMark + " Ошибка сохранения: " + err.Error()))
-		return true
+		return false
 	}
 	if count > 1 {
 		fmt.Println(color.Green(okMark + fmt.Sprintf(" Добавлено %d записей. Оригинал ID: ", count) + color.Yellow(id)))
