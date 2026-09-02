@@ -35,9 +35,14 @@ func ParseDate(input string, defaultDate time.Time) (time.Time, error) {
 		}
 	}
 
+	// Day-month without a year is resolved against the reference date's year
+	// (falling back to the current year when no reference is given).
 	if t, err := time.Parse("02-01", normalized); err == nil {
-		now := time.Now()
-		return time.Date(now.Year(), t.Month(), t.Day(), 0, 0, 0, 0, now.Location()), nil
+		ref := defaultDate
+		if ref.IsZero() {
+			ref = time.Now()
+		}
+		return time.Date(ref.Year(), t.Month(), t.Day(), 0, 0, 0, 0, ref.Location()), nil
 	}
 
 	return time.Time{}, fmt.Errorf("не удалось распознать дату: %s", input)
@@ -69,13 +74,10 @@ func ParseTime(input string) (time.Time, error) {
 	return t, nil
 }
 
+var timeSepRegexp = regexp.MustCompile(`[.\-\s]+`)
+
 func normalizeTime(s string) string {
-	s = strings.TrimSpace(s)
-	s = strings.ReplaceAll(s, "  ", " ")
-	s = strings.ReplaceAll(s, " ", ":")
-	s = strings.ReplaceAll(s, ".", ":")
-	s = strings.ReplaceAll(s, "-", ":")
-	return s
+	return timeSepRegexp.ReplaceAllString(strings.TrimSpace(s), ":")
 }
 
 // ParseDateTime parses a combined date+time string like "DD-MM-YYYY HH:MM".
@@ -132,13 +134,12 @@ func ValidateDate(rawInput string, parsed time.Time) bool {
 	return IsDateNormalized(normalized, parsed)
 }
 
-var sepRegexp = regexp.MustCompile(`[.\-/\\]`)
+// sepRegexp matches any run of date separators (dot, dash, slash, backslash,
+// whitespace) so that "29 . 12 -- 2025" collapses cleanly to "29-12-2025".
+var sepRegexp = regexp.MustCompile(`[.\-/\\\s]+`)
 
 func normalizeSeparators(s string) string {
-	s = strings.TrimSpace(s)
-	s = strings.ReplaceAll(s, "  ", " ")
-	s = strings.ReplaceAll(s, " ", "-")
-	return sepRegexp.ReplaceAllString(s, "-")
+	return sepRegexp.ReplaceAllString(strings.TrimSpace(s), "-")
 }
 
 func splitDateTime(input string) []string {
@@ -186,13 +187,9 @@ func ParsePeriod(input string) (time.Time, time.Time, error) {
 		}
 	}
 
-	// 2. Normalize separators to handle tokens separated by '.', '/', '\', '-'
-	normalized := normalizeSeparators(input)
-	for strings.Contains(normalized, "--") {
-		normalized = strings.ReplaceAll(normalized, "--", "-")
-	}
-
-	tokens := strings.Split(normalized, "-")
+	// 2. Normalize separators to handle tokens separated by '.', '/', '\', '-'.
+	// normalizeSeparators already collapses repeated separators.
+	tokens := strings.Split(normalizeSeparators(input), "-")
 
 	// 1 token: YYYY or MM
 	if len(tokens) == 1 {

@@ -11,13 +11,11 @@ import (
 
 const ConfigFile = "config_mycal.json"
 
+// DefaultConfig returns a fresh copy of the default configuration.
+// The values live in models.DefaultConfig so they are defined exactly once.
 func DefaultConfig() *models.Config {
-	return &models.Config{
-		DefaultDuration: 60,
-		SplitMode:       models.SplitNone,
-		DataFileName:    "mycal",
-		UseSystemDate:   true,
-	}
+	cfg := models.DefaultConfig
+	return &cfg
 }
 
 // Load reads the configuration file and returns a Config.
