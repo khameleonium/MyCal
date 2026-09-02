@@ -18,7 +18,7 @@ func TestParseDate(t *testing.T) {
 		{"DD.MM.YYYY", "29.12.2025", "2025-12-29", false},
 		{"YYYY-MM-DD", "2025-12-29", "2025-12-29", false},
 		{"DD MM YYYY (normalized)", "29 12 2025", "2025-12-29", false},
-		{"DD-MM without year", "29-12", "", false},
+		{"DD-MM without year resolves against reference year", "29-12", "2025-12-29", false},
 		{"empty returns default", "", ref.Format("2006-01-02"), false},
 		{"garbage", "not-a-date", "", true},
 	}
