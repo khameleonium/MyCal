@@ -6,44 +6,47 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
 	"mycalendar/models"
 )
 
+const legacyDataFile = "my_calendar.json"
+
 // Load reads all data files according to the split mode and merges them.
 func Load(ctx context.Context, dir, baseName, mode string) (*models.Calendar, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	var files []string
 
 	switch mode {
 	case models.SplitNone:
 		mainPath := filepath.Join(dir, baseName+".json")
 		cal, err := loadSingle(ctx, mainPath)
-		if err != nil || len(cal.Entries) == 0 {
-			legacyPath := filepath.Join(dir, "my_calendar.json")
+		if err != nil {
+			return cal, err
+		}
+		if len(cal.Entries) == 0 {
+			legacyPath := filepath.Join(dir, legacyDataFile)
 			if legacyPath != mainPath {
 				if legacyCal, legacyErr := loadSingle(ctx, legacyPath); legacyErr == nil && len(legacyCal.Entries) > 0 {
 					return legacyCal, nil
 				}
 			}
 		}
-		return cal, err
+		return cal, nil
 	case models.SplitYear:
-		files = globFiles(dir, "????_"+baseName+".json")
+		return loadMerged(ctx, globFiles(dir, "????_"+baseName+".json")), nil
 	case models.SplitMonth:
-		files = globFiles(dir, "????-??_"+baseName+".json")
+		return loadMerged(ctx, globFiles(dir, "????-??_"+baseName+".json")), nil
 	default:
 		return &models.Calendar{}, nil
 	}
+}
 
-	if len(files) == 0 {
-		return &models.Calendar{}, nil
-	}
-
+func loadMerged(ctx context.Context, files []string) *models.Calendar {
 	merged := &models.Calendar{}
 	for _, f := range files {
 		cal, err := loadSingle(ctx, f)
@@ -52,11 +55,8 @@ func Load(ctx context.Context, dir, baseName, mode string) (*models.Calendar, er
 		}
 		merged.Entries = append(merged.Entries, cal.Entries...)
 	}
-
-	sort.Slice(merged.Entries, func(i, j int) bool {
-		return merged.Entries[i].Date < merged.Entries[j].Date
-	})
-	return merged, nil
+	sortEntries(merged.Entries)
+	return merged
 }
 
 func loadSingle(ctx context.Context, path string) (*models.Calendar, error) {
@@ -65,67 +65,63 @@ func loadSingle(ctx context.Context, path string) (*models.Calendar, error) {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return loadBackup(ctx, path, false)
+		if os.IsNotExist(err) {
+			return &models.Calendar{}, nil
+		}
+		// Unreadable main file — try the backup without writing it back.
+		return loadBackup(path, false), nil
 	}
 
 	var cal models.Calendar
 	if err := json.Unmarshal(data, &cal); err != nil {
-		restored, restoreErr := loadBackup(ctx, path, true)
-		if restoreErr != nil {
-			return &models.Calendar{}, nil
-		}
-		return restored, nil
+		// Corrupt main file — restore from backup if one parses.
+		return loadBackup(path, true), nil
 	}
-
 	return &cal, nil
 }
 
-func loadBackup(ctx context.Context, path string, writeBack bool) (*models.Calendar, error) {
-	if err := ctx.Err(); err != nil {
-		return &models.Calendar{}, err
-	}
-	bakPath := path + ".bak"
-	bakData, err := os.ReadFile(bakPath)
+func loadBackup(path string, writeBack bool) *models.Calendar {
+	bakData, err := os.ReadFile(path + ".bak")
 	if err != nil {
-		return &models.Calendar{}, nil
+		return &models.Calendar{}
 	}
 	var cal models.Calendar
 	if err := json.Unmarshal(bakData, &cal); err != nil {
-		return &models.Calendar{}, nil
+		return &models.Calendar{}
 	}
 	if writeBack {
-		if err := os.WriteFile(path, bakData, 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "предупреждение: не удалось восстановить файл из бэкапа %s: %v\n", path, err)
+		if err := os.WriteFile(path, bakData, 0o644); err != nil {
+			warnf("не удалось восстановить файл из бэкапа %s: %v", path, err)
 		}
 	}
-	return &cal, nil
+	return &cal
 }
 
-// Save writes the calendar to disk according to the split mode.
+// Save writes the calendar to disk according to the split mode and removes any
+// data files that belong to the other split modes, so switching modes leaves no
+// stale copies behind.
 func Save(ctx context.Context, dir, baseName string, cal *models.Calendar, mode string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	switch mode {
 	case models.SplitNone:
-		return saveSingle(ctx, filepath.Join(dir, baseName+".json"), cal)
+		if err := writeCalendar(filepath.Join(dir, baseName+".json"), cal); err != nil {
+			return err
+		}
+		removeFiles(globFiles(dir, "????_"+baseName+".json"))
+		removeFiles(globFiles(dir, "????-??_"+baseName+".json"))
+		return nil
 	case models.SplitYear:
-		return saveSplit(ctx, dir, baseName, cal, "2006")
+		return saveSplit(dir, baseName, cal, "2006")
 	case models.SplitMonth:
-		return saveSplit(ctx, dir, baseName, cal, "2006-01")
+		return saveSplit(dir, baseName, cal, "2006-01")
 	default:
 		return fmt.Errorf("неизвестный режим хранения: %s", mode)
 	}
 }
 
-func saveSingle(ctx context.Context, path string, cal *models.Calendar) error {
-	return atomicWrite(ctx, path, cal)
-}
-
-func saveSplit(ctx context.Context, dir, baseName string, cal *models.Calendar, groupFmt string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
+func saveSplit(dir, baseName string, cal *models.Calendar, groupFmt string) error {
 	groups := make(map[string]*models.Calendar)
 	for _, de := range cal.Entries {
 		key := dateKey(de.Date, groupFmt)
@@ -135,78 +131,123 @@ func saveSplit(ctx context.Context, dir, baseName string, cal *models.Calendar, 
 		groups[key].Entries = append(groups[key].Entries, de)
 	}
 
-	// Remove old split files that are no longer needed.
-	existingPattern := strings.ReplaceAll(groupFmt, "2006", "????")
-	existingPattern = strings.ReplaceAll(existingPattern, "01", "??")
-	existingFiles := globFiles(dir, existingPattern+"_"+baseName+".json")
-	for _, ef := range existingFiles {
-		key := fileNameKey(ef, baseName, groupFmt)
-		if _, ok := groups[key]; !ok {
-			if err := os.Remove(ef); err != nil && !os.IsNotExist(err) {
-				fmt.Fprintf(os.Stderr, "предупреждение: не удалось удалить неиспользуемый файл %s: %v\n", ef, err)
-			}
-			if err := os.Remove(ef + ".bak"); err != nil && !os.IsNotExist(err) {
-				fmt.Fprintf(os.Stderr, "предупреждение: не удалось удалить бэкап неиспользуемого файла %s: %v\n", ef+".bak", err)
-			}
-		}
-	}
-
 	for key, c := range groups {
-		path := filepath.Join(dir, key+"_"+baseName+".json")
-		if err := atomicWrite(ctx, path, c); err != nil {
+		if err := writeCalendar(filepath.Join(dir, key+"_"+baseName+".json"), c); err != nil {
 			return err
 		}
 	}
+
+	// Remove files from the sibling modes and stale groups of this mode.
+	var stale []string
+	if groupFmt == "2006" {
+		stale = append(stale, globFiles(dir, "????-??_"+baseName+".json")...)
+	} else {
+		stale = append(stale, globFiles(dir, "????_"+baseName+".json")...)
+	}
+	stale = append(stale, filepath.Join(dir, baseName+".json"))
+	for _, ef := range globFiles(dir, patternForFmt(groupFmt)+"_"+baseName+".json") {
+		if _, ok := groups[fileNameKey(ef, baseName, groupFmt)]; !ok {
+			stale = append(stale, ef)
+		}
+	}
+	removeFiles(stale)
 	return nil
 }
 
-func atomicWrite(ctx context.Context, path string, cal *models.Calendar) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
+// writeCalendar serialises cal and writes it to path atomically: the previous
+// contents are copied to path+".bak", the new contents are written to a temp
+// file, fsync'd, then renamed over path (os.Rename replaces the destination on
+// every supported platform, so there is no window where path is missing).
+func writeCalendar(path string, cal *models.Calendar) error {
 	data, err := json.MarshalIndent(cal, "", "  ")
 	if err != nil {
 		return fmt.Errorf("сериализация календаря: %w", err)
 	}
+	return atomicWriteFile(path, data)
+}
 
+func atomicWriteFile(path string, data []byte) error {
 	if current, readErr := os.ReadFile(path); readErr == nil {
-		if err := os.WriteFile(path+".bak", current, 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "предупреждение: не удалось создать бэкап %s: %v\n", path+".bak", err)
+		if err := os.WriteFile(path+".bak", current, 0o644); err != nil {
+			warnf("не удалось создать бэкап %s: %v", path+".bak", err)
 		}
 	}
 
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("создание временного файла: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath) // no-op once the rename succeeds
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
 		return fmt.Errorf("запись временного файла: %w", err)
 	}
-
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "предупреждение: не удалось удалить старый файл %s: %v\n", path, err)
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("сброс временного файла на диск: %w", err)
 	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("закрытие временного файла: %w", err)
+	}
+
 	if err := os.Rename(tmpPath, path); err != nil {
-		if rmErr := os.Remove(tmpPath); rmErr != nil && !os.IsNotExist(rmErr) {
-			fmt.Fprintf(os.Stderr, "предупреждение: не удалось удалить временный файл %s: %v\n", tmpPath, rmErr)
-		}
 		return fmt.Errorf("замена файла: %w", err)
 	}
-
+	syncDir(filepath.Dir(path))
 	return nil
 }
 
+// syncDir flushes a directory entry so a freshly renamed file survives a crash.
+// It is a best-effort no-op on Windows, where directories cannot be opened for
+// sync.
+func syncDir(dir string) {
+	if runtime.GOOS == "windows" {
+		return
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return
+	}
+	defer d.Close()
+	_ = d.Sync()
+}
+
+func removeFiles(paths []string) {
+	for _, p := range paths {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			warnf("не удалось удалить неиспользуемый файл %s: %v", p, err)
+		}
+		if err := os.Remove(p + ".bak"); err != nil && !os.IsNotExist(err) {
+			warnf("не удалось удалить бэкап %s: %v", p+".bak", err)
+		}
+	}
+}
+
+func patternForFmt(groupFmt string) string {
+	if groupFmt == "2006-01" {
+		return "????-??"
+	}
+	return "????"
+}
+
 func dateKey(isoDate, groupFmt string) string {
-	// isoDate is "YYYY-MM-DD"
 	switch groupFmt {
 	case "2006":
-		return isoDate[:4]
+		if len(isoDate) >= 4 {
+			return isoDate[:4]
+		}
 	case "2006-01":
-		return isoDate[:7]
+		if len(isoDate) >= 7 {
+			return isoDate[:7]
+		}
 	}
 	return isoDate
 }
 
 func fileNameKey(filePath, baseName, groupFmt string) string {
-	base := filepath.Base(filePath)
-	prefix := strings.TrimSuffix(base, "_"+baseName+".json")
+	prefix := strings.TrimSuffix(filepath.Base(filePath), "_"+baseName+".json")
 	switch groupFmt {
 	case "2006":
 		if len(prefix) >= 4 {
@@ -227,4 +268,12 @@ func globFiles(dir, pattern string) []string {
 	}
 	sort.Strings(matches)
 	return matches
+}
+
+func sortEntries(entries []models.DateEntry) {
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Date < entries[j].Date })
+}
+
+func warnf(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "предупреждение: "+format+"\n", args...)
 }
