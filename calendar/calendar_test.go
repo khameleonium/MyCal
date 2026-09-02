@@ -22,229 +22,246 @@ func addTestSession(s *Service, date, tm, name, typ string, duration int) string
 	d, _ := time.Parse("2006-01-02", date)
 	t, _ := time.Parse("15:04", tm)
 	id := s.GenerateID(d, t)
-	s.AddEntry(models.Session{
-		ID:       id,
-		Time:     tm,
-		Name:     name,
-		Type:     typ,
-		Duration: duration,
-	})
+	s.AddEntry(models.Session{ID: id, Time: tm, Name: name, Type: typ, Duration: duration})
 	return id
 }
 
-func TestAddEntry(t *testing.T) {
+func firstByID(s *Service, id string) *models.Session {
+	got := s.FindByID(id)
+	if len(got) == 0 {
+		return nil
+	}
+	return &got[0]
+}
+
+func TestAddEntryKeepsSortOrder(t *testing.T) {
 	svc := newTestService(t)
+	addTestSession(svc, "2025-12-29", "12:00", "noon", "T", 30)
+	addTestSession(svc, "2025-12-01", "09:00", "early", "T", 30)
+	addTestSession(svc, "2025-12-29", "08:00", "morning", "T", 30)
 
-	addTestSession(svc, "2025-12-29", "10:51", "Иван Иваныч", "Стрельба из лука", 90)
-
-	if len(svc.data.Entries) != 1 {
-		t.Fatalf("expected 1 DateEntry, got %d", len(svc.data.Entries))
+	if len(svc.data.Entries) != 2 {
+		t.Fatalf("expected 2 date entries, got %d", len(svc.data.Entries))
 	}
-	de := svc.data.Entries[0]
-	if de.Date != "2025-12-29" {
-		t.Errorf("expected date 2025-12-29, got %s", de.Date)
+	if svc.data.Entries[0].Date != "2025-12-01" || svc.data.Entries[1].Date != "2025-12-29" {
+		t.Fatalf("date entries not sorted: %+v", svc.data.Entries)
 	}
-	if len(de.Sessions) != 1 {
-		t.Fatalf("expected 1 session, got %d", len(de.Sessions))
-	}
-	s := de.Sessions[0]
-	if s.Name != "Иван Иваныч" {
-		t.Errorf("expected name Иван Иваныч, got %s", s.Name)
-	}
-	if s.Duration != 90 {
-		t.Errorf("expected duration 90, got %d", s.Duration)
+	sessions := svc.data.Entries[1].Sessions
+	if sessions[0].Time != "08:00" || sessions[1].Time != "12:00" {
+		t.Errorf("sessions within day not sorted by time: %+v", sessions)
 	}
 }
 
 func TestFindConflicts(t *testing.T) {
 	svc := newTestService(t)
-
 	addTestSession(svc, "2025-12-29", "10:51", "Иван Иваныч", "Стрельба из лука", 90)
 	addTestSession(svc, "2025-12-29", "10:51", "Пётр Петрович", "Метание ножей", 60)
 
-	conflicts := svc.FindConflicts("2025-12-29", "10:51")
-	if len(conflicts) != 2 {
-		t.Errorf("expected 2 conflicts, got %d", len(conflicts))
+	if got := svc.FindConflicts("2025-12-29", "10:51"); len(got) != 2 {
+		t.Errorf("expected 2 conflicts, got %d", len(got))
 	}
-
-	noConflicts := svc.FindConflicts("2025-12-29", "12:00")
-	if len(noConflicts) != 0 {
-		t.Errorf("expected 0 conflicts, got %d", len(noConflicts))
+	if got := svc.FindConflicts("2025-12-29", "12:00"); len(got) != 0 {
+		t.Errorf("expected 0 conflicts, got %d", len(got))
 	}
 }
 
-func TestGenerateID(t *testing.T) {
+func TestGenerateIDUniquePerMinute(t *testing.T) {
 	svc := newTestService(t)
-
 	date := time.Date(2025, 12, 29, 0, 0, 0, 0, time.UTC)
 	tm := time.Date(0, 1, 1, 10, 51, 0, 0, time.UTC)
 
-	id := svc.GenerateID(date, tm)
-	if len(id) != 14 {
-		t.Errorf("expected ID length 14, got %d", len(id))
-	}
-	if id[:12] != "202512291051" {
-		t.Errorf("expected prefix 202512291051, got %s", id[:12])
-	}
-}
+	id1 := svc.generateID(date, tm, 5)
+	svc.AddEntry(models.Session{ID: id1, Time: "10:51", Name: "a"})
+	id2 := svc.generateID(date, tm, 5)
 
-func TestFindByID(t *testing.T) {
-	svc := newTestService(t)
-
-	id := addTestSession(svc, "2025-12-29", "10:51", "Иван Иваныч", "Стрельба из лука", 90)
-
-	sess, _, _ := svc.FindByID(id)
-	if sess == nil {
-		t.Fatal("expected to find session")
+	if len(id1) != 14 || len(id2) != 14 {
+		t.Fatalf("bad ID length: %q %q", id1, id2)
 	}
-	if sess.Name != "Иван Иваныч" {
-		t.Errorf("expected Иван Иваныч, got %s", sess.Name)
+	if id1[:12] != "202512291051" {
+		t.Errorf("unexpected prefix: %s", id1)
 	}
-
-	sess, _, _ = svc.FindByID("00000000000000")
-	if sess != nil {
-		t.Error("expected nil for nonexistent ID")
+	if id1 == id2 {
+		t.Errorf("generateID returned a colliding ID: %s", id2)
 	}
 }
 
-func TestEditEntry(t *testing.T) {
+func TestEditEntryPartial(t *testing.T) {
 	svc := newTestService(t)
-
 	id := addTestSession(svc, "2025-12-29", "10:51", "Иван Иваныч", "Стрельба из лука", 90)
 
-	err := svc.EditEntry(id, models.Session{
-		Name: "Пётр Петрович",
-	})
-	if err != nil {
+	if err := svc.EditEntry(id, models.Session{Name: "Пётр Петрович"}); err != nil {
 		t.Fatalf("EditEntry: %v", err)
 	}
-
-	sess, _, _ := svc.FindByID(id)
-	if sess.Name != "Пётр Петрович" {
-		t.Errorf("expected Пётр Петрович, got %s", sess.Name)
+	got := firstByID(svc, id)
+	if got.Name != "Пётр Петрович" {
+		t.Errorf("name not updated: %s", got.Name)
 	}
-	if sess.Type != "Стрельба из лука" {
-		t.Errorf("type should remain unchanged, got %s", sess.Type)
+	if got.Type != "Стрельба из лука" || got.Duration != 90 {
+		t.Errorf("untouched fields changed: %+v", got)
+	}
+	if err := svc.EditEntry("nope", models.Session{}); err == nil {
+		t.Error("expected error for missing ID")
 	}
 }
 
 func TestDeleteEntry(t *testing.T) {
 	svc := newTestService(t)
-
 	id := addTestSession(svc, "2025-12-29", "10:51", "Иван Иваныч", "Стрельба из лука", 90)
 
-	err := svc.DeleteEntry(id)
-	if err != nil {
-		t.Fatalf("DeleteEntry: %v", err)
+	if n := svc.DeleteEntry(id); n != 1 {
+		t.Fatalf("expected 1 deleted, got %d", n)
 	}
-
-	sess, _, _ := svc.FindByID(id)
-	if sess != nil {
-		t.Error("expected nil after deletion")
+	if firstByID(svc, id) != nil {
+		t.Error("session still present after delete")
 	}
-
 	if len(svc.data.Entries) != 0 {
-		t.Errorf("expected 0 DateEntries after deleting last session, got %d", len(svc.data.Entries))
+		t.Errorf("empty DateEntry not pruned, got %d", len(svc.data.Entries))
+	}
+}
+
+func TestRepeatSeriesHydrationAndDeletion(t *testing.T) {
+	svc := newTestService(t)
+	d, _ := time.Parse("2006-01-02", "2025-01-06")
+	tm, _ := time.Parse("15:04", "18:00")
+	origID := svc.generateID(d, tm, 0) + models.RepeatSuffix
+	svc.AddEntry(models.Session{ID: origID, Time: "18:00", Name: "Тренировка", Type: "Бег", Duration: 45, Status: "Активно"})
+
+	// three weekly children referencing the original by Name
+	for i := 1; i <= 3; i++ {
+		cd := d.AddDate(0, 0, 7*i)
+		cid := svc.generateID(cd, tm, i)
+		svc.AddEntry(models.Session{ID: cid, Time: "18:00", Name: origID})
+	}
+
+	all := svc.GetAllEntries()
+	got := 0
+	for _, de := range all {
+		for _, s := range de.Sessions {
+			got++
+			if s.Name != "Тренировка" {
+				t.Errorf("child not hydrated with series name: %q", s.Name)
+			}
+			if s.Type != "Бег" || s.Duration != 45 || s.Status != "Активно" {
+				t.Errorf("child not hydrated with series fields: %+v", s)
+			}
+			if !s.IsRepeat {
+				t.Errorf("IsRepeat not set: %+v", s)
+			}
+		}
+	}
+	if got != 4 {
+		t.Fatalf("expected 4 sessions (1 original + 3 repeats), got %d", got)
+	}
+
+	if n := svc.DeleteRepeats(origID); n != 3 {
+		t.Errorf("expected 3 repeats deleted, got %d", n)
+	}
+	if len(svc.OrphanRepeats()) != 0 {
+		t.Errorf("orphans remain after cascade delete")
+	}
+}
+
+func TestEditSeriesTimePropagates(t *testing.T) {
+	svc := newTestService(t)
+	d, _ := time.Parse("2006-01-02", "2025-01-06")
+	tm, _ := time.Parse("15:04", "18:00")
+	origID := svc.generateID(d, tm, 0) + models.RepeatSuffix
+	svc.AddEntry(models.Session{ID: origID, Time: "18:00", Name: "T", Duration: 30})
+	child := svc.generateID(d.AddDate(0, 0, 7), tm, 1)
+	svc.AddEntry(models.Session{ID: child, Time: "18:00", Name: origID})
+
+	if n := svc.EditSeriesTime(origID, "19:30"); n != 2 {
+		t.Fatalf("expected 2 sessions retimed, got %d", n)
+	}
+	if got := firstByID(svc, origID); got.Time != "19:30" {
+		t.Errorf("original time not changed: %s", got.Time)
+	}
+	if got := firstByID(svc, child); got.Time != "19:30" {
+		t.Errorf("child time not propagated: %s", got.Time)
+	}
+}
+
+func TestOrphanRepeats(t *testing.T) {
+	svc := newTestService(t)
+	d, _ := time.Parse("2006-01-02", "2025-01-06")
+	tm, _ := time.Parse("15:04", "18:00")
+	child := svc.generateID(d, tm, 1)
+	svc.AddEntry(models.Session{ID: child, Time: "18:00", Name: "20250101120000" + models.RepeatSuffix})
+
+	if got := svc.OrphanRepeats(); len(got) != 1 {
+		t.Fatalf("expected 1 orphan, got %d", len(got))
 	}
 }
 
 func TestFindByPeriod(t *testing.T) {
 	svc := newTestService(t)
+	addTestSession(svc, "2025-12-01", "10:00", "A", "T", 30)
+	addTestSession(svc, "2025-12-15", "12:00", "B", "T", 45)
+	addTestSession(svc, "2025-12-31", "14:00", "C", "T", 60)
 
-	addTestSession(svc, "2025-12-01", "10:00", "A", "Type", 30)
-	addTestSession(svc, "2025-12-15", "12:00", "B", "Type", 45)
-	addTestSession(svc, "2025-12-31", "14:00", "C", "Type", 60)
-
-	start := time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC)
-	end := time.Date(2025, 12, 15, 0, 0, 0, 0, time.UTC)
-
-	entries := svc.FindByPeriod(start, end)
+	entries := svc.FindByPeriod(
+		time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC),
+		time.Date(2025, 12, 15, 0, 0, 0, 0, time.UTC),
+	)
 	if len(entries) != 2 {
-		t.Errorf("expected 2 entries in period, got %d", len(entries))
+		t.Errorf("expected 2 entries, got %d", len(entries))
 	}
 }
 
 func TestTotalHours(t *testing.T) {
 	svc := newTestService(t)
-
-	addTestSession(svc, "2025-12-29", "10:00", "A", "Type", 60)
-	addTestSession(svc, "2025-12-29", "11:00", "B", "Type", 90)
+	addTestSession(svc, "2025-12-29", "10:00", "A", "T", 60)
+	addTestSession(svc, "2025-12-29", "11:00", "B", "T", 90)
 
 	entries := svc.FindByPeriod(
 		time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC),
 		time.Date(2025, 12, 31, 0, 0, 0, 0, time.UTC),
 	)
-
-	hours := TotalHours(entries)
-	if hours != 2.5 {
-		t.Errorf("expected 2.5 hours, got %.1f", hours)
+	if h := TotalHours(entries); h != 2.5 {
+		t.Errorf("expected 2.5 hours, got %.1f", h)
 	}
 }
 
-func TestAllTypes(t *testing.T) {
+func TestAllTypesDefaultsFirst(t *testing.T) {
 	svc := newTestService(t)
-
 	addTestSession(svc, "2025-12-29", "10:00", "A", "Стрельба из лука", 60)
-	addTestSession(svc, "2025-12-29", "11:00", "B", "Метание ножей", 60)
 	addTestSession(svc, "2025-12-30", "12:00", "C", "Бокс", 60)
 
 	types := svc.AllTypes()
-	if len(types) < 3 {
-		t.Errorf("expected at least 3 types, got %d: %v", len(types), types)
+	if types[0] != "Стрельба из лука" || types[1] != "Метание ножей" {
+		t.Errorf("defaults not first: %v", types)
 	}
-	if types[0] != "Стрельба из лука" {
-		t.Errorf("expected first type Стрельба из лука, got %s", types[0])
-	}
-	if types[1] != "Метание ножей" {
-		t.Errorf("expected second type Метание ножей, got %s", types[1])
+	if types[len(types)-1] != "Бокс" {
+		t.Errorf("data-derived type missing/misordered: %v", types)
 	}
 }
 
-func TestSaveLoad(t *testing.T) {
+func TestSaveLoadRoundTrip(t *testing.T) {
 	svc := newTestService(t)
-
 	id := addTestSession(svc, "2025-12-29", "10:51", "Иван Иваныч", "Стрельба из лука", 90)
-
 	if err := svc.Save(context.Background()); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-
 	svc2, err := NewService(context.Background(), svc.dir, svc.baseName, svc.mode)
 	if err != nil {
-		t.Fatalf("NewService reload: %v", err)
+		t.Fatalf("reload: %v", err)
 	}
-
-	sess, _, _ := svc2.FindByID(id)
-	if sess == nil {
-		t.Fatal("session not found after reload")
-	}
-	if sess.Name != "Иван Иваныч" {
-		t.Errorf("data mismatch after reload")
+	if got := firstByID(svc2, id); got == nil || got.Name != "Иван Иваныч" {
+		t.Fatalf("data mismatch after reload: %+v", got)
 	}
 }
 
-func TestGetWeekEntries(t *testing.T) {
+func TestGetWeekAndMonthEntries(t *testing.T) {
 	svc := newTestService(t)
+	addTestSession(svc, "2025-12-29", "10:00", "Mon", "T", 30) // Monday
+	addTestSession(svc, "2025-12-31", "10:00", "Wed", "T", 30)
+	addTestSession(svc, "2026-01-05", "10:00", "NextWeek", "T", 30)
 
-	addTestSession(svc, "2025-12-29", "10:00", "Monday", "T", 30)
-	addTestSession(svc, "2025-12-31", "10:00", "Wednesday", "T", 30)
-
-	refDate := time.Date(2025, 12, 29, 0, 0, 0, 0, time.UTC)
-	entries := svc.GetWeekEntries(refDate)
-	if len(entries) != 2 {
-		t.Errorf("expected 2 entries, got %d", len(entries))
+	ref := time.Date(2025, 12, 29, 0, 0, 0, 0, time.UTC)
+	if got := svc.GetWeekEntries(ref); len(got) != 2 {
+		t.Errorf("week: expected 2, got %d", len(got))
 	}
-}
-
-func TestGetMonthEntries(t *testing.T) {
-	svc := newTestService(t)
-
-	addTestSession(svc, "2025-12-01", "10:00", "First day", "T", 30)
-	addTestSession(svc, "2025-12-31", "10:00", "Last day", "T", 30)
-
-	refDate := time.Date(2025, 12, 15, 0, 0, 0, 0, time.UTC)
-	entries := svc.GetMonthEntries(refDate)
-	if len(entries) != 2 {
-		t.Errorf("expected 2 entries, got %d", len(entries))
+	if got := svc.GetMonthEntries(ref); len(got) != 2 {
+		t.Errorf("month: expected 2, got %d", len(got))
 	}
 }

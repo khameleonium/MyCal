@@ -3,13 +3,20 @@ package calendar
 import (
 	"context"
 	"fmt"
-	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"mycalendar/models"
 	"mycalendar/storage"
+)
+
+// DefaultTypes and DefaultStatuses seed the pick-lists shown when adding an
+// entry. They are exported so a caller can replace them with its own list.
+var (
+	DefaultTypes    = []string{"Стрельба из лука", "Метание ножей"}
+	DefaultStatuses = []string{"Активно", "Пропущено", "Отменено"}
 )
 
 // Service manages calendar entries and persistence.
@@ -35,91 +42,95 @@ func (s *Service) Save(ctx context.Context) error {
 }
 
 // Mode returns the current split mode.
-func (s *Service) Mode() string {
-	return s.mode
-}
+func (s *Service) Mode() string { return s.mode }
 
-// UpdateMode changes the split mode. The caller is responsible for calling Save after this.
-func (s *Service) UpdateMode(mode string) {
-	s.mode = mode
-}
+// UpdateMode changes the split mode. The caller must call Save afterwards.
+func (s *Service) UpdateMode(mode string) { s.mode = mode }
 
-// AddEntry adds a session to the calendar.
+// AddEntry inserts a session, keeping entries sorted by date and sessions
+// within a date sorted by time, without re-sorting the whole calendar.
 func (s *Service) AddEntry(session models.Session) error {
 	if session.ID == "" {
 		return fmt.Errorf("ID записи не сгенерирован")
 	}
-
 	dateKey := session.Date()
-	for i := range s.data.Entries {
-		if s.data.Entries[i].Date == dateKey {
-			s.data.Entries[i].Sessions = append(s.data.Entries[i].Sessions, session)
-			sort.Slice(s.data.Entries[i].Sessions, func(a, b int) bool {
-				return s.data.Entries[i].Sessions[a].Time < s.data.Entries[i].Sessions[b].Time
-			})
-			return nil
-		}
+
+	i := sort.Search(len(s.data.Entries), func(i int) bool {
+		return s.data.Entries[i].Date >= dateKey
+	})
+	if i < len(s.data.Entries) && s.data.Entries[i].Date == dateKey {
+		de := &s.data.Entries[i]
+		j := sort.Search(len(de.Sessions), func(j int) bool {
+			return de.Sessions[j].Time > session.Time
+		})
+		de.Sessions = append(de.Sessions, models.Session{})
+		copy(de.Sessions[j+1:], de.Sessions[j:])
+		de.Sessions[j] = session
+		return nil
 	}
 
-	s.data.Entries = append(s.data.Entries, models.DateEntry{
-		Date:     dateKey,
-		Sessions: []models.Session{session},
-	})
-	sort.Slice(s.data.Entries, func(i, j int) bool {
-		return s.data.Entries[i].Date < s.data.Entries[j].Date
-	})
+	s.data.Entries = append(s.data.Entries, models.DateEntry{})
+	copy(s.data.Entries[i+1:], s.data.Entries[i:])
+	s.data.Entries[i] = models.DateEntry{Date: dateKey, Sessions: []models.Session{session}}
 	return nil
 }
 
-// FindConflicts returns all sessions at the given date and time.
+// FindConflicts returns hydrated sessions at the given date and time.
 func (s *Service) FindConflicts(date, tm string) []models.Session {
 	dateKey := strings.ReplaceAll(date, "-", "")
+	searchTime := strings.ReplaceAll(tm, ":", "")
+	originals := s.seriesOriginals()
 	var result []models.Session
 	for _, de := range s.data.Entries {
-		entryDate := strings.ReplaceAll(de.Date, "-", "")
-		if entryDate == dateKey {
-			for _, sess := range de.Sessions {
-				sessionTime := strings.ReplaceAll(sess.Time, ":", "")
-				searchTime := strings.ReplaceAll(tm, ":", "")
-				if sessionTime == searchTime {
-					result = append(result, sess)
-				}
+		if strings.ReplaceAll(de.Date, "-", "") != dateKey {
+			continue
+		}
+		for _, sess := range de.Sessions {
+			if strings.ReplaceAll(sess.Time, ":", "") == searchTime {
+				result = append(result, hydrateWith(sess, originals))
 			}
 		}
 	}
 	return result
 }
 
-// GenerateID creates a unique ID in YYYYMMDDHHMMSS format.
+// GenerateID creates an ID in YYYYMMDDHHMMSS format, choosing a seconds value
+// that is not already used by another session in the same minute.
 func (s *Service) GenerateID(date, tm time.Time) string {
-	base := date.Format("20060102") + tm.Format("1504")
-	now := time.Now()
-	sec := now.Second()
+	return s.generateID(date, tm, time.Now().Second())
+}
 
-	usedSecs := make(map[int]bool)
+func (s *Service) generateID(date, tm time.Time, preferredSec int) string {
+	base := date.Format("20060102") + tm.Format("1504")
+
+	used := make(map[int]bool)
 	for _, de := range s.data.Entries {
 		for _, sess := range de.Sessions {
-			if strings.HasPrefix(sess.ID, base) {
-				if len(sess.ID) == models.IDLen {
-					var ss int
-					if _, err := fmt.Sscanf(sess.ID[12:14], "%d", &ss); err == nil {
-						usedSecs[ss] = true
-					}
+			if len(sess.ID) >= models.IDLen && strings.HasPrefix(sess.ID, base) {
+				if ss, err := strconv.Atoi(sess.ID[12:14]); err == nil {
+					used[ss] = true
 				}
 			}
 		}
 	}
 
-	attempts := 0
-	for usedSecs[sec] && attempts < 100 {
-		sec = (sec + 1) % 100
-		attempts++
+	sec := preferredSec % 60
+	if used[sec] {
+		sec = -1
+		for c := 0; c < 60; c++ {
+			if !used[c] {
+				sec = c
+				break
+			}
+		}
+		if sec == -1 {
+			sec = preferredSec % 60 // minute is impossibly full; accept a dupe
+		}
 	}
-
 	return fmt.Sprintf("%s%02d", base, sec)
 }
 
-// FindByID locates all sessions by ID.
+// FindByID returns every raw (un-hydrated) session with the given ID.
 func (s *Service) FindByID(id string) []models.Session {
 	var results []models.Session
 	for di := range s.data.Entries {
@@ -147,67 +158,59 @@ func (s *Service) FindByDateTime(date, tm string) []models.Session {
 	return s.FindConflicts(date, tm)
 }
 
-// FindByPeriod returns DateEntries whose dates fall within [start, end].
+// FindByPeriod returns hydrated DateEntries whose dates fall within [start, end].
 func (s *Service) FindByPeriod(start, end time.Time) []models.DateEntry {
-	var result []models.DateEntry
 	startStr := start.Format("2006-01-02")
 	endStr := end.Format("2006-01-02")
 
+	var result []models.DateEntry
 	for _, de := range s.data.Entries {
 		if de.Date >= startStr && de.Date <= endStr {
 			result = append(result, de)
 		}
 	}
-
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Date < result[j].Date
-	})
+	sortEntries(result)
 	return s.hydrate(result)
 }
 
-func (s *Service) hydrate(entries []models.DateEntry) []models.DateEntry {
-	hydrated := make([]models.DateEntry, len(entries))
-	for i, de := range entries {
-		hydratedDE := models.DateEntry{Date: de.Date, Sessions: make([]models.Session, len(de.Sessions))}
-		for j, session := range de.Sessions {
-			if strings.HasSuffix(session.Name, "_r") {
-				origs := s.FindByID(session.Name)
-				if len(origs) > 0 {
-					orig := origs[0]
-					if session.Type == "" {
-						session.Type = orig.Type
-					}
-					if session.Duration == 0 {
-						session.Duration = orig.Duration
-					}
-					if session.Notes == "" {
-						session.Notes = orig.Notes
-					}
-					if session.Status == "" {
-						session.Status = orig.Status
-					}
-					session.Name = orig.Name
-					session.IsRepeat = true
-					session.OriginalID = orig.ID
-				}
+// seriesOriginals maps a series ID (with the repeat suffix) to its template
+// session, so hydration is a map lookup instead of a full scan per occurrence.
+func (s *Service) seriesOriginals() map[string]models.Session {
+	m := make(map[string]models.Session)
+	for _, de := range s.data.Entries {
+		for _, sess := range de.Sessions {
+			if models.HasRepeatSuffix(sess.ID) {
+				m[sess.ID] = sess
 			}
-			if strings.HasSuffix(session.ID, "_r") {
-				session.IsRepeat = true
-				session.OriginalID = session.ID
-			}
-			hydratedDE.Sessions[j] = session
 		}
-		hydrated[i] = hydratedDE
 	}
-	return hydrated
+	return m
+}
+
+func (s *Service) hydrate(entries []models.DateEntry) []models.DateEntry {
+	originals := s.seriesOriginals()
+	out := make([]models.DateEntry, len(entries))
+	for i, de := range entries {
+		hd := models.DateEntry{Date: de.Date, Sessions: make([]models.Session, len(de.Sessions))}
+		for j, session := range de.Sessions {
+			hd.Sessions[j] = hydrateWith(session, originals)
+		}
+		out[i] = hd
+	}
+	return out
 }
 
 // HydrateSession returns a hydrated copy of a single session.
 func (s *Service) HydrateSession(session models.Session) models.Session {
-	if strings.HasSuffix(session.Name, "_r") {
-		origs := s.FindByID(session.Name)
-		if len(origs) > 0 {
-			orig := origs[0]
+	return hydrateWith(session, s.seriesOriginals())
+}
+
+// hydrateWith fills a child occurrence's blank fields from its series template
+// and marks repeat sessions. Fields the occurrence overrides (non-zero) are
+// kept, which is what makes per-occurrence exceptions work.
+func hydrateWith(session models.Session, originals map[string]models.Session) models.Session {
+	if ref := session.SeriesRef(); ref != "" {
+		if orig, ok := originals[ref]; ok {
 			if session.Type == "" {
 				session.Type = orig.Type
 			}
@@ -220,98 +223,114 @@ func (s *Service) HydrateSession(session models.Session) models.Session {
 			if session.Status == "" {
 				session.Status = orig.Status
 			}
+			if session.Time == "" {
+				session.Time = orig.Time
+			}
 			session.Name = orig.Name
 			session.IsRepeat = true
 			session.OriginalID = orig.ID
 		}
 	}
-	if strings.HasSuffix(session.ID, "_r") {
+	if session.IsSeriesOriginal() {
 		session.IsRepeat = true
 		session.OriginalID = session.ID
 	}
 	return session
 }
 
-// EditEntry updates the session identified by its ID. If multiple match, updates the first one.
+// EditEntry updates the first session identified by id.
 func (s *Service) EditEntry(id string, updated models.Session) error {
-	var session *models.Session
-	var di int
-	found := false
-outer:
 	for i := range s.data.Entries {
 		for j := range s.data.Entries[i].Sessions {
-			if s.data.Entries[i].Sessions[j].ID == id {
-				session = &s.data.Entries[i].Sessions[j]
-				di = i
-				found = true
-				break outer
+			if s.data.Entries[i].Sessions[j].ID != id {
+				continue
+			}
+			session := &s.data.Entries[i].Sessions[j]
+			if updated.Time != "" {
+				session.Time = updated.Time
+			}
+			if updated.Name != "" {
+				session.Name = updated.Name
+			}
+			if updated.Type != "" {
+				session.Type = updated.Type
+			}
+			if updated.Duration != 0 {
+				session.Duration = updated.Duration
+			}
+			if updated.Notes != "" {
+				session.Notes = updated.Notes
+			}
+			if updated.Status != "" {
+				session.Status = updated.Status
+			}
+			if updated.Time != "" {
+				de := &s.data.Entries[i]
+				sort.SliceStable(de.Sessions, func(a, b int) bool {
+					return de.Sessions[a].Time < de.Sessions[b].Time
+				})
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("запись с ID %s не найдена", id)
+}
+
+// EditSeriesTime updates the template time and every child occurrence that has
+// not overridden its own time. Returns the number of sessions changed.
+func (s *Service) EditSeriesTime(seriesID, newTime string) int {
+	if newTime == "" {
+		return 0
+	}
+	var origTime string
+	for _, de := range s.data.Entries {
+		for _, sess := range de.Sessions {
+			if sess.ID == seriesID {
+				origTime = sess.Time
 			}
 		}
 	}
-
-	if !found {
-		return fmt.Errorf("запись с ID %s не найдена", id)
-	}
-
-	if updated.Time != "" {
-		session.Time = updated.Time
-	}
-	if updated.Name != "" {
-		session.Name = updated.Name
-	}
-	if updated.Type != "" {
-		session.Type = updated.Type
-	}
-	if updated.Duration != 0 {
-		session.Duration = updated.Duration
-	}
-	if updated.Notes != "" {
-		session.Notes = updated.Notes
-	}
-	if updated.Status != "" {
-		session.Status = updated.Status
-	}
-
-	// Re-sort sessions in case Time was modified
-	if updated.Time != "" {
-		de := &s.data.Entries[di]
-		sort.Slice(de.Sessions, func(a, b int) bool {
-			return de.Sessions[a].Time < de.Sessions[b].Time
+	changed := 0
+	for i := range s.data.Entries {
+		for j := range s.data.Entries[i].Sessions {
+			sess := &s.data.Entries[i].Sessions[j]
+			isOriginal := sess.ID == seriesID
+			isChildFollowing := sess.Name == seriesID && (sess.Time == "" || sess.Time == origTime)
+			if isOriginal || isChildFollowing {
+				sess.Time = newTime
+				changed++
+			}
+		}
+		sort.SliceStable(s.data.Entries[i].Sessions, func(a, b int) bool {
+			return s.data.Entries[i].Sessions[a].Time < s.data.Entries[i].Sessions[b].Time
 		})
 	}
-
-	return nil
+	return changed
 }
 
-// DeleteEntry removes ALL sessions by their ID. Returns number of deleted entries.
+// DeleteEntry removes ALL sessions with the given ID. Returns the count.
 func (s *Service) DeleteEntry(id string) int {
-	count := 0
-	for i := len(s.data.Entries) - 1; i >= 0; i-- {
-		de := &s.data.Entries[i]
-		for j := len(de.Sessions) - 1; j >= 0; j-- {
-			if de.Sessions[j].ID == id {
-				de.Sessions = append(de.Sessions[:j], de.Sessions[j+1:]...)
-				count++
-			}
-		}
-		if len(de.Sessions) == 0 {
-			s.data.Entries = append(s.data.Entries[:i], s.data.Entries[i+1:]...)
-		}
-	}
-	return count
+	return s.deleteMatching(func(sess models.Session) bool { return sess.ID == id })
 }
 
-// DeleteRepeats removes all duplicate sessions that reference the given original ID.
+// DeleteRepeats removes every child occurrence referencing originalID.
 func (s *Service) DeleteRepeats(originalID string) int {
+	return s.deleteMatching(func(sess models.Session) bool { return sess.Name == originalID })
+}
+
+func (s *Service) deleteMatching(match func(models.Session) bool) int {
 	count := 0
 	for i := len(s.data.Entries) - 1; i >= 0; i-- {
 		de := &s.data.Entries[i]
-		for j := len(de.Sessions) - 1; j >= 0; j-- {
-			if de.Sessions[j].Name == originalID {
-				de.Sessions = append(de.Sessions[:j], de.Sessions[j+1:]...)
+		kept := de.Sessions[:0]
+		for _, sess := range de.Sessions {
+			if match(sess) {
 				count++
+			} else {
+				kept = append(kept, sess)
 			}
 		}
+		de.Sessions = kept
 		if len(de.Sessions) == 0 {
 			s.data.Entries = append(s.data.Entries[:i], s.data.Entries[i+1:]...)
 		}
@@ -320,17 +339,14 @@ func (s *Service) DeleteRepeats(originalID string) int {
 }
 
 // DeleteAll removes all entries.
-func (s *Service) DeleteAll() {
-	s.data.Entries = []models.DateEntry{}
-}
+func (s *Service) DeleteAll() { s.data.Entries = nil }
 
-// DeleteByPeriod removes all DateEntries in [start, end] inclusive.
-// Returns the number of sessions deleted.
+// DeleteByPeriod removes all DateEntries in [start, end] inclusive and returns
+// the number of sessions deleted.
 func (s *Service) DeleteByPeriod(start, end time.Time) int {
 	startStr := start.Format("2006-01-02")
 	endStr := end.Format("2006-01-02")
 	count := 0
-
 	for i := len(s.data.Entries) - 1; i >= 0; i-- {
 		if s.data.Entries[i].Date >= startStr && s.data.Entries[i].Date <= endStr {
 			count += len(s.data.Entries[i].Sessions)
@@ -340,154 +356,129 @@ func (s *Service) DeleteByPeriod(start, end time.Time) int {
 	return count
 }
 
+// OrphanRepeats returns child occurrences whose series template is missing.
+func (s *Service) OrphanRepeats() []models.Session {
+	originals := s.seriesOriginals()
+	var orphans []models.Session
+	for _, de := range s.data.Entries {
+		for _, sess := range de.Sessions {
+			if ref := sess.SeriesRef(); ref != "" {
+				if _, ok := originals[ref]; !ok {
+					orphans = append(orphans, sess)
+				}
+			}
+		}
+	}
+	return orphans
+}
+
 // GetWeekEntries returns entries for the ISO week containing refDate.
 func (s *Service) GetWeekEntries(refDate time.Time) []models.DateEntry {
-	weekday := refDate.Weekday()
-	if weekday == 0 {
-		weekday = 7
-	}
-	monday := refDate.AddDate(0, 0, -int(weekday-1))
-	sunday := monday.AddDate(0, 0, 6)
+	monday, sunday := WeekBounds(refDate)
 	return s.FindByPeriod(monday, sunday)
 }
 
 // GetMonthEntries returns entries for the month containing refDate.
 func (s *Service) GetMonthEntries(refDate time.Time) []models.DateEntry {
-	firstDay := time.Date(refDate.Year(), refDate.Month(), 1, 0, 0, 0, 0, refDate.Location())
-	lastDay := firstDay.AddDate(0, 1, -1)
-	return s.FindByPeriod(firstDay, lastDay)
+	first, last := MonthBounds(refDate)
+	return s.FindByPeriod(first, last)
 }
 
-// GetAllEntries returns all entries in the calendar.
+// GetTodayEntries returns entries for refDate's calendar day.
+func (s *Service) GetTodayEntries(refDate time.Time) []models.DateEntry {
+	start := DayStart(refDate)
+	return s.FindByPeriod(start, start)
+}
+
+// GetAllEntries returns all entries, hydrated and sorted by date.
 func (s *Service) GetAllEntries() []models.DateEntry {
 	result := make([]models.DateEntry, len(s.data.Entries))
 	copy(result, s.data.Entries)
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].Date < result[j].Date
-	})
+	sortEntries(result)
 	return s.hydrate(result)
 }
 
 // TotalHours calculates the total number of hours across all sessions.
 func TotalHours(entries []models.DateEntry) float64 {
-	var totalMinutes int
+	total := 0
 	for _, de := range entries {
 		for _, sess := range de.Sessions {
-			totalMinutes += sess.Duration
+			total += sess.Duration
 		}
 	}
-	return float64(totalMinutes) / 60.0
+	return float64(total) / 60.0
 }
 
-// AllTypes returns the default types plus all unique types found in the data.
+// AllTypes returns DefaultTypes followed by any other types present in the data.
 func (s *Service) AllTypes() []string {
-	defaults := []string{"Стрельба из лука", "Метание ножей"}
-	seen := make(map[string]bool)
-	for _, t := range defaults {
-		seen[t] = true
-	}
-	for _, de := range s.data.Entries {
-		for _, sess := range de.Sessions {
-			if sess.Type != "" {
-				seen[sess.Type] = true
-			}
-		}
-	}
-	types := make([]string, 0, len(seen))
-	for t := range seen {
-		types = append(types, t)
-	}
-	sort.Strings(types)
-
-	result := make([]string, 0, len(types))
-	for _, t := range defaults {
-		result = append(result, t)
-	}
-	for _, t := range types {
-		if !slices.Contains(defaults, t) {
-			result = append(result, t)
-		}
-	}
-	return result
+	return mergeDefaults(DefaultTypes, s.collect(func(sess models.Session) string { return sess.Type }))
 }
 
-// AllStatuses returns the default statuses plus all unique statuses found in the data.
+// AllStatuses returns DefaultStatuses followed by any others present in the data.
 func (s *Service) AllStatuses() []string {
-	defaults := []string{"Активно", "Пропущено", "Отменено"}
+	return mergeDefaults(DefaultStatuses, s.collect(func(sess models.Session) string { return sess.Status }))
+}
+
+func (s *Service) collect(field func(models.Session) string) []string {
 	seen := make(map[string]bool)
-	for _, st := range defaults {
-		seen[st] = true
-	}
+	var out []string
 	for _, de := range s.data.Entries {
 		for _, sess := range de.Sessions {
-			if sess.Status != "" {
-				seen[sess.Status] = true
+			if v := field(sess); v != "" && !seen[v] {
+				seen[v] = true
+				out = append(out, v)
 			}
 		}
 	}
-	statuses := make([]string, 0, len(seen))
-	for st := range seen {
-		statuses = append(statuses, st)
-	}
-	sort.Strings(statuses)
+	return out
+}
 
-	result := make([]string, 0, len(statuses))
-	for _, st := range defaults {
-		result = append(result, st)
+func mergeDefaults(defaults, found []string) []string {
+	inDefaults := make(map[string]bool, len(defaults))
+	for _, d := range defaults {
+		inDefaults[d] = true
 	}
-	for _, st := range statuses {
-		if !slices.Contains(defaults, st) {
-			result = append(result, st)
+	extra := make([]string, 0, len(found))
+	for _, v := range found {
+		if !inDefaults[v] {
+			extra = append(extra, v)
 		}
 	}
-	return result
+	sort.Strings(extra)
+	return append(append([]string{}, defaults...), extra...)
 }
 
-// GetTodayEntries returns entries for the given reference date.
-func (s *Service) GetTodayEntries(refDate time.Time) []models.DateEntry {
-	start := time.Date(refDate.Year(), refDate.Month(), refDate.Day(), 0, 0, 0, 0, refDate.Location())
-	end := start
-	return s.FindByPeriod(start, end)
+// SearchByName returns sessions whose name contains sub (case-insensitive).
+func (s *Service) SearchByName(sub string) []models.Session {
+	return s.search(sub, true, false)
 }
 
-// SearchByName returns sessions whose name contains the given substring (case-insensitive).
-func (s *Service) SearchByName(name string) []models.Session {
-	lower := strings.ToLower(name)
-	var result []models.Session
-	for _, de := range s.data.Entries {
-		for _, sess := range de.Sessions {
-			if strings.Contains(strings.ToLower(sess.Name), lower) {
-				result = append(result, sess)
-			}
-		}
-	}
-	return result
+// SearchByType returns sessions whose type contains sub (case-insensitive).
+func (s *Service) SearchByType(sub string) []models.Session {
+	return s.search(sub, false, true)
 }
 
-// SearchByType returns sessions whose type contains the given substring (case-insensitive).
-func (s *Service) SearchByType(typ string) []models.Session {
-	lower := strings.ToLower(typ)
-	var result []models.Session
-	for _, de := range s.data.Entries {
-		for _, sess := range de.Sessions {
-			if strings.Contains(strings.ToLower(sess.Type), lower) {
-				result = append(result, sess)
-			}
-		}
-	}
-	return result
-}
-
-// SearchByNameOrType returns sessions matching name or type substring (case-insensitive).
+// SearchByNameOrType returns sessions matching name or type (case-insensitive).
 func (s *Service) SearchByNameOrType(query string) []models.Session {
+	return s.search(query, true, true)
+}
+
+func (s *Service) search(query string, byName, byType bool) []models.Session {
 	lower := strings.ToLower(query)
+	originals := s.seriesOriginals()
 	var result []models.Session
 	for _, de := range s.data.Entries {
 		for _, sess := range de.Sessions {
-			if strings.Contains(strings.ToLower(sess.Name), lower) || strings.Contains(strings.ToLower(sess.Type), lower) {
-				result = append(result, sess)
+			h := hydrateWith(sess, originals)
+			if (byName && strings.Contains(strings.ToLower(h.Name), lower)) ||
+				(byType && strings.Contains(strings.ToLower(h.Type), lower)) {
+				result = append(result, h)
 			}
 		}
 	}
 	return result
+}
+
+func sortEntries(entries []models.DateEntry) {
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Date < entries[j].Date })
 }
