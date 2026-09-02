@@ -288,15 +288,18 @@ func (a *App) addEntryLoop(quickAdd bool) {
 
 		fmt.Print("\nПовторять запись? (d - каждый день, w - каждую неделю, m - каждый месяц, Enter - нет) > ")
 		repeatMode := strings.ToLower(strings.TrimSpace(a.readLine()))
-		
+
 		var repeatUntil time.Time
 		if repeatMode == "d" || repeatMode == "w" || repeatMode == "m" || repeatMode == "в" || repeatMode == "ц" || repeatMode == "ь" {
 			switch repeatMode {
-			case "в": repeatMode = "d" // cyrillic 'в' is 'd' key, wait, d is 'в' on russian layout
-			case "ц": repeatMode = "w" // w is 'ц'
-			case "ь": repeatMode = "m" // m is 'ь'
+			case "в":
+				repeatMode = "d" // cyrillic 'в' is 'd' key, wait, d is 'в' on russian layout
+			case "ц":
+				repeatMode = "w" // w is 'ц'
+			case "ь":
+				repeatMode = "m" // m is 'ь'
 			}
-			
+
 			for {
 				fmt.Print("До какой даты повторять? (DD.MM.YYYY, 0 - отмена) > ")
 				untilStr := strings.TrimSpace(a.readLine())
@@ -356,12 +359,12 @@ func (a *App) addEntryLoop(quickAdd bool) {
 				if currDate.After(repeatUntil) {
 					break
 				}
-				
+
 				repID := a.svc.GenerateID(currDate, tm)
 				repSession := models.Session{
-					ID:       repID,
-					Time:     timeStr,
-					Name:     id,
+					ID:   repID,
+					Time: timeStr,
+					Name: id,
 				}
 				a.svc.AddEntry(repSession)
 				count++
@@ -407,7 +410,7 @@ func (a *App) doInteractiveEdit(id string) {
 		fmt.Println("  2. Изменить всю серию (оригинал)")
 		fmt.Println("  0. Отмена")
 		choice := strings.TrimSpace(a.prompt("> "))
-		
+
 		if choice == "2" {
 			a.doInteractiveEdit(session.OriginalID)
 			return
@@ -418,7 +421,7 @@ func (a *App) doInteractiveEdit(id string) {
 	}
 
 	a.showSessionDetail(*session)
-	
+
 	fmt.Println()
 	fmt.Println("Что редактируем?")
 	fmt.Println("1. Наименование")
@@ -429,9 +432,9 @@ func (a *App) doInteractiveEdit(id string) {
 	fmt.Println("6. Статус")
 	fmt.Println("7. Полностью")
 	fmt.Println("0. Отмена")
-	
+
 	choice := strings.TrimSpace(a.prompt("> "))
-	
+
 	if choice == "0" || isCancelled(choice) {
 		fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
 		return
@@ -877,11 +880,11 @@ func (a *App) doDelete(id string) {
 
 	promptStr := fmt.Sprintf("Запись: %s | %s | %s",
 		color.Green(session.Name), color.Magenta(session.Date()), session.Time)
-	
+
 	if isOriginalRepeat {
-		promptStr += "\n" + color.Yellow(warnMark + " ВНИМАНИЕ: Это оригинальная повторяющаяся запись. Удалить её вместе со всеми повторениями?")
+		promptStr += "\n" + color.Yellow(warnMark+" ВНИМАНИЕ: Это оригинальная повторяющаяся запись. Удалить её вместе со всеми повторениями?")
 	} else if len(sessions) > 1 {
-		promptStr += "\n" + color.Yellow(warnMark + fmt.Sprintf(" Будет удалено %d записей с этим ID. Продолжить? (Да/Нет)", len(sessions)))
+		promptStr += "\n" + color.Yellow(warnMark+fmt.Sprintf(" Будет удалено %d записей с этим ID. Продолжить? (Да/Нет)", len(sessions)))
 	} else {
 		promptStr += "\n" + color.Yellow(askMark+" Удалить? (Да/Нет)")
 	}
@@ -1033,7 +1036,7 @@ func (a *App) settingsMenu() {
 		fmt.Printf(" p | 5. Путь к данным          [%s]\n", dataPathDisplay(a.cfg.DataPath))
 		fmt.Printf(" c | 6. Проверка даты          [%s]\n", dateCheckLabels[a.cfg.DateCheckMode])
 		fmt.Printf(" d | 7. Дата                   [%s]\n", a.dateDisplay())
-		
+
 		silentAddStr := "Вкл"
 		if !a.cfg.SilentAddNames {
 			silentAddStr = "Выкл"

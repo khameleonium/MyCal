@@ -90,11 +90,11 @@ func TestParseTime(t *testing.T) {
 
 func TestParseDateTime(t *testing.T) {
 	tests := []struct {
-		name       string
-		input      string
-		wantDate   string
-		wantTime   string
-		wantErr    bool
+		name     string
+		input    string
+		wantDate string
+		wantTime string
+		wantErr  bool
 	}{
 		{"DD-MM-YYYY HH:MM", "29-12-2025 10:51", "2025-12-29", "10:51", false},
 		{"YYYY-MM-DD HH:MM", "2025-12-29 10:51", "2025-12-29", "10:51", false},

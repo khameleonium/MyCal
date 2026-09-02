@@ -15,21 +15,21 @@ const (
 
 // DateCheckMode constants.
 const (
-	DateCheckOff  = ""
-	DateCheckAsk  = "ask"
-	DateCheckFix  = "fix"
+	DateCheckOff   = ""
+	DateCheckAsk   = "ask"
+	DateCheckFix   = "fix"
 	DateCheckReask = "reask"
 )
 
 // Config represents the config_mycal.json file structure.
 type Config struct {
-	DefaultDuration int    `json:"default_duration"`
-	DefaultType     string `json:"default_type"`
-	DataPath        string `json:"data_path"`
-	SplitMode       string `json:"split_mode"`
-	DataFileName    string `json:"data_file_name"`
-	DateCheckMode   string `json:"date_check_mode"`
-	UseSystemDate   bool   `json:"use_system_date"`
+	DefaultDuration int      `json:"default_duration"`
+	DefaultType     string   `json:"default_type"`
+	DataPath        string   `json:"data_path"`
+	SplitMode       string   `json:"split_mode"`
+	DataFileName    string   `json:"data_file_name"`
+	DateCheckMode   string   `json:"date_check_mode"`
+	UseSystemDate   bool     `json:"use_system_date"`
 	CustomDate      string   `json:"custom_date"`
 	CustomStatuses  []string `json:"custom_statuses"`
 	CustomNames     []string `json:"custom_names"`
@@ -39,12 +39,12 @@ type Config struct {
 // UnmarshalJSON implements custom unmarshalling with defaults.
 func (c *Config) UnmarshalJSON(data []byte) error {
 	type rawConfig struct {
-		DefaultDuration int    `json:"default_duration"`
-		DefaultType     string `json:"default_type"`
-		DataPath        string `json:"data_path"`
-		SplitMode       string `json:"split_mode"`
-		DataFileName    string `json:"data_file_name"`
-		DateCheckMode   string `json:"date_check_mode"`
+		DefaultDuration int      `json:"default_duration"`
+		DefaultType     string   `json:"default_type"`
+		DataPath        string   `json:"data_path"`
+		SplitMode       string   `json:"split_mode"`
+		DataFileName    string   `json:"data_file_name"`
+		DateCheckMode   string   `json:"date_check_mode"`
 		UseSystemDate   *bool    `json:"use_system_date"`
 		CustomDate      string   `json:"custom_date"`
 		CustomStatuses  []string `json:"custom_statuses"`
@@ -105,13 +105,13 @@ type DateEntry struct {
 
 // Session represents a single calendar entry.
 type Session struct {
-	ID       string `json:"id"`
-	Time     string `json:"time"`
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	Duration int    `json:"duration"`
-	Notes    string `json:"notes"`
-	Status   string `json:"status"`
+	ID         string `json:"id"`
+	Time       string `json:"time"`
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	Duration   int    `json:"duration"`
+	Notes      string `json:"notes"`
+	Status     string `json:"status"`
 	IsRepeat   bool   `json:"-"`
 	OriginalID string `json:"-"`
 }

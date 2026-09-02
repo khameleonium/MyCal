@@ -2,9 +2,9 @@ package menu
 
 import (
 	"fmt"
-	"strings"
 	"mycalendar/color"
 	"mycalendar/parser"
+	"strings"
 )
 
 // ViewByArgs handles 'mycal view [period]'
@@ -20,13 +20,13 @@ func (a *App) ViewByArgs(args []string) {
 		fmt.Println(color.Red(errMark + " Неверный формат периода: " + arg))
 		return
 	}
-	
+
 	entries := a.svc.FindByPeriod(start, end)
 	if len(entries) == 0 {
 		fmt.Println(color.Yellow(warnMark + " Записей не найдено за указанный период"))
 		return
 	}
-	
+
 	allSessions := a.printEntries(entries)
 	hours := 0.0
 	totalSessions := 0
@@ -36,7 +36,7 @@ func (a *App) ViewByArgs(args []string) {
 			hours += float64(s.Duration) / 60.0
 		}
 	}
-	
+
 	fmt.Printf("\nОбщее время: %s | Всего записей: %s\n", color.Orange(fmt.Sprintf("%.1f ч", hours)), color.Green(fmt.Sprintf("%d", totalSessions)))
 	a.printStats(allSessions)
 	a.detailLoop(allSessions, "Номер или ID для подробностей (Enter — назад) > ")
@@ -48,16 +48,16 @@ func (a *App) DeleteByArgs(args []string) {
 		a.deleteEntry()
 		return
 	}
-	
+
 	arg := strings.Join(args, " ")
-	
+
 	// First check if it's an ID
 	sessions := a.svc.FindByID(arg)
 	if len(sessions) > 0 {
 		a.doDelete(arg)
 		return
 	}
-	
+
 	// If not ID, try as period
 	start, end, err := parser.ParsePeriod(arg)
 	if err == nil {
@@ -66,7 +66,7 @@ func (a *App) DeleteByArgs(args []string) {
 		a.deletePeriod(entries, start, end, label)
 		return
 	}
-	
+
 	fmt.Println(color.Red(errMark + " Неверный формат периода или ID не найден: " + arg))
 }
 
@@ -83,13 +83,13 @@ func (a *App) ExportByArgs(args []string) {
 		fmt.Println(color.Red(errMark + " Неверный формат периода: " + arg))
 		return
 	}
-	
+
 	entries := a.svc.FindByPeriod(start, end)
 	if len(entries) == 0 {
 		fmt.Println(color.Yellow(warnMark + " Нет записей для экспорта"))
 		return
 	}
-	
+
 	a.exportEntries(entries)
 }
 
@@ -99,7 +99,7 @@ func (a *App) AddByArgs(args []string) {
 		a.AddEntryQuick()
 		return
 	}
-	
+
 	// For now, if arguments are passed, try to parse the first argument as date
 	// and interactive for the rest.
 	dateStr := args[0]
@@ -109,16 +109,16 @@ func (a *App) AddByArgs(args []string) {
 		a.AddEntryQuick()
 		return
 	}
-	
+
 	// Predetermine custom date for adding just this time
 	oldMode := a.cfg.UseSystemDate
 	oldCustom := a.cfg.CustomDate
-	
+
 	a.cfg.UseSystemDate = false
 	a.cfg.CustomDate = parsedDate.Format("2006-01-02")
-	
+
 	a.AddEntryQuick()
-	
+
 	// Restore
 	a.cfg.UseSystemDate = oldMode
 	a.cfg.CustomDate = oldCustom
