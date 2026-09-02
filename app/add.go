@@ -61,7 +61,7 @@ func (a *App) addOne(presetDate *time.Time) bool {
 	if name == "" {
 		return false
 	}
-	typ, ok := a.askType()
+	typ, ok := a.askType("")
 	if !ok {
 		return false
 	}
@@ -74,7 +74,7 @@ func (a *App) addOne(presetDate *time.Time) bool {
 		fmt.Println(color.Yellow(warnMark + " Добавление отменено"))
 		return false
 	}
-	status, ok := a.askStatus()
+	status, ok := a.askStatus("")
 	if !ok {
 		fmt.Println(color.Yellow(warnMark + " Добавление отменено"))
 		return false

@@ -4,7 +4,9 @@ package app
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 	"time"
@@ -190,4 +192,21 @@ func isYes(s string) bool {
 func isCancel(s string) bool {
 	t := strings.TrimSpace(strings.ToLower(s))
 	return t == "0" || t == "отмена"
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// explainFS turns a filesystem error into a short Russian phrase.
+func explainFS(err error) string {
+	switch {
+	case errors.Is(err, fs.ErrPermission):
+		return "нет прав доступа"
+	case errors.Is(err, fs.ErrNotExist):
+		return "путь не найден"
+	default:
+		return err.Error()
+	}
 }

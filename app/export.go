@@ -57,12 +57,15 @@ func (a *App) exportCSV(sessions []models.Session) {
 		fmt.Println(color.Yellow(warnMark + " Нет записей для экспорта"))
 		return
 	}
-	name := fmt.Sprintf("export_%s.csv", time.Now().Format("20060102_150405"))
-	path := filepath.Join(a.svc.DataDir(), name)
+	stamp := time.Now().Format("20060102_150405")
+	path := filepath.Join(a.svc.DataDir(), "export_"+stamp+".csv")
+	for i := 2; fileExists(path); i++ {
+		path = filepath.Join(a.svc.DataDir(), fmt.Sprintf("export_%s_%d.csv", stamp, i))
+	}
 
 	f, err := os.Create(path)
 	if err != nil {
-		fmt.Println(color.Red(errMark + " Не удалось создать файл: " + err.Error()))
+		fmt.Println(color.Red(errMark + " Не удалось создать файл: " + explainFS(err)))
 		return
 	}
 	defer f.Close()

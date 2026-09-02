@@ -99,14 +99,19 @@ func (a *App) trackNameFrequency(name string) {
 }
 
 // askType shows the type pick-list (defaults + used types + manual entry).
-func (a *App) askType() (string, bool) {
-	types := a.svc.Types(a.cfg.DefaultType)
+// If current != "" an empty reply keeps it; otherwise an empty reply picks the
+// configured default type.
+func (a *App) askType(current string) (string, bool) {
+	types := a.svc.Types(a.cfg.DefaultType, current)
 	fmt.Println()
 	fmt.Println(color.Yellow("Тип записи:"))
 	for i, t := range types {
 		fmt.Printf("  %d. %s\n", i+1, t)
 	}
 	fmt.Printf("  %d. Ручной ввод\n", len(types)+1)
+	if current != "" {
+		fmt.Println("  Enter — оставить: " + color.Green(current))
+	}
 
 	defaultIdx := 1
 	for i, t := range types {
@@ -123,6 +128,9 @@ func (a *App) askType() (string, bool) {
 			return "", false
 		}
 		if input == "" {
+			if current != "" {
+				return current, true
+			}
 			return types[defaultIdx-1], true
 		}
 		idx, err := strconv.Atoi(input)
@@ -136,6 +144,9 @@ func (a *App) askType() (string, bool) {
 				return "", false
 			}
 			if custom == "" {
+				if current != "" {
+					return current, true
+				}
 				return types[defaultIdx-1], true
 			}
 			return custom, true
@@ -144,8 +155,9 @@ func (a *App) askType() (string, bool) {
 	}
 }
 
-// askStatus shows the status pick-list; index 0 / empty means no status.
-func (a *App) askStatus() (string, bool) {
+// askStatus shows the status pick-list. "0" always means "<empty>". If
+// current != "" an empty reply keeps it; otherwise an empty reply means empty.
+func (a *App) askStatus(current string) (string, bool) {
 	statuses := a.svc.Statuses(a.cfg.CustomStatuses...)
 
 	fmt.Println()
@@ -155,13 +167,18 @@ func (a *App) askStatus() (string, bool) {
 		fmt.Printf("  %d. %s\n", i+1, st)
 	}
 	fmt.Printf("  %d. Ручной ввод\n", len(statuses)+1)
+	if current != "" {
+		fmt.Println("  Enter — оставить: " + color.Green(current))
+	}
 
 	for {
 		fmt.Print("> ")
 		input := a.line()
-		// Here "0" (and Enter) means "no status", not "cancel".
-		if input == "" || input == "0" {
-			return "", true
+		if input == "0" {
+			return "", true // explicit clear
+		}
+		if input == "" {
+			return current, true // keep (== "" when there is nothing to keep)
 		}
 		if a.stdinClosed || strings.EqualFold(strings.TrimSpace(input), "отмена") {
 			return "", false
@@ -177,7 +194,7 @@ func (a *App) askStatus() (string, bool) {
 				return "", false
 			}
 			if custom == "" {
-				return "", true
+				return current, true
 			}
 			if a.confirm(color.Yellow(askMark + " Добавить в список?")) {
 				a.cfg.CustomStatuses = append(a.cfg.CustomStatuses, custom)
