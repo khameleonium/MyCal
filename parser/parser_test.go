@@ -98,6 +98,58 @@ func TestParseTime(t *testing.T) {
 	}
 }
 
+func TestParseDateLenientRollover(t *testing.T) {
+	ref := time.Date(2026, 3, 3, 0, 0, 0, 0, time.UTC)
+	cases := map[string]string{
+		"32.01.2026": "2026-02-01", // day rolls
+		"31.04.2026": "2026-05-01", // April has 30 days
+		"29.02.2025": "2025-03-01", // 2025 is not a leap year
+		"13.01.2026": "2026-01-13", // ordinary
+		"00.01.2026": "",           // day 0 -> reject
+		"1.13.2026":  "2027-01-01", // month 13 rolls to next year
+	}
+	for in, want := range cases {
+		got, err := ParseDate(in, ref)
+		if want == "" {
+			if err == nil {
+				t.Errorf("%q: expected error, got %s", in, got.Format("2006-01-02"))
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%q: unexpected error %v", in, err)
+			continue
+		}
+		if got.Format("2006-01-02") != want {
+			t.Errorf("%q: got %s, want %s", in, got.Format("2006-01-02"), want)
+		}
+	}
+}
+
+func TestValidateDate(t *testing.T) {
+	ref := time.Date(2026, 3, 3, 0, 0, 0, 0, time.UTC)
+	genuine := []string{"15.06.2026", "2026-06-15", "01.01.2026", "29.02.2024"}
+	rolled := []string{"32.01.2026", "31.04.2026", "29.02.2025", "1.13.2026"}
+	for _, s := range genuine {
+		d, err := ParseDate(s, ref)
+		if err != nil {
+			t.Fatalf("%q parse: %v", s, err)
+		}
+		if !ValidateDate(s, d) {
+			t.Errorf("%q should validate as genuine", s)
+		}
+	}
+	for _, s := range rolled {
+		d, err := ParseDate(s, ref)
+		if err != nil {
+			t.Fatalf("%q parse: %v", s, err)
+		}
+		if ValidateDate(s, d) {
+			t.Errorf("%q should NOT validate (it rolled over)", s)
+		}
+	}
+}
+
 func TestParseDateTime(t *testing.T) {
 	tests := []struct {
 		name     string

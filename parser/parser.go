@@ -12,39 +12,68 @@ import (
 // ErrEmptyTime is returned when the user leaves the time input blank.
 var ErrEmptyTime = errors.New("пустое время")
 
-var dateFormats = []string{
-	"02-01-2006",
-	"02.01.2006",
-	"2006-01-02",
-}
-
-// ParseDate parses a date string in various formats.
-// Supported: DD-MM-YYYY, DD.MM.YYYY, YYYY-MM-DD, DD MM YYYY.
-// Empty input returns the provided defaultDate.
+// ParseDate parses a date, leniently. Supported shapes (any separator run of
+// . - / \ or spaces): DD-MM-YYYY, YYYY-MM-DD, DD-MM (year from defaultDate).
+//
+// Out-of-range parts roll over the way a person expects: "32.01.2026" ->
+// 01.02.2026, "13.2026" is not a date but "13" as a month rolls to next year.
+// Empty input returns defaultDate. Use ParseDateStrict / ValidateDate to tell
+// whether the input was a real calendar date as typed.
 func ParseDate(input string, defaultDate time.Time) (time.Time, error) {
 	input = strings.TrimSpace(input)
 	if input == "" {
 		return defaultDate, nil
 	}
 
-	normalized := normalizeSeparators(input)
+	loc := time.Local
+	refYear := time.Now().Year()
+	if !defaultDate.IsZero() {
+		loc = defaultDate.Location()
+		refYear = defaultDate.Year()
+	}
 
-	for _, layout := range dateFormats {
+	tokens := strings.Split(normalizeSeparators(input), "-")
+	nums := make([]int, 0, len(tokens))
+	for _, tok := range tokens {
+		n, err := strconv.Atoi(tok)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("не удалось распознать дату: %s", input)
+		}
+		nums = append(nums, n)
+	}
+
+	var y, m, d int
+	switch len(nums) {
+	case 3:
+		if len(tokens[0]) == 4 { // YYYY-MM-DD
+			y, m, d = nums[0], nums[1], nums[2]
+		} else { // DD-MM-YYYY
+			d, m, y = nums[0], nums[1], nums[2]
+		}
+	case 2: // DD-MM, year from the reference date
+		d, m, y = nums[0], nums[1], refYear
+	default:
+		return time.Time{}, fmt.Errorf("не удалось распознать дату: %s", input)
+	}
+
+	// Bounds loose enough to allow a deliberate roll-over, tight enough to
+	// reject noise.
+	if y < 1 || y > 9999 || m < 1 || m > 99 || d < 1 || d > 99 {
+		return time.Time{}, fmt.Errorf("не удалось распознать дату: %s", input)
+	}
+	return time.Date(y, time.Month(m), d, 0, 0, 0, 0, loc), nil
+}
+
+// ParseDateStrict parses only a genuine calendar date exactly as written
+// (DD-MM-YYYY, YYYY-MM-DD, or DD-MM with no year). It errors on anything that
+// would have to roll over (e.g. day 32, month 13, 29 Feb in a common year).
+func ParseDateStrict(input string) (time.Time, error) {
+	normalized := normalizeSeparators(strings.TrimSpace(input))
+	for _, layout := range []string{"02-01-2006", "2006-01-02", "02-01"} {
 		if t, err := time.Parse(layout, normalized); err == nil {
 			return t, nil
 		}
 	}
-
-	// Day-month without a year is resolved against the reference date's year
-	// (falling back to the current year when no reference is given).
-	if t, err := time.Parse("02-01", normalized); err == nil {
-		ref := defaultDate
-		if ref.IsZero() {
-			ref = time.Now()
-		}
-		return time.Date(ref.Year(), t.Month(), t.Day(), 0, 0, 0, 0, ref.Location()), nil
-	}
-
 	return time.Time{}, fmt.Errorf("не удалось распознать дату: %s", input)
 }
 
@@ -152,23 +181,19 @@ func FormatTime(t time.Time) string {
 	return t.Format("15:04")
 }
 
-// IsDateNormalized checks whether the normalized input string was unchanged
-// by Go's time normalization (e.g. "55-30-2025" → "25-07-2027" is NOT normalized).
-func IsDateNormalized(normalizedInput string, t time.Time) bool {
-	if t.Format("02-01-2006") == normalizedInput {
-		return true
-	}
-	if t.Format("02-01") == normalizedInput {
-		return true
-	}
-	return false
-}
-
-// ValidateDate checks whether the raw input was silently normalized by time.Parse.
-// Returns true if the date is valid as-is.
+// ValidateDate reports whether rawInput is a genuine calendar date as typed
+// (i.e. ParseDate did not have to roll any part over). parsed is accepted for
+// call-site symmetry but not required.
 func ValidateDate(rawInput string, parsed time.Time) bool {
-	normalized := normalizeSeparators(rawInput)
-	return IsDateNormalized(normalized, parsed)
+	strict, err := ParseDateStrict(rawInput)
+	if err != nil {
+		return false
+	}
+	// For the year-less form, only day and month are meaningful.
+	if len(strings.Split(normalizeSeparators(rawInput), "-")) == 2 {
+		return strict.Day() == parsed.Day() && strict.Month() == parsed.Month()
+	}
+	return strict.Equal(time.Date(parsed.Year(), parsed.Month(), parsed.Day(), 0, 0, 0, 0, strict.Location()))
 }
 
 // sepRegexp matches any run of date separators (dot, dash, slash, backslash,

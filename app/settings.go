@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"mycalendar/color"
 	"mycalendar/config"
@@ -12,6 +13,8 @@ import (
 
 func (a *App) settingsMenu() {
 	startMode := a.cfg.SplitMode
+	startName := a.cfg.DataFileName
+	startPath := a.cfg.DataPath
 	for {
 		fmt.Println()
 		fmt.Println(color.Yellow(hdrSep + " Настройки " + hdrSep))
@@ -34,8 +37,13 @@ func (a *App) settingsMenu() {
 		case match(choice, "1", "m"):
 			a.cfg.SplitMode = nextInCycle([]string{models.SplitNone, models.SplitYear, models.SplitMonth}, a.cfg.SplitMode)
 		case match(choice, "2", "n"):
-			if v := a.dialog(fmt.Sprintf("Имя файла данных [%s]:", a.cfg.DataFileName), "0 — отмена"); v != "" && !isCancel(v) {
-				a.cfg.DataFileName = v
+			if v := a.dialog(fmt.Sprintf("Имя файла данных [%s]:", a.cfg.DataFileName),
+				"без расширения и путей; 0 — отмена"); v != "" && !isCancel(v) {
+				if clean := sanitizeBaseName(v); clean == "" {
+					fmt.Println(color.Yellow(warnMark + " Недопустимое имя файла"))
+				} else {
+					a.cfg.DataFileName = clean
+				}
 			}
 		case match(choice, "3", "l"):
 			if v := a.dialog(fmt.Sprintf("Продолжительность по умолчанию (мин) [%d]:", a.cfg.DefaultDuration), "0 — отмена"); v != "" && !isCancel(v) {
@@ -62,7 +70,7 @@ func (a *App) settingsMenu() {
 		case match(choice, "9", "i"):
 			a.cfg.SilentAddNames = !a.cfg.SilentAddNames
 		case match(choice, "0", "q"):
-			a.persistSettings(startMode)
+			a.persistSettings(startMode, startName, startPath)
 			return
 		default:
 			fmt.Println(color.Red(errMark + " Некорректный выбор (0–9)"))
@@ -70,21 +78,56 @@ func (a *App) settingsMenu() {
 	}
 }
 
-// persistSettings writes the config and, if the split mode changed, re-persists
-// the calendar in the new mode (storage.Save removes files from the old mode).
-func (a *App) persistSettings(startMode string) {
-	if a.cfg.SplitMode != startMode {
-		fmt.Println(color.Yellow(warnMark + " Режим хранения изменён — данные перезаписываются в новом формате."))
+// persistSettings writes the config and migrates data on disk when the split
+// mode or the data file name changed. A data-path change only takes effect on
+// the next launch (files are not moved between directories).
+func (a *App) persistSettings(startMode, startName, startPath string) {
+	modeChanged := a.cfg.SplitMode != startMode
+	nameChanged := a.cfg.DataFileName != startName
+
+	if modeChanged || nameChanged {
+		switch {
+		case modeChanged && nameChanged:
+			fmt.Println(color.Yellow(warnMark + " Режим хранения и имя файла изменены — данные перенесены."))
+		case modeChanged:
+			fmt.Println(color.Yellow(warnMark + " Режим хранения изменён — данные перезаписаны в новом формате."))
+		case nameChanged:
+			fmt.Println(color.Yellow(warnMark + " Имя файла данных изменено — данные перенесены."))
+		}
 		a.svc.SetMode(a.cfg.SplitMode)
+		a.svc.SetBaseName(a.cfg.DataFileName)
 		if a.save() != nil {
 			return
 		}
+		if nameChanged {
+			a.svc.RemoveDataFiles(startName)
+		}
 	}
+
+	if a.cfg.DataPath != startPath {
+		fmt.Println(color.Yellow(warnMark + " Путь к данным изменён — вступит в силу после перезапуска (файлы не переносятся автоматически)."))
+	}
+
 	if err := config.Save(a.ctx, a.cfgPath, a.cfg); err != nil {
 		fmt.Println(color.Red(errMark + " Не удалось сохранить настройки: " + err.Error()))
 		return
 	}
 	fmt.Println(color.Green(okMark + " Настройки сохранены"))
+}
+
+// sanitizeBaseName strips any directory part and extension so the data file
+// name stays a plain base name in the data directory.
+func sanitizeBaseName(v string) string {
+	v = strings.TrimSpace(v)
+	v = strings.ReplaceAll(v, "\\", "/")
+	if i := strings.LastIndexByte(v, '/'); i >= 0 {
+		v = v[i+1:]
+	}
+	v = strings.TrimSuffix(v, ".json")
+	if v == "" || v == "." || v == ".." || strings.ContainsAny(v, `:*?"<>|`) {
+		return ""
+	}
+	return v
 }
 
 func (a *App) dateSettings() {

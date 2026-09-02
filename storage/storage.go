@@ -262,6 +262,14 @@ func removeFiles(paths []string) {
 	}
 }
 
+// RemoveDataFiles deletes every data file (and its .bak) for baseName in dir,
+// across all split-mode layouts. Used when the data file name changes.
+func RemoveDataFiles(dir, baseName string) {
+	removeFiles([]string{filepath.Join(dir, baseName+".json")})
+	removeFiles(globFiles(dir, "????_"+baseName+".json"))
+	removeFiles(globFiles(dir, "????-??_"+baseName+".json"))
+}
+
 // SortSessions orders sessions by date then time then ID (stable, total order).
 func SortSessions(sessions []models.Session) {
 	sort.Slice(sessions, func(i, j int) bool {

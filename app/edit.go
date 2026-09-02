@@ -67,7 +67,7 @@ func (a *App) editSession(id string) {
 			patch.Name = &name
 		}
 	case "2":
-		if t, ok := a.askType(); set(ok) {
+		if t, ok := a.askType(session.Type); set(ok) && t != session.Type {
 			patch.Type = &t
 		}
 	case "3":
@@ -86,7 +86,7 @@ func (a *App) editSession(id string) {
 			patch.Notes = &v
 		}
 	case "6":
-		if st, ok := a.askStatus(); set(ok) {
+		if st, ok := a.askStatus(session.Status); set(ok) && st != session.Status {
 			patch.Status = &st
 		}
 	case "7":
@@ -142,11 +142,11 @@ func (a *App) fullEdit(s models.Session, patch *calendar.Patch, cancelled *bool)
 		patch.Name = &name
 	}
 
-	if v := a.dialog("Тип ["+s.Type+"]:", "Enter — без изменений, 0 — отмена"); isCancel(v) {
+	if t, ok := a.askType(s.Type); !ok {
 		*cancelled = true
 		return
-	} else if v != "" {
-		patch.Type = &v
+	} else if t != s.Type {
+		patch.Type = &t
 	}
 
 	if d, okd, changed := a.askDurationChange(s.Duration); !okd {
@@ -163,11 +163,11 @@ func (a *App) fullEdit(s models.Session, patch *calendar.Patch, cancelled *bool)
 		patch.Notes = &v
 	}
 
-	if v := a.dialog("Статус ["+s.Status+"]:", "Enter — без изменений, 0 — отмена"); isCancel(v) {
+	if st, ok := a.askStatus(s.Status); !ok {
 		*cancelled = true
 		return
-	} else if v != "" {
-		patch.Status = &v
+	} else if st != s.Status {
+		patch.Status = &st
 	}
 }
 

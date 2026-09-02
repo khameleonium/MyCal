@@ -58,10 +58,18 @@ func (s *Service) Save(ctx context.Context) error {
 	return storage.Save(ctx, s.dir, s.baseName, &models.Calendar{Sessions: s.sessions}, s.mode)
 }
 
-func (s *Service) Mode() string        { return s.mode }
-func (s *Service) DataDir() string     { return s.dir }
-func (s *Service) SetMode(mode string) { s.mode = mode }
-func (s *Service) Count() int          { return len(s.sessions) }
+func (s *Service) Mode() string            { return s.mode }
+func (s *Service) DataDir() string         { return s.dir }
+func (s *Service) BaseName() string        { return s.baseName }
+func (s *Service) SetMode(mode string)     { s.mode = mode }
+func (s *Service) SetBaseName(name string) { s.baseName = name }
+func (s *Service) Count() int              { return len(s.sessions) }
+
+// RemoveDataFiles deletes on-disk files for a (now unused) base name in the
+// data directory, in every split-mode layout.
+func (s *Service) RemoveDataFiles(baseName string) {
+	storage.RemoveDataFiles(s.dir, baseName)
+}
 
 // ---------------------------------------------------------------- queries ----
 
