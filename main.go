@@ -4,87 +4,73 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
 
+	"mycalendar/app"
 	"mycalendar/calendar"
 	"mycalendar/config"
-	"mycalendar/menu"
-	"mycalendar/models"
 )
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// SIGINT/SIGTERM cancels the context so an in-flight disk write can abort
+	// cleanly instead of leaving a half-written file.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
 
+	if err := run(ctx); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+func run(ctx context.Context) error {
 	cfgPath := config.ResolveConfigPath()
 	cfg, err := config.Load(ctx, cfgPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Ошибка загрузки конфигурации: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("загрузка конфигурации: %w", err)
 	}
 
+	// Migrate a legacy config file name to the canonical one.
 	if cfgPath != config.ConfigFile {
-		cfgPath = config.ConfigFile
-		if err := config.Save(ctx, cfgPath, cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "Ошибка создания %s: %v\n", config.ConfigFile, err)
+		if err := config.Save(ctx, config.ConfigFile, cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "предупреждение: не удалось создать %s: %v\n", config.ConfigFile, err)
+		} else {
+			_ = os.Remove(cfgPath)
+			cfgPath = config.ConfigFile
 		}
 	}
 
-	dataDir := resolveDataDir(cfg.DataPath)
+	dataDir, err := resolveDataDir(cfg.DataPath)
+	if err != nil {
+		return err
+	}
+
 	svc, err := calendar.NewService(ctx, dataDir, cfg.DataFileName, cfg.SplitMode)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Ошибка загрузки календаря: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("загрузка календаря: %w", err)
 	}
+
+	application := app.NewApp(ctx, svc, cfg, cfgPath)
 
 	if len(os.Args) > 1 {
-		handleCommand(svc, cfg)
-		return
+		if !application.RunCLI(os.Args[1], os.Args[2:]) {
+			os.Exit(1)
+		}
+		return nil
 	}
 
-	app := menu.NewApp(svc, cfg, cfgPath)
-	app.CheckIntegrity()
-	app.Run()
+	application.Start()
+	return nil
 }
 
-func resolveDataDir(dataPath string) string {
+func resolveDataDir(dataPath string) (string, error) {
 	dataPath = strings.TrimSpace(dataPath)
 	if dataPath == "" || dataPath == "." {
-		return "."
+		return ".", nil
 	}
-	if err := os.MkdirAll(dataPath, 0755); err != nil {
-		fmt.Fprintf(os.Stderr, "Ошибка создания каталога данных: %v\n", err)
-		os.Exit(1)
+	if err := os.MkdirAll(dataPath, 0o755); err != nil {
+		return "", fmt.Errorf("создание каталога данных: %w", err)
 	}
-	return dataPath
-}
-
-func handleCommand(svc *calendar.Service, cfg *models.Config) {
-	app := menu.NewApp(svc, cfg, config.ResolveConfigPath())
-
-	cmd := strings.ToLower(os.Args[1])
-	args := os.Args[2:]
-
-	switch cmd {
-	case "add", "a":
-		app.AddByArgs(args)
-	case "view", "v":
-		app.ViewByArgs(args)
-	case "delete", "d":
-		app.DeleteByArgs(args)
-	case "export", "e":
-		app.ExportByArgs(args)
-	case "today", "t":
-		app.TodayView()
-	case "week", "w":
-		app.WeekView()
-	case "month", "m":
-		app.MonthView()
-	case "help", "-h", "--help":
-		menu.PrintHelp()
-	default:
-		fmt.Fprintf(os.Stderr, "Неизвестная команда: %s\n", cmd)
-		menu.PrintHelp()
-		os.Exit(1)
-	}
+	return dataPath, nil
 }

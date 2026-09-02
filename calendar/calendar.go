@@ -44,6 +44,9 @@ func (s *Service) Save(ctx context.Context) error {
 // Mode returns the current split mode.
 func (s *Service) Mode() string { return s.mode }
 
+// DataDir returns the directory calendar files are stored in.
+func (s *Service) DataDir() string { return s.dir }
+
 // UpdateMode changes the split mode. The caller must call Save afterwards.
 func (s *Service) UpdateMode(mode string) { s.mode = mode }
 
@@ -156,6 +159,20 @@ func (s *Service) FindByDate(date string) *models.DateEntry {
 // FindByDateTime returns all sessions at a given date and time.
 func (s *Service) FindByDateTime(date, tm string) []models.Session {
 	return s.FindConflicts(date, tm)
+}
+
+// SessionsOn returns every hydrated session on the given YYYY-MM-DD date.
+func (s *Service) SessionsOn(date string) []models.Session {
+	de := s.FindByDate(date)
+	if de == nil {
+		return nil
+	}
+	originals := s.seriesOriginals()
+	out := make([]models.Session, len(de.Sessions))
+	for i, sess := range de.Sessions {
+		out[i] = hydrateWith(sess, originals)
+	}
+	return out
 }
 
 // FindByPeriod returns hydrated DateEntries whose dates fall within [start, end].

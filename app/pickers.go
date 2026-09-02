@@ -1,0 +1,196 @@
+package app
+
+import (
+	"fmt"
+	"slices"
+	"strconv"
+	"strings"
+
+	"mycalendar/color"
+	"mycalendar/config"
+)
+
+// askName prompts for a mandatory entry name, offering the frequent-names
+// picker via "/". Returns "" if cancelled or stdin closes.
+func (a *App) askName(title, current string) string {
+	hasFreq := len(a.cfg.CustomNames) > 0
+	for {
+		fmt.Println(title)
+		switch {
+		case hasFreq && current != "":
+			fmt.Println("Enter — без изменений, 0 — отмена, '/' — выбрать из частых имён")
+		case hasFreq:
+			fmt.Println("Введите текст, 0 — отмена, или '/' — выбрать из частых имён")
+		case current != "":
+			fmt.Println("Enter — без изменений, 0 — отмена")
+		default:
+			fmt.Println("Обязательное поле; 0 — отмена")
+		}
+		fmt.Print("> ")
+		input := a.line()
+
+		if a.stdinClosed || isCancelled(input) {
+			return ""
+		}
+		if input == "" {
+			if current != "" {
+				return current // unchanged
+			}
+			fmt.Println(color.Yellow(warnMark + " Поле не может быть пустым"))
+			continue
+		}
+		if input == "/" && hasFreq {
+			if picked := a.pickFrequentName(); picked != "" {
+				return picked
+			}
+			continue
+		}
+		a.trackNameFrequency(input)
+		return input
+	}
+}
+
+func (a *App) pickFrequentName() string {
+	fmt.Println(color.Yellow("\n  Частые имена:"))
+	for i, cn := range a.cfg.CustomNames {
+		fmt.Printf("  %d. %s\n", i+1, cn)
+	}
+	idxStr := a.dialogPrompt("", "Выберите номер (0 — отмена)")
+	if isCancelled(idxStr) {
+		return ""
+	}
+	idx, err := strconv.Atoi(idxStr)
+	if err != nil || idx < 1 || idx > len(a.cfg.CustomNames) {
+		fmt.Println(color.Red(errMark + " Неверный выбор"))
+		return ""
+	}
+	return a.cfg.CustomNames[idx-1]
+}
+
+// trackNameFrequency promotes a name to CustomNames once it has been used
+// three or more times (counting this use).
+func (a *App) trackNameFrequency(name string) {
+	for _, cn := range a.cfg.CustomNames {
+		if strings.EqualFold(cn, name) {
+			return
+		}
+	}
+	count := 1
+	for _, de := range a.svc.GetAllEntries() {
+		for _, s := range de.Sessions {
+			if strings.EqualFold(s.Name, name) {
+				count++
+			}
+		}
+	}
+	if count < 3 {
+		return
+	}
+	add := a.cfg.SilentAddNames ||
+		a.confirm(fmt.Sprintf("Имя \"%s\" часто используется. Добавить в список для быстрого выбора?", name))
+	if !add {
+		return
+	}
+	a.cfg.CustomNames = append(a.cfg.CustomNames, name)
+	if err := config.Save(a.ctx, a.cfgPath, a.cfg); err != nil {
+		fmt.Println(color.Red(errMark + " Ошибка сохранения настроек: " + err.Error()))
+		return
+	}
+	if !a.cfg.SilentAddNames {
+		fmt.Println(color.Green(okMark + " Добавлено"))
+	}
+}
+
+// askType shows the type pick-list (defaults + used types + manual entry).
+func (a *App) askType() (string, bool) {
+	types := a.svc.AllTypes()
+	fmt.Println()
+	fmt.Println(color.Yellow("Тип записи:"))
+	for i, t := range types {
+		fmt.Printf("  %d. %s\n", i+1, t)
+	}
+	fmt.Printf("  %d. Ручной ввод\n", len(types)+1)
+
+	defaultIdx := 1
+	for i, t := range types {
+		if strings.EqualFold(t, a.cfg.DefaultType) {
+			defaultIdx = i + 1
+			break
+		}
+	}
+
+	for {
+		fmt.Print("> ")
+		input := a.line()
+		if a.stdinClosed || isCancelled(input) {
+			return "", false
+		}
+		if input == "" {
+			return types[defaultIdx-1], true
+		}
+		idx, err := strconv.Atoi(input)
+		if err != nil || idx < 1 || idx > len(types)+1 {
+			fmt.Println(color.Yellow(warnMark + " Введите номер из списка"))
+			continue
+		}
+		if idx == len(types)+1 {
+			custom := a.dialogPrompt("Название нового типа:", "0 — отмена")
+			if isCancelled(custom) {
+				return "", false
+			}
+			if custom == "" {
+				return types[defaultIdx-1], true
+			}
+			return custom, true
+		}
+		return types[idx-1], true
+	}
+}
+
+// askStatus shows the status pick-list; index 0 / empty means no status.
+func (a *App) askStatus() (string, bool) {
+	statuses := a.svc.AllStatuses()
+	for _, st := range a.cfg.CustomStatuses {
+		if st != "" && !slices.Contains(statuses, st) {
+			statuses = append(statuses, st)
+		}
+	}
+
+	fmt.Println()
+	fmt.Println(color.Yellow("Статус:"))
+	fmt.Println("  0. <пусто>")
+	for i, st := range statuses {
+		fmt.Printf("  %d. %s\n", i+1, st)
+	}
+	fmt.Printf("  %d. Ручной ввод\n", len(statuses)+1)
+
+	for {
+		fmt.Print("> ")
+		input := a.line()
+		if a.stdinClosed || isCancelled(input) {
+			return "", false
+		}
+		if input == "" || input == "0" {
+			return "", true
+		}
+		idx, err := strconv.Atoi(input)
+		if err != nil || idx < 1 || idx > len(statuses)+1 {
+			fmt.Println(color.Yellow(warnMark + " Введите номер из списка"))
+			continue
+		}
+		if idx == len(statuses)+1 {
+			custom := a.dialogPrompt("Название статуса:", "0 — отмена")
+			if isCancelled(custom) {
+				return "", false
+			}
+			if custom == "" {
+				return "", true
+			}
+			if a.confirm(color.Yellow(askMark + " Добавить в список?")) {
+				a.cfg.CustomStatuses = append(a.cfg.CustomStatuses, custom)
+			}
+			return custom, true
+		}
+		return statuses[idx-1], true
+	}
+}
