@@ -48,36 +48,73 @@ func ParseDate(input string, defaultDate time.Time) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("не удалось распознать дату: %s", input)
 }
 
-// ParseTime parses a time string in various formats.
-// Supported: HH:MM, HH MM, HH.MM, HH-MM.
-// Empty input returns ErrEmptyTime.
+// ParseTime parses a wall-clock time, leniently. Accepted forms:
+//
+//	"9"      -> 09:00        "24"     -> 00:00
+//	"930"    -> 09:30        "1430"   -> 14:30
+//	"9:5"    -> 09:05        "14:30"  -> 14:30
+//	"14.30", "14-30", "14 30" (any separator run)
+//
+// Empty input returns ErrEmptyTime; anything out of range 00:00–23:59 is an error.
 func ParseTime(input string) (time.Time, error) {
-	input = strings.TrimSpace(input)
-	if input == "" {
+	s := strings.TrimSpace(input)
+	if s == "" {
 		return time.Time{}, ErrEmptyTime
 	}
+	s = timeSepRegexp.ReplaceAllString(s, ":")
 
-	if match, _ := regexp.MatchString(`^\d{1,2}$`, input); match {
-		if input == "24" {
-			input = "00:00"
-		} else {
-			input = input + ":00"
+	var hh, mm int
+	var err error
+	if i := strings.IndexByte(s, ':'); i >= 0 {
+		hh, err = atoiStrict(s[:i])
+		if err == nil {
+			mm, err = atoiStrict(s[i+1:])
+		}
+	} else {
+		switch len(s) {
+		case 1, 2:
+			hh, err = atoiStrict(s)
+		case 3:
+			hh, err = atoiStrict(s[:1])
+			if err == nil {
+				mm, err = atoiStrict(s[1:])
+			}
+		case 4:
+			hh, err = atoiStrict(s[:2])
+			if err == nil {
+				mm, err = atoiStrict(s[2:])
+			}
+		default:
+			err = errBadFormat
 		}
 	}
-
-	normalized := normalizeTime(input)
-	t, err := time.Parse("15:04", normalized)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("не удалось распознать время: %s", input)
 	}
-
-	return t, nil
+	if hh == 24 && mm == 0 {
+		hh = 0
+	}
+	if hh < 0 || hh > 23 || mm < 0 || mm > 59 {
+		return time.Time{}, fmt.Errorf("время вне диапазона 00:00–23:59: %s", input)
+	}
+	return time.Date(0, 1, 1, hh, mm, 0, 0, time.UTC), nil
 }
 
-var timeSepRegexp = regexp.MustCompile(`[.\-\s]+`)
+var (
+	timeSepRegexp = regexp.MustCompile(`[.\-\s]+`)
+	errBadFormat  = errors.New("bad format")
+)
 
-func normalizeTime(s string) string {
-	return timeSepRegexp.ReplaceAllString(strings.TrimSpace(s), ":")
+func atoiStrict(s string) (int, error) {
+	if s == "" {
+		return 0, errBadFormat
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return 0, errBadFormat
+		}
+	}
+	return strconv.Atoi(s)
 }
 
 // ParseDateTime parses a combined date+time string like "DD-MM-YYYY HH:MM".

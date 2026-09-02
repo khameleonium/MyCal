@@ -25,15 +25,15 @@ func TestMatchLayoutFolding(t *testing.T) {
 	}
 }
 
-func TestIsConfirmWord(t *testing.T) {
+func TestIsYes(t *testing.T) {
 	for _, s := range []string{"да", "Да", " д ", "yes", "Y"} {
-		if !isConfirmWord(s) {
-			t.Errorf("isConfirmWord(%q) = false, want true", s)
+		if !isYes(s) {
+			t.Errorf("isYes(%q) = false, want true", s)
 		}
 	}
 	for _, s := range []string{"", "n", "нет", "maybe"} {
-		if isConfirmWord(s) {
-			t.Errorf("isConfirmWord(%q) = true, want false", s)
+		if isYes(s) {
+			t.Errorf("isYes(%q) = true, want false", s)
 		}
 	}
 }

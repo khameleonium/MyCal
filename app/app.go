@@ -17,8 +17,6 @@ import (
 )
 
 const (
-	cancelWord = "отмена"
-
 	hdrSep   = "═══"
 	sep      = "────────────────────────────────────────────────"
 	okMark   = "[✓]"
@@ -44,10 +42,7 @@ var dateCheckLabels = map[string]string{
 }
 
 var dateCheckOrder = []string{
-	models.DateCheckOff,
-	models.DateCheckAsk,
-	models.DateCheckFix,
-	models.DateCheckReask,
+	models.DateCheckOff, models.DateCheckAsk, models.DateCheckFix, models.DateCheckReask,
 }
 
 // App runs the interactive console menu.
@@ -57,76 +52,92 @@ type App struct {
 	cfgPath string
 	ctx     context.Context
 
-	scanner     *bufio.Scanner
+	in          *bufio.Reader
 	stdinClosed bool
 
-	nowCache time.Time // cached effective "today", see resolveDate
+	todayCache time.Time
 }
 
-// NewApp creates a new App instance. ctx is used for persistence calls so a
-// cancelled context (e.g. SIGINT) aborts in-flight disk writes.
+// NewApp creates an App. ctx is used for persistence so a cancelled context
+// (SIGINT) aborts in-flight disk writes.
 func NewApp(ctx context.Context, svc *calendar.Service, cfg *models.Config, cfgPath string) *App {
 	return &App{
 		svc:     svc,
 		cfg:     cfg,
 		cfgPath: cfgPath,
 		ctx:     ctx,
-		scanner: bufio.NewScanner(os.Stdin),
+		in:      bufio.NewReader(os.Stdin),
 	}
 }
 
-// Start runs the interactive session: validate the clock, run the Data Doctor,
-// then enter the main menu loop.
+// Start runs an interactive session: report load warnings, validate the clock,
+// run the integrity check, then enter the main menu.
 func (a *App) Start() {
-	a.initDate()
-	a.CheckIntegrity()
-	a.Run()
+	a.reportWarnings()
+	a.checkClock()
+	a.checkIntegrity()
+	a.mainMenu()
 }
 
-// resolveDate returns the current effective date. When the user has pinned a
-// custom date it is parsed once and cached.
-func (a *App) resolveDate() time.Time {
+// reportWarnings surfaces recoverable problems noticed while loading data.
+func (a *App) reportWarnings() {
+	for _, w := range a.svc.Warnings() {
+		fmt.Println(color.Yellow(warnMark + " " + w))
+	}
+}
+
+// today returns the effective current date (system, or the pinned custom date
+// parsed once and cached).
+func (a *App) today() time.Time {
 	if a.cfg.UseSystemDate || a.cfg.CustomDate == "" {
 		return time.Now()
 	}
-	if a.nowCache.IsZero() {
+	if a.todayCache.IsZero() {
 		d, err := time.Parse("2006-01-02", a.cfg.CustomDate)
 		if err != nil {
 			return time.Now()
 		}
-		a.nowCache = d
+		a.todayCache = d
 	}
-	return a.nowCache
+	return a.todayCache
 }
 
-// invalidateDateCache must be called whenever CustomDate/UseSystemDate change.
-func (a *App) invalidateDateCache() { a.nowCache = time.Time{} }
+func (a *App) forgetToday() { a.todayCache = time.Time{} }
 
-// initDate validates the system clock at startup.
-func (a *App) initDate() {
-	now := time.Now()
-	if now.Year() >= 2024 {
+// checkClock prompts for the date only when the system clock is obviously wrong.
+func (a *App) checkClock() {
+	y := time.Now().Year()
+	if y >= 2000 && y <= 2100 {
 		return
 	}
 	fmt.Println()
-	fmt.Println(color.Yellow(warnMark + " Системная дата некорректна (" + parser.FormatDate(now) + ")"))
-	fmt.Println(color.Yellow("  Пожалуйста, введите текущую дату."))
-	date, ok := a.dialogDate("Текущая дата:", "DD-MM-YYYY, DD.MM.YYYY, YYYY-MM-DD")
+	fmt.Println(color.Yellow(warnMark + " Системные дата/время выглядят неверно (" + parser.FormatDate(time.Now()) + ")."))
+	fmt.Println(color.Yellow("  Укажите сегодняшнюю дату — она сохранится в настройках."))
+	date, ok := a.askDate("Сегодняшняя дата:", "DD-MM-YYYY, DD.MM.YYYY, YYYY-MM-DD")
 	if !ok {
 		return
 	}
 	a.cfg.CustomDate = date.Format("2006-01-02")
 	a.cfg.UseSystemDate = false
-	a.invalidateDateCache()
+	a.forgetToday()
 	if err := config.Save(a.ctx, a.cfgPath, a.cfg); err != nil {
-		fmt.Println(color.Red(errMark + " Ошибка сохранения даты: " + err.Error()))
+		fmt.Println(color.Red(errMark + " Не удалось сохранить дату: " + err.Error()))
 	} else {
-		fmt.Println(color.Green(okMark + " Дата сохранена в настройках"))
+		fmt.Println(color.Green(okMark + " Дата сохранена"))
 	}
 }
 
-// Run starts the main menu loop.
-func (a *App) Run() {
+// save persists the calendar and prints a clear error on failure.
+func (a *App) save() error {
+	if err := a.svc.Save(a.ctx); err != nil {
+		fmt.Println(color.Red(errMark + " Не удалось сохранить данные: " + err.Error()))
+		return err
+	}
+	return nil
+}
+
+// mainMenu is the top-level loop.
+func (a *App) mainMenu() {
 	for {
 		fmt.Println()
 		fmt.Println(color.Yellow(hdrSep + " Мои записи " + hdrSep))
@@ -139,25 +150,22 @@ func (a *App) Run() {
 		fmt.Println(" h | 7. Справка")
 		fmt.Println(" q | 8. Выход")
 
-		choice, ok := a.promptChoice("")
+		choice, ok := a.menuChoice()
 		if !ok {
 			fmt.Println()
 			return
 		}
-
-		// The main menu accepts digits, the Latin mnemonic, and the mnemonic
-		// first letter of the Russian label.
 		switch {
 		case match(choice, "1", "a", "д"):
 			a.addEntry()
 		case match(choice, "2", "v", "п"):
-			a.viewEntries()
+			a.viewMenu()
 		case match(choice, "3", "d", "у"):
-			a.deleteEntry()
+			a.deleteMenu()
 		case match(choice, "4", "t", "с"):
 			a.todayView()
 		case match(choice, "5", "x", "э"):
-			a.exportCSV()
+			a.exportMenu()
 		case match(choice, "6", "s", "н"):
 			a.settingsMenu()
 		case match(choice, "7", "h", "?", "м"):
@@ -171,7 +179,7 @@ func (a *App) Run() {
 	}
 }
 
-func isConfirmWord(s string) bool {
+func isYes(s string) bool {
 	switch strings.TrimSpace(strings.ToLower(s)) {
 	case "да", "д", "yes", "y":
 		return true
@@ -179,7 +187,7 @@ func isConfirmWord(s string) bool {
 	return false
 }
 
-func isCancelled(s string) bool {
+func isCancel(s string) bool {
 	t := strings.TrimSpace(strings.ToLower(s))
-	return t == "0" || t == cancelWord
+	return t == "0" || t == "отмена"
 }

@@ -57,12 +57,19 @@ func TestParseTime(t *testing.T) {
 	}{
 		{"HH:MM", "10:51", "10:51", nil},
 		{"HH MM", "10 51", "10:51", nil},
+		{"HH.MM", "10.51", "10:51", nil},
+		{"HH-MM", "10-51", "10:51", nil},
 		{"single digit hour", "9:05", "09:05", nil},
+		{"single digit both", "9:5", "09:05", nil},
 		{"just hours", "15", "15:00", nil},
 		{"just hour single digit", "9", "09:00", nil},
+		{"HHMM no separator", "1430", "14:30", nil},
+		{"HMM no separator", "930", "09:30", nil},
 		{"24 hours is 00:00", "24", "00:00", nil},
 		{"empty", "", "", ErrEmptyTime},
 		{"garbage", "xyz", "", nil},
+		{"hour out of range", "25:00", "", nil},
+		{"minute out of range", "10:75", "", nil},
 	}
 
 	for _, tt := range tests {
@@ -74,7 +81,10 @@ func TestParseTime(t *testing.T) {
 				}
 				return
 			}
-			if tt.wantErr == nil && err != nil && tt.name == "garbage" {
+			if tt.want == "" { // any non-sentinel error is acceptable here
+				if err == nil {
+					t.Errorf("expected an error for %q, got %s", tt.input, got.Format("15:04"))
+				}
 				return
 			}
 			if err != nil {

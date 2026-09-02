@@ -3,17 +3,22 @@
 package color
 
 import (
-	"fmt"
-	"os"
-
 	"golang.org/x/sys/windows"
 )
 
+// init enables ANSI escape processing on the Windows console. It stays silent
+// on failure: if it does not work, colours are simply disabled elsewhere.
 func init() {
+	if !enabled {
+		return
+	}
 	var mode uint32
-	if err := windows.GetConsoleMode(windows.Stdout, &mode); err == nil {
-		if err := windows.SetConsoleMode(windows.Stdout, mode|windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING); err != nil {
-			fmt.Fprintf(os.Stderr, "предупреждение: не удалось включить поддержку ANSI цветов: %v\n", err)
-		}
+	if windows.GetConsoleMode(windows.Stdout, &mode) != nil {
+		return
+	}
+	if windows.SetConsoleMode(windows.Stdout, mode|windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING) != nil {
+		// Could not enable virtual terminal processing — disable colours so we
+		// do not print raw escape codes.
+		enabled = false
 	}
 }

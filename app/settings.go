@@ -26,7 +26,7 @@ func (a *App) settingsMenu() {
 		fmt.Printf(" i | 9. Молча добавлять частые имена [%s]\n", onOff(a.cfg.SilentAddNames))
 		fmt.Println(" q | 0. Сохранить и выйти")
 
-		choice, ok := a.promptChoice("")
+		choice, ok := a.menuChoice()
 		if !ok {
 			choice = "0"
 		}
@@ -34,11 +34,11 @@ func (a *App) settingsMenu() {
 		case match(choice, "1", "m"):
 			a.cfg.SplitMode = nextInCycle([]string{models.SplitNone, models.SplitYear, models.SplitMonth}, a.cfg.SplitMode)
 		case match(choice, "2", "n"):
-			if v := a.dialogPrompt(fmt.Sprintf("Имя файла данных [%s]:", a.cfg.DataFileName), "0 — отмена"); v != "" && !isCancelled(v) {
+			if v := a.dialog(fmt.Sprintf("Имя файла данных [%s]:", a.cfg.DataFileName), "0 — отмена"); v != "" && !isCancel(v) {
 				a.cfg.DataFileName = v
 			}
 		case match(choice, "3", "l"):
-			if v := a.dialogPrompt(fmt.Sprintf("Продолжительность по умолчанию (мин) [%d]:", a.cfg.DefaultDuration), "0 — отмена"); v != "" && !isCancelled(v) {
+			if v := a.dialog(fmt.Sprintf("Продолжительность по умолчанию (мин) [%d]:", a.cfg.DefaultDuration), "0 — отмена"); v != "" && !isCancel(v) {
 				if d, err := strconv.Atoi(v); err == nil && d > 0 {
 					a.cfg.DefaultDuration = d
 				} else {
@@ -46,11 +46,11 @@ func (a *App) settingsMenu() {
 				}
 			}
 		case match(choice, "4", "t"):
-			if v := a.dialogPrompt(fmt.Sprintf("Тип по умолчанию [%s]:", a.cfg.DefaultType), "0 — отмена"); v != "" && !isCancelled(v) {
+			if v := a.dialog(fmt.Sprintf("Тип по умолчанию [%s]:", a.cfg.DefaultType), "0 — отмена"); v != "" && !isCancel(v) {
 				a.cfg.DefaultType = v
 			}
 		case match(choice, "5", "p"):
-			if v := a.dialogPrompt(fmt.Sprintf("Путь к данным [%s]:", dataPathDisplay(a.cfg.DataPath)), "0 — отмена"); v != "" && !isCancelled(v) {
+			if v := a.dialog(fmt.Sprintf("Путь к данным [%s]:", dataPathDisplay(a.cfg.DataPath)), "0 — отмена"); v != "" && !isCancel(v) {
 				a.cfg.DataPath = v
 			}
 		case match(choice, "6", "c"):
@@ -74,14 +74,14 @@ func (a *App) settingsMenu() {
 // the calendar in the new mode (storage.Save removes files from the old mode).
 func (a *App) persistSettings(startMode string) {
 	if a.cfg.SplitMode != startMode {
-		fmt.Println(color.Yellow(warnMark + " Режим хранения изменён — данные будут перезаписаны в новом формате."))
-		a.svc.UpdateMode(a.cfg.SplitMode)
-		if err := a.svc.Save(a.ctx); err != nil {
-			fmt.Println(color.Red(errMark + " Ошибка перезаписи данных: " + err.Error()))
+		fmt.Println(color.Yellow(warnMark + " Режим хранения изменён — данные перезаписываются в новом формате."))
+		a.svc.SetMode(a.cfg.SplitMode)
+		if a.save() != nil {
+			return
 		}
 	}
 	if err := config.Save(a.ctx, a.cfgPath, a.cfg); err != nil {
-		fmt.Println(color.Red(errMark + " Ошибка сохранения настроек: " + err.Error()))
+		fmt.Println(color.Red(errMark + " Не удалось сохранить настройки: " + err.Error()))
 		return
 	}
 	fmt.Println(color.Green(okMark + " Настройки сохранены"))
@@ -91,26 +91,26 @@ func (a *App) dateSettings() {
 	for {
 		fmt.Println()
 		fmt.Println(color.Yellow("  Дата"))
-		fmt.Printf("  Текущая: %s\n", color.Magenta(parser.FormatDate(a.resolveDate())))
+		fmt.Printf("  Текущая: %s\n", color.Magenta(parser.FormatDate(a.today())))
 		fmt.Println(" s | 1. Системное время")
 		fmt.Println(" m | 2. Ввести дату вручную")
 		fmt.Println(" q | 0. Назад")
 
-		choice, ok := a.promptChoice("")
+		choice, ok := a.menuChoice()
 		if !ok {
 			return
 		}
 		switch {
 		case match(choice, "1", "s"):
 			a.cfg.UseSystemDate = true
-			a.invalidateDateCache()
+			a.forgetToday()
 			fmt.Println(color.Green(okMark + " Используется системное время"))
 			return
 		case match(choice, "2", "m"):
-			if date, ok := a.dialogDate("Текущая дата:", "DD-MM-YYYY, DD.MM.YYYY, YYYY-MM-DD; 0 — отмена"); ok {
+			if date, ok := a.askDate("Текущая дата:", "DD-MM-YYYY, DD.MM.YYYY, YYYY-MM-DD; 0 — отмена"); ok {
 				a.cfg.CustomDate = date.Format("2006-01-02")
 				a.cfg.UseSystemDate = false
-				a.invalidateDateCache()
+				a.forgetToday()
 				fmt.Println(color.Green(okMark + " Установлено: " + color.Magenta(parser.FormatDate(date))))
 			}
 			return
@@ -137,13 +137,13 @@ func (a *App) customNamesSettings() {
 		fmt.Println(" r | 2. Удалить имя")
 		fmt.Println(" q | 0. Назад")
 
-		choice, ok := a.promptChoice("")
+		choice, ok := a.menuChoice()
 		if !ok {
 			return
 		}
 		switch {
 		case match(choice, "1", "a"):
-			if name := a.dialogPrompt("Новое имя:", "0 — отмена"); name != "" && !isCancelled(name) {
+			if name := a.dialog("Новое имя:", "0 — отмена"); name != "" && !isCancel(name) {
 				a.cfg.CustomNames = append(a.cfg.CustomNames, name)
 				fmt.Println(color.Green(okMark + " Добавлено"))
 			}
@@ -152,8 +152,8 @@ func (a *App) customNamesSettings() {
 				fmt.Println(color.Yellow(warnMark + " Список пуст"))
 				continue
 			}
-			idxStr := a.dialogPrompt("Номер для удаления:", "0 — отмена")
-			if isCancelled(idxStr) {
+			idxStr := a.dialog("Номер для удаления:", "0 — отмена")
+			if isCancel(idxStr) {
 				continue
 			}
 			idx, err := strconv.Atoi(idxStr)

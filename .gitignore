@@ -1,18 +1,17 @@
 # Binaries and builds
 /builds/
+mycalendar
+mycalendar-*
 *.exe
 *.app
 
-# Logs
-*.log
+# Runtime data / calendar files (personal)
+*.json
 *.bak
 *.tmp
-
-# Data
-*.json
-
-export*.csv
-
+*.corrupt-*
+*.log
+export_*.csv
 my_calendar.json
 /data/
 

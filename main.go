@@ -1,10 +1,14 @@
+// Command mycalendar is a small offline CLI calendar / time tracker.
 package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 
 	"mycalendar/app"
@@ -13,13 +17,12 @@ import (
 )
 
 func main() {
-	// SIGINT/SIGTERM cancels the context so an in-flight disk write can abort
-	// cleanly instead of leaving a half-written file.
+	// SIGINT cancels the context so an in-flight disk write can abort cleanly.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
 	if err := run(ctx); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, "[✗] "+err.Error())
 		os.Exit(1)
 	}
 }
@@ -28,27 +31,27 @@ func run(ctx context.Context) error {
 	cfgPath := config.ResolveConfigPath()
 	cfg, err := config.Load(ctx, cfgPath)
 	if err != nil {
-		return fmt.Errorf("загрузка конфигурации: %w", err)
+		return fmt.Errorf("не удалось загрузить настройки (%s): %w", cfgPath, err)
 	}
 
-	// Migrate a legacy config file name to the canonical one.
+	// Move a legacy config file to the canonical name.
 	if cfgPath != config.ConfigFile {
 		if err := config.Save(ctx, config.ConfigFile, cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "предупреждение: не удалось создать %s: %v\n", config.ConfigFile, err)
+			fmt.Fprintf(os.Stderr, "[!] не удалось создать %s: %v\n", config.ConfigFile, err)
 		} else {
 			_ = os.Remove(cfgPath)
 			cfgPath = config.ConfigFile
 		}
 	}
 
-	dataDir, err := resolveDataDir(cfg.DataPath)
+	dataDir, err := prepareDataDir(cfg.DataPath)
 	if err != nil {
 		return err
 	}
 
 	svc, err := calendar.NewService(ctx, dataDir, cfg.DataFileName, cfg.SplitMode)
 	if err != nil {
-		return fmt.Errorf("загрузка календаря: %w", err)
+		return fmt.Errorf("не удалось открыть календарь: %w", err)
 	}
 
 	application := app.NewApp(ctx, svc, cfg, cfgPath)
@@ -59,18 +62,33 @@ func run(ctx context.Context) error {
 		}
 		return nil
 	}
-
 	application.Start()
 	return nil
 }
 
-func resolveDataDir(dataPath string) (string, error) {
+// prepareDataDir resolves the data directory, creating it if needed, and checks
+// that it is writable so problems are reported up front rather than on first save.
+func prepareDataDir(dataPath string) (string, error) {
 	dataPath = strings.TrimSpace(dataPath)
-	if dataPath == "" || dataPath == "." {
-		return ".", nil
+	if dataPath == "" {
+		dataPath = "."
 	}
-	if err := os.MkdirAll(dataPath, 0o755); err != nil {
-		return "", fmt.Errorf("создание каталога данных: %w", err)
+	if dataPath != "." {
+		if err := os.MkdirAll(dataPath, 0o755); err != nil {
+			return "", fmt.Errorf("не удалось создать каталог данных %q: %s", dataPath, explain(err))
+		}
 	}
+	probe := filepath.Join(dataPath, ".mycal-write-test")
+	if err := os.WriteFile(probe, []byte("ok"), 0o644); err != nil {
+		return "", fmt.Errorf("каталог данных %q недоступен для записи: %s", dataPath, explain(err))
+	}
+	_ = os.Remove(probe)
 	return dataPath, nil
+}
+
+func explain(err error) string {
+	if errors.Is(err, fs.ErrPermission) {
+		return "нет прав доступа"
+	}
+	return err.Error()
 }
