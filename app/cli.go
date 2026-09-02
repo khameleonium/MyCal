@@ -10,28 +10,29 @@ import (
 	"mycalendar/parser"
 )
 
-// RunCLI dispatches a non-interactive subcommand. Unknown commands print help
-// and report failure.
-func (a *App) RunCLI(cmd string, args []string) (ok bool) {
+// RunCLI dispatches a non-interactive subcommand. It returns false (and prints
+// help) for an unknown command.
+func (a *App) RunCLI(cmd string, args []string) bool {
+	a.reportWarnings()
 	switch strings.ToLower(cmd) {
 	case "add", "a":
 		a.addByArgs(args)
 	case "view", "v":
 		a.viewByArgs(args)
-	case "delete", "d":
+	case "delete", "d", "del":
 		a.deleteByArgs(args)
 	case "export", "e":
 		a.exportByArgs(args)
 	case "today", "t":
 		a.todayView()
 	case "week", "w":
-		a.renderEntries(a.svc.GetWeekEntries(a.resolveDate()), weekLabel(a.resolveDate()))
+		a.renderList(a.svc.Week(a.today()), weekLabel(a.today()))
 	case "month", "m":
-		a.renderEntries(a.svc.GetMonthEntries(a.resolveDate()), monthLabel(a.resolveDate()))
-	case "help", "-h", "--help":
+		a.renderList(a.svc.Month(a.today()), monthLabel(a.today()))
+	case "help", "-h", "--help", "/?":
 		PrintHelp()
 	default:
-		fmt.Fprintf(os.Stderr, "Неизвестная команда: %s\n", cmd)
+		fmt.Fprintf(os.Stderr, "Неизвестная команда: %s\n\n", cmd)
 		PrintHelp()
 		return false
 	}
@@ -40,21 +41,21 @@ func (a *App) RunCLI(cmd string, args []string) (ok bool) {
 
 func (a *App) addByArgs(args []string) {
 	if len(args) == 0 {
-		a.addEntryLoop(true, nil)
+		a.addLoop(true, nil)
 		return
 	}
-	date, err := parser.ParseDate(args[0], a.resolveDate())
+	date, err := parser.ParseDate(strings.Join(args, " "), a.today())
 	if err != nil {
-		fmt.Println(color.Yellow(warnMark + " Неверный формат даты. Переход в интерактивный режим."))
-		a.addEntryLoop(true, nil)
+		fmt.Println(color.Yellow(warnMark + " Неверный формат даты, переход в интерактивный режим."))
+		a.addLoop(true, nil)
 		return
 	}
-	a.addEntryLoop(true, &date)
+	a.addLoop(true, &date)
 }
 
 func (a *App) viewByArgs(args []string) {
 	if len(args) == 0 {
-		a.viewEntries()
+		a.viewMenu()
 		return
 	}
 	arg := strings.Join(args, " ")
@@ -63,33 +64,33 @@ func (a *App) viewByArgs(args []string) {
 		fmt.Println(color.Red(errMark + " Неверный формат периода: " + arg))
 		return
 	}
-	a.renderEntries(a.svc.FindByPeriod(start, end),
+	a.renderList(a.svc.InRange(start, end),
 		parser.FormatDate(start)+" — "+parser.FormatDate(end))
 }
 
 func (a *App) deleteByArgs(args []string) {
 	if len(args) == 0 {
-		a.deleteEntry()
+		a.deleteMenu()
 		return
 	}
 	arg := strings.Join(args, " ")
-	if len(a.svc.FindByID(arg)) > 0 {
-		a.doDelete(arg)
+	if _, ok := a.svc.ByID(arg); ok {
+		a.deleteByID(arg)
 		return
 	}
 	start, end, err := parser.ParsePeriod(arg)
 	if err != nil {
-		fmt.Println(color.Red(errMark + " Неверный формат периода или ID не найден: " + arg))
+		fmt.Println(color.Red(errMark + " Не распознаны ни ID, ни период: " + arg))
 		return
 	}
 	start, end = calendar.DayStart(start), calendar.DayStart(end)
-	a.deletePeriod(a.svc.FindByPeriod(start, end), start, end,
+	a.deleteSpan(a.svc.InRange(start, end), start, end,
 		parser.FormatDate(start)+" — "+parser.FormatDate(end))
 }
 
 func (a *App) exportByArgs(args []string) {
 	if len(args) == 0 {
-		a.exportCSV()
+		a.exportMenu()
 		return
 	}
 	arg := strings.Join(args, " ")
@@ -98,5 +99,5 @@ func (a *App) exportByArgs(args []string) {
 		fmt.Println(color.Red(errMark + " Неверный формат периода: " + arg))
 		return
 	}
-	a.exportEntries(a.svc.FindByPeriod(start, end))
+	a.exportCSV(a.svc.InRange(start, end))
 }

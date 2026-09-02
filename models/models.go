@@ -1,24 +1,22 @@
+// Package models holds the persistent data types shared across the calendar.
 package models
 
-import (
-	"encoding/json"
-)
+import "encoding/json"
 
-// IDLen is the length of a canonical session ID (YYYYMMDDHHMMSS).
+// IDLen is the length of a session ID (YYYYMMDDHHMMnn, minute precision plus a
+// two-digit per-minute counter). IDs may be longer if a minute somehow holds
+// more than 100 entries; code compares against IDLen with >=.
 const IDLen = 14
 
-// RepeatSuffix marks the original session of a repeating series. Child
-// occurrences store this original ID (suffix included) in their Name field.
-const RepeatSuffix = "_r"
-
-// SplitMode constants.
+// SplitMode selects how data files are laid out on disk.
 const (
-	SplitNone  = "none"
-	SplitYear  = "year"
-	SplitMonth = "month"
+	SplitNone  = "none"  // one file: <base>.json
+	SplitYear  = "year"  // YYYY_<base>.json
+	SplitMonth = "month" // YYYY-MM_<base>.json
 )
 
-// DateCheckMode constants.
+// DateCheckMode selects what happens when a typed date had to be normalised
+// (e.g. "32-01-2026" -> "01-02-2026").
 const (
 	DateCheckOff   = ""
 	DateCheckAsk   = "ask"
@@ -27,8 +25,6 @@ const (
 )
 
 // DefaultConfig is the single source of truth for configuration defaults.
-// Both config.Load (missing file) and Config.UnmarshalJSON (missing fields)
-// derive their defaults from this value.
 var DefaultConfig = Config{
 	DefaultDuration: 60,
 	SplitMode:       SplitNone,
@@ -37,7 +33,7 @@ var DefaultConfig = Config{
 	UseSystemDate:   true,
 }
 
-// Config represents the config_mycal.json file structure.
+// Config mirrors config_mycal.json.
 type Config struct {
 	DefaultDuration int      `json:"default_duration"`
 	DefaultType     string   `json:"default_type"`
@@ -52,10 +48,8 @@ type Config struct {
 	SilentAddNames  bool     `json:"silent_add_names"`
 }
 
-// UnmarshalJSON fills the receiver from DefaultConfig, then overlays whatever
-// keys are present in data. The type alias avoids infinite recursion and keeps
-// a single field list (the previous implementation duplicated every field into
-// a shadow struct that had to be kept in sync by hand).
+// UnmarshalJSON overlays the JSON document onto a copy of DefaultConfig, so any
+// key the user omitted keeps its default and the field list lives in one place.
 func (c *Config) UnmarshalJSON(data []byte) error {
 	type alias Config
 	tmp := alias(DefaultConfig)
@@ -63,76 +57,56 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*c = Config(tmp)
-	c.ApplyDefaults()
+	c.Normalize()
 	return nil
 }
 
-// ApplyDefaults repairs values that are invalid rather than merely absent
-// (e.g. a non-positive duration or an empty split mode written by an older
-// version).
-func (c *Config) ApplyDefaults() {
+// Normalize repairs values that are present but invalid.
+func (c *Config) Normalize() {
 	if c.DefaultDuration <= 0 {
 		c.DefaultDuration = DefaultConfig.DefaultDuration
 	}
-	if c.SplitMode == "" {
+	switch c.SplitMode {
+	case SplitNone, SplitYear, SplitMonth:
+	default:
 		c.SplitMode = DefaultConfig.SplitMode
 	}
 	if c.DataFileName == "" {
 		c.DataFileName = DefaultConfig.DataFileName
 	}
+	switch c.DateCheckMode {
+	case DateCheckOff, DateCheckAsk, DateCheckFix, DateCheckReask:
+	default:
+		c.DateCheckMode = DateCheckOff
+	}
 }
 
-// Calendar represents the top-level structure of the data file(s).
+// Calendar is the on-disk document: a flat, self-contained list of sessions.
+// (There is no date grouping on disk; grouping is a display concern.)
 type Calendar struct {
-	Entries []DateEntry `json:"my_calendar"`
+	Sessions []Session `json:"sessions"`
 }
 
-// DateEntry groups sessions under a single date.
-type DateEntry struct {
-	Date     string    `json:"date"`
-	Sessions []Session `json:"session"`
-}
-
-// Session represents a single calendar entry.
+// Session is one calendar entry. Every field is stored explicitly — occurrences
+// of a repeating series are ordinary sessions that happen to share a SeriesID.
 type Session struct {
 	ID       string `json:"id"`
-	Time     string `json:"time"`
+	Time     string `json:"time"` // "HH:MM"
 	Name     string `json:"name"`
 	Type     string `json:"type"`
-	Duration int    `json:"duration"`
+	Duration int    `json:"duration"` // minutes
 	Notes    string `json:"notes"`
 	Status   string `json:"status"`
-
-	// IsRepeat and OriginalID are runtime-only fields populated by the
-	// calendar service when a session belongs to a repeating series.
-	IsRepeat   bool   `json:"-"`
-	OriginalID string `json:"-"`
+	SeriesID string `json:"series_id,omitempty"`
 }
 
-// Date extracts the date from the session ID in YYYY-MM-DD format.
+// Date returns the YYYY-MM-DD encoded in the ID, or "" if the ID is too short.
 func (s Session) Date() string {
-	if len(s.ID) >= IDLen {
+	if len(s.ID) >= 10 {
 		return s.ID[0:4] + "-" + s.ID[4:6] + "-" + s.ID[6:8]
 	}
 	return ""
 }
 
-// IsSeriesOriginal reports whether this session is the template of a repeating
-// series (its own ID carries the repeat suffix).
-func (s Session) IsSeriesOriginal() bool {
-	return HasRepeatSuffix(s.ID)
-}
-
-// SeriesRef returns the original series ID referenced by a child occurrence,
-// or "" if this session is not a child occurrence.
-func (s Session) SeriesRef() string {
-	if HasRepeatSuffix(s.Name) {
-		return s.Name
-	}
-	return ""
-}
-
-// HasRepeatSuffix reports whether v ends with RepeatSuffix.
-func HasRepeatSuffix(v string) bool {
-	return len(v) > len(RepeatSuffix) && v[len(v)-len(RepeatSuffix):] == RepeatSuffix
-}
+// IsRepeat reports whether the session belongs to a repeating series.
+func (s Session) IsRepeat() bool { return s.SeriesID != "" }

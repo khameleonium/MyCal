@@ -10,19 +10,11 @@ import (
 )
 
 func sample() *models.Calendar {
-	return &models.Calendar{Entries: []models.DateEntry{
-		{Date: "2025-01-10", Sessions: []models.Session{{ID: "20250110090000", Time: "09:00", Name: "A", Duration: 30}}},
-		{Date: "2025-03-14", Sessions: []models.Session{{ID: "20250314120000", Time: "12:00", Name: "B", Duration: 60}}},
-		{Date: "2026-02-02", Sessions: []models.Session{{ID: "20260202080000", Time: "08:00", Name: "C", Duration: 45}}},
+	return &models.Calendar{Sessions: []models.Session{
+		{ID: "20250110090000", Time: "09:00", Name: "A", Duration: 30},
+		{ID: "20250314120000", Time: "12:00", Name: "B", Duration: 60},
+		{ID: "20260202080000", Time: "08:00", Name: "C", Duration: 45},
 	}}
-}
-
-func countSessions(cal *models.Calendar) int {
-	n := 0
-	for _, de := range cal.Entries {
-		n += len(de.Sessions)
-	}
-	return n
 }
 
 func TestSaveLoadRoundTrip(t *testing.T) {
@@ -33,15 +25,18 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 			if err := Save(ctx, dir, "mycal", sample(), mode); err != nil {
 				t.Fatalf("Save: %v", err)
 			}
-			got, err := Load(ctx, dir, "mycal", mode)
+			got, warns, err := Load(ctx, dir, "mycal", mode)
 			if err != nil {
 				t.Fatalf("Load: %v", err)
 			}
-			if countSessions(got) != 3 {
-				t.Fatalf("expected 3 sessions, got %d", countSessions(got))
+			if len(warns) != 0 {
+				t.Errorf("unexpected warnings: %v", warns)
 			}
-			if got.Entries[0].Date != "2025-01-10" {
-				t.Errorf("entries not sorted by date: %s first", got.Entries[0].Date)
+			if len(got.Sessions) != 3 {
+				t.Fatalf("expected 3 sessions, got %d", len(got.Sessions))
+			}
+			if got.Sessions[0].Date() != "2025-01-10" {
+				t.Errorf("not sorted: first is %s", got.Sessions[0].Date())
 			}
 		})
 	}
@@ -54,59 +49,89 @@ func TestModeMigrationRemovesStaleFiles(t *testing.T) {
 	if err := Save(ctx, dir, "mycal", sample(), models.SplitMonth); err != nil {
 		t.Fatalf("Save month: %v", err)
 	}
-	monthFiles, _ := filepath.Glob(filepath.Join(dir, "????-??_mycal.json"))
-	if len(monthFiles) == 0 {
-		t.Fatal("expected month files to be written")
+	if m, _ := filepath.Glob(filepath.Join(dir, "????-??_mycal.json")); len(m) == 0 {
+		t.Fatal("month files not written")
 	}
 
 	if err := Save(ctx, dir, "mycal", sample(), models.SplitNone); err != nil {
 		t.Fatalf("Save none: %v", err)
 	}
-	if leftover, _ := filepath.Glob(filepath.Join(dir, "????-??_mycal.json")); len(leftover) != 0 {
-		t.Errorf("month files not cleaned up after switching to none: %v", leftover)
+	if m, _ := filepath.Glob(filepath.Join(dir, "????-??_mycal.json")); len(m) != 0 {
+		t.Errorf("month files left behind: %v", m)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "mycal.json")); err != nil {
-		t.Errorf("single file missing after migration: %v", err)
+		t.Errorf("single file missing: %v", err)
 	}
-
-	got, err := Load(ctx, dir, "mycal", models.SplitNone)
-	if err != nil || countSessions(got) != 3 {
-		t.Fatalf("data lost across migration: err=%v count=%d", err, countSessions(got))
+	got, _, err := Load(ctx, dir, "mycal", models.SplitNone)
+	if err != nil || len(got.Sessions) != 3 {
+		t.Fatalf("data lost across migration: err=%v n=%d", err, len(got.Sessions))
 	}
 }
 
-func TestLoadRestoresFromBackupOnCorruption(t *testing.T) {
+func TestCorruptFileRestoredFromBackup(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
-
 	if err := Save(ctx, dir, "mycal", sample(), models.SplitNone); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	// Second save creates mycal.json.bak from the first save's contents.
 	if err := Save(ctx, dir, "mycal", sample(), models.SplitNone); err != nil {
-		t.Fatalf("Save 2: %v", err)
+		t.Fatalf("Save 2: %v", err) // creates mycal.json.bak
 	}
-
 	path := filepath.Join(dir, "mycal.json")
-	if err := os.WriteFile(path, []byte("{ this is not json"), 0o644); err != nil {
-		t.Fatalf("corrupt: %v", err)
+	if err := os.WriteFile(path, []byte("{ broken"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-
-	got, err := Load(ctx, dir, "mycal", models.SplitNone)
+	got, warns, err := Load(ctx, dir, "mycal", models.SplitNone)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if countSessions(got) != 3 {
-		t.Errorf("expected backup to restore 3 sessions, got %d", countSessions(got))
+	if len(got.Sessions) != 3 {
+		t.Errorf("backup not used: %d sessions", len(got.Sessions))
+	}
+	if len(warns) == 0 {
+		t.Errorf("expected a warning about the corrupt file")
 	}
 }
 
-func TestLoadMissingReturnsEmpty(t *testing.T) {
-	got, err := Load(context.Background(), t.TempDir(), "mycal", models.SplitNone)
+func TestCorruptFileWithoutBackupSetAside(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "mycal.json")
+	if err := os.WriteFile(path, []byte("not json at all"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, warns, err := Load(context.Background(), dir, "mycal", models.SplitNone)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if countSessions(got) != 0 {
-		t.Errorf("expected empty calendar, got %d sessions", countSessions(got))
+	if len(got.Sessions) != 0 {
+		t.Errorf("expected empty calendar, got %d", len(got.Sessions))
+	}
+	if len(warns) == 0 {
+		t.Fatal("expected a warning")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("corrupt file should have been moved aside, still at %s", path)
+	}
+	if m, _ := filepath.Glob(filepath.Join(dir, "mycal.json.corrupt-*")); len(m) != 1 {
+		t.Errorf("expected one .corrupt- file, got %v", m)
+	}
+}
+
+func TestLoadMissingIsEmpty(t *testing.T) {
+	got, warns, err := Load(context.Background(), t.TempDir(), "mycal", models.SplitNone)
+	if err != nil || len(warns) != 0 || len(got.Sessions) != 0 {
+		t.Fatalf("want empty/no-warn/no-err, got n=%d warns=%v err=%v", len(got.Sessions), warns, err)
+	}
+}
+
+func TestLoadTrimsBOM(t *testing.T) {
+	dir := t.TempDir()
+	body := append([]byte{0xEF, 0xBB, 0xBF}, []byte(`{"sessions":[{"id":"20250101090000","time":"09:00","name":"x"}]}`)...)
+	if err := os.WriteFile(filepath.Join(dir, "mycal.json"), body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := Load(context.Background(), dir, "mycal", models.SplitNone)
+	if err != nil || len(got.Sessions) != 1 {
+		t.Fatalf("BOM not handled: n=%d err=%v", len(got.Sessions), err)
 	}
 }

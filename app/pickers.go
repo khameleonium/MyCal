@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -29,7 +28,7 @@ func (a *App) askName(title, current string) string {
 		fmt.Print("> ")
 		input := a.line()
 
-		if a.stdinClosed || isCancelled(input) {
+		if a.stdinClosed || isCancel(input) {
 			return ""
 		}
 		if input == "" {
@@ -55,8 +54,8 @@ func (a *App) pickFrequentName() string {
 	for i, cn := range a.cfg.CustomNames {
 		fmt.Printf("  %d. %s\n", i+1, cn)
 	}
-	idxStr := a.dialogPrompt("", "Выберите номер (0 — отмена)")
-	if isCancelled(idxStr) {
+	idxStr := a.dialog("", "Выберите номер (0 — отмена)")
+	if isCancel(idxStr) {
 		return ""
 	}
 	idx, err := strconv.Atoi(idxStr)
@@ -76,11 +75,9 @@ func (a *App) trackNameFrequency(name string) {
 		}
 	}
 	count := 1
-	for _, de := range a.svc.GetAllEntries() {
-		for _, s := range de.Sessions {
-			if strings.EqualFold(s.Name, name) {
-				count++
-			}
+	for _, s := range a.svc.All() {
+		if strings.EqualFold(s.Name, name) {
+			count++
 		}
 	}
 	if count < 3 {
@@ -103,7 +100,7 @@ func (a *App) trackNameFrequency(name string) {
 
 // askType shows the type pick-list (defaults + used types + manual entry).
 func (a *App) askType() (string, bool) {
-	types := a.svc.AllTypes()
+	types := a.svc.Types(a.cfg.DefaultType)
 	fmt.Println()
 	fmt.Println(color.Yellow("Тип записи:"))
 	for i, t := range types {
@@ -122,7 +119,7 @@ func (a *App) askType() (string, bool) {
 	for {
 		fmt.Print("> ")
 		input := a.line()
-		if a.stdinClosed || isCancelled(input) {
+		if a.stdinClosed || isCancel(input) {
 			return "", false
 		}
 		if input == "" {
@@ -134,8 +131,8 @@ func (a *App) askType() (string, bool) {
 			continue
 		}
 		if idx == len(types)+1 {
-			custom := a.dialogPrompt("Название нового типа:", "0 — отмена")
-			if isCancelled(custom) {
+			custom := a.dialog("Название нового типа:", "0 — отмена")
+			if isCancel(custom) {
 				return "", false
 			}
 			if custom == "" {
@@ -149,12 +146,7 @@ func (a *App) askType() (string, bool) {
 
 // askStatus shows the status pick-list; index 0 / empty means no status.
 func (a *App) askStatus() (string, bool) {
-	statuses := a.svc.AllStatuses()
-	for _, st := range a.cfg.CustomStatuses {
-		if st != "" && !slices.Contains(statuses, st) {
-			statuses = append(statuses, st)
-		}
-	}
+	statuses := a.svc.Statuses(a.cfg.CustomStatuses...)
 
 	fmt.Println()
 	fmt.Println(color.Yellow("Статус:"))
@@ -167,11 +159,12 @@ func (a *App) askStatus() (string, bool) {
 	for {
 		fmt.Print("> ")
 		input := a.line()
-		if a.stdinClosed || isCancelled(input) {
-			return "", false
-		}
+		// Here "0" (and Enter) means "no status", not "cancel".
 		if input == "" || input == "0" {
 			return "", true
+		}
+		if a.stdinClosed || strings.EqualFold(strings.TrimSpace(input), "отмена") {
+			return "", false
 		}
 		idx, err := strconv.Atoi(input)
 		if err != nil || idx < 1 || idx > len(statuses)+1 {
@@ -179,8 +172,8 @@ func (a *App) askStatus() (string, bool) {
 			continue
 		}
 		if idx == len(statuses)+1 {
-			custom := a.dialogPrompt("Название статуса:", "0 — отмена")
-			if isCancelled(custom) {
+			custom := a.dialog("Название статуса:", "0 — отмена")
+			if isCancel(custom) {
 				return "", false
 			}
 			if custom == "" {

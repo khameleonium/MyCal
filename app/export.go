@@ -10,85 +10,81 @@ import (
 
 	"mycalendar/color"
 	"mycalendar/models"
+	"mycalendar/parser"
 )
 
-func (a *App) exportCSV() {
+func (a *App) exportMenu() {
 	fmt.Println()
 	fmt.Println(color.Yellow(hdrSep + " Экспорт в CSV " + hdrSep))
-	fmt.Println(" w | 1. Записи за эту неделю")
-	fmt.Println(" m | 2. Записи за этот месяц")
-	fmt.Println(" p | 3. Указать период вручную")
-	fmt.Println(" a | 4. Экспортировать все записи")
+	fmt.Println(" w | 1. За эту неделю")
+	fmt.Println(" m | 2. За этот месяц")
+	fmt.Println(" p | 3. Указать период")
+	fmt.Println(" a | 4. Все записи")
 	fmt.Println(" q | 0. Назад")
 
-	choice, ok := a.promptChoice("")
+	choice, ok := a.menuChoice()
 	if !ok {
 		return
 	}
 
-	var entries []models.DateEntry
+	var sessions []models.Session
 	switch {
 	case match(choice, "1", "w"):
-		entries = a.svc.GetWeekEntries(a.resolveDate())
+		sessions = a.svc.Week(a.today())
 	case match(choice, "2", "m"):
-		entries = a.svc.GetMonthEntries(a.resolveDate())
+		sessions = a.svc.Month(a.today())
 	case match(choice, "3", "p"):
-		start, end, ok := a.dialogPeriod("Введите период для экспорта:", "Например: 2025, 12.2025, 10-12; 0 — отмена")
+		start, end, ok := a.askPeriod("Период для экспорта:", "Например: 2025, 12.2025, 10-12; 0 — отмена")
 		if !ok {
 			return
 		}
-		entries = a.svc.FindByPeriod(start, end)
+		sessions = a.svc.InRange(start, end)
 	case match(choice, "4", "a"):
-		entries = a.svc.GetAllEntries()
+		sessions = a.svc.All()
 	case match(choice, "0", "q"):
 		return
 	default:
 		fmt.Println(color.Red(errMark + " Некорректный выбор"))
 		return
 	}
-
-	a.exportEntries(entries)
+	a.exportCSV(sessions)
 }
 
-// exportEntries writes a UTF-8 CSV (with BOM, so Excel on Windows renders
-// Cyrillic correctly) next to the calendar data files.
-func (a *App) exportEntries(entries []models.DateEntry) {
-	if countSessions(entries) == 0 {
+// exportCSV writes a UTF-8 CSV (with BOM so Excel on Windows reads Cyrillic)
+// next to the calendar data files.
+func (a *App) exportCSV(sessions []models.Session) {
+	if len(sessions) == 0 {
 		fmt.Println(color.Yellow(warnMark + " Нет записей для экспорта"))
 		return
 	}
-
 	name := fmt.Sprintf("export_%s.csv", time.Now().Format("20060102_150405"))
 	path := filepath.Join(a.svc.DataDir(), name)
 
-	file, err := os.Create(path)
+	f, err := os.Create(path)
 	if err != nil {
-		fmt.Println(color.Red(errMark + " Ошибка создания файла: " + err.Error()))
+		fmt.Println(color.Red(errMark + " Не удалось создать файл: " + err.Error()))
 		return
 	}
-	defer file.Close()
+	defer f.Close()
 
-	// UTF-8 BOM so Excel on Windows detects the encoding.
-	if _, err := file.Write([]byte{0xEF, 0xBB, 0xBF}); err != nil {
-		fmt.Println(color.Red(errMark + " Ошибка записи BOM: " + err.Error()))
+	if _, err := f.Write([]byte{0xEF, 0xBB, 0xBF}); err != nil {
+		fmt.Println(color.Red(errMark + " Ошибка записи: " + err.Error()))
 		return
 	}
 
-	w := csv.NewWriter(file)
-	rows := [][]string{{"ID", "Дата", "Время", "Имя", "Тип", "Продолжительность (мин)", "Комментарий", "Статус"}}
-	for _, de := range entries {
-		for _, s := range de.Sessions {
-			rows = append(rows, []string{
-				s.ID, s.Date(), s.Time, s.Name, s.Type,
-				strconv.Itoa(s.Duration), s.Notes, s.Status,
-			})
-		}
+	w := csv.NewWriter(f)
+	rows := [][]string{{"ID", "Дата", "Время", "Имя", "Тип", "Продолжительность (мин)", "Комментарий", "Статус", "Серия"}}
+	for _, s := range sessions {
+		rows = append(rows, []string{
+			s.ID, parser.FormatDate(mustISO(s.Date())), s.Time, s.Name, s.Type,
+			strconv.Itoa(s.Duration), s.Notes, s.Status, s.SeriesID,
+		})
 	}
 	if err := w.WriteAll(rows); err != nil {
 		fmt.Println(color.Red(errMark + " Ошибка записи CSV: " + err.Error()))
 		return
 	}
-	if err := file.Sync(); err != nil {
+	if err := f.Sync(); err != nil {
 		fmt.Println(color.Red(errMark + " Ошибка записи на диск: " + err.Error()))
 		return
 	}

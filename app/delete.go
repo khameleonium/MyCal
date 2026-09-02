@@ -12,7 +12,7 @@ import (
 	"mycalendar/parser"
 )
 
-func (a *App) deleteEntry() {
+func (a *App) deleteMenu() {
 	fmt.Println()
 	fmt.Println(color.Yellow(hdrSep + " Удаление записи " + hdrSep))
 	fmt.Println(" i | 1. По ID / дате и времени")
@@ -21,7 +21,7 @@ func (a *App) deleteEntry() {
 	fmt.Println(" a | 4. Удалить все записи")
 	fmt.Println(" q | 0. Назад")
 
-	choice, ok := a.promptChoice("")
+	choice, ok := a.menuChoice()
 	if !ok {
 		return
 	}
@@ -29,7 +29,7 @@ func (a *App) deleteEntry() {
 	case match(choice, "1", "i"):
 		a.deleteBySearch()
 	case match(choice, "2", "d"):
-		a.deleteByDate()
+		a.deleteByDay()
 	case match(choice, "3", "p"):
 		a.deleteByPeriod()
 	case match(choice, "4", "a"):
@@ -42,183 +42,167 @@ func (a *App) deleteEntry() {
 }
 
 func (a *App) deleteBySearch() {
-	input := a.dialogPrompt("Дата и время или ID записи:",
+	in := a.dialog("Дата и время или ID записи:",
 		"Например: 29-12-2025 10:51 или 20251229105142; 0 — отмена")
-	if isCancelled(input) || a.stdinClosed {
+	if isCancel(in) || a.stdinClosed {
 		return
 	}
-	sessions := a.searchSessions(input)
+	sessions := a.lookup(in)
 	if len(sessions) == 0 {
 		return
 	}
-	if target := a.chooseOne(sessions); target != nil {
-		a.doDelete(target.ID)
+	if s, ok := a.pickSession(sessions); ok {
+		a.deleteByID(s.ID)
 	}
 }
 
-func (a *App) deleteByDate() {
-	date, ok := a.dialogDate("Дата:", "DD-MM-YYYY, DD.MM.YYYY, YYYY-MM-DD; 0 — отмена")
+func (a *App) deleteByDay() {
+	date, ok := a.askDate("Дата:", "DD-MM-YYYY, DD.MM.YYYY, YYYY-MM-DD; 0 — отмена")
 	if !ok {
 		return
 	}
-	start := calendar.DayStart(date)
-	a.deletePeriod(a.svc.FindByPeriod(start, start), start, start, parser.FormatDate(date))
+	d := calendar.DayStart(date)
+	a.deleteSpan(a.svc.InRange(d, d), d, d, parser.FormatDate(date))
 }
 
 func (a *App) deleteByPeriod() {
-	start, end, ok := a.dialogPeriod("Введите период для удаления:",
+	start, end, ok := a.askPeriod("Введите период для удаления:",
 		"Например: 2025, 12.2025, 10-12, 01.12-15.12; 0 — отмена")
 	if !ok {
 		return
 	}
 	start, end = calendar.DayStart(start), calendar.DayStart(end)
 	label := parser.FormatDate(start) + " — " + parser.FormatDate(end)
-	a.deletePeriod(a.svc.FindByPeriod(start, end), start, end, label)
+	a.deleteSpan(a.svc.InRange(start, end), start, end, label)
 }
 
-func (a *App) deletePeriod(entries []models.DateEntry, start, end time.Time, label string) {
-	total := countSessions(entries)
-	if total == 0 {
+func (a *App) deleteSpan(sessions []models.Session, start, end time.Time, label string) {
+	if len(sessions) == 0 {
 		fmt.Println(color.Yellow(warnMark + " Нет записей за " + label))
 		return
 	}
-	if seriesHit := repeatsInvolved(entries); seriesHit {
-		fmt.Println(color.Yellow(warnMark + " В диапазон попадают повторяющиеся записи — связанная серия может стать неполной."))
+	if seriesHit(sessions) {
+		fmt.Println(color.Yellow(warnMark + " В диапазон попадают повторяющиеся записи — серия может стать неполной."))
 	}
-	fmt.Println(color.Yellow("\n" + warnMark + " Будет удалено " + strconv.Itoa(total) + " записей за " + label))
-	if !a.confirm(color.Yellow(askMark + " Удалить ВСЕ записи за период?")) {
+	fmt.Println(color.Yellow("\n" + warnMark + " Будет удалено записей: " + strconv.Itoa(len(sessions)) + " за " + label))
+	if !a.confirm(color.Yellow(askMark + " Удалить всё за период?")) {
 		fmt.Println(color.Yellow(warnMark + " Удаление отменено"))
 		return
 	}
-	count := a.svc.DeleteByPeriod(start, end)
-	if err := a.svc.Save(a.ctx); err != nil {
-		fmt.Println(color.Red(errMark + " Ошибка сохранения: " + err.Error()))
+	n := a.svc.DeleteRange(start, end)
+	if err := a.save(); err != nil {
 		return
 	}
-	fmt.Println(color.Green(okMark + " Удалено " + strconv.Itoa(count) + " записей"))
+	fmt.Println(color.Green(okMark + " Удалено записей: " + strconv.Itoa(n)))
 }
 
 func (a *App) deleteAll() {
-	entries := a.svc.GetAllEntries()
-	total := countSessions(entries)
+	total := a.svc.Count()
 	if total == 0 {
-		fmt.Println(color.Yellow(warnMark + " Нет записей для удаления"))
+		fmt.Println(color.Yellow(warnMark + " Записей нет"))
 		return
 	}
-	fmt.Println(color.Yellow("\n" + warnMark + " Будет удалено " + strconv.Itoa(total) + " записей (ВСЕ записи)"))
-	if !a.confirm(color.Yellow(askMark + " Вы уверены, что хотите удалить ВСЕ записи?")) {
+	fmt.Println(color.Yellow("\n" + warnMark + " Будет удалено ВСЕ записи: " + strconv.Itoa(total)))
+	if !a.confirm(color.Yellow(askMark + " Вы уверены?")) {
 		fmt.Println(color.Yellow(warnMark + " Удаление отменено"))
 		return
 	}
 	a.svc.DeleteAll()
-	if err := a.svc.Save(a.ctx); err != nil {
-		fmt.Println(color.Red(errMark + " Ошибка сохранения: " + err.Error()))
+	if err := a.save(); err != nil {
 		return
 	}
-	fmt.Println(color.Green(okMark + " Все записи успешно удалены"))
+	fmt.Println(color.Green(okMark + " Все записи удалены"))
 }
 
-// doDelete removes every session with id. When id is a repeating original it
-// cascades to all child occurrences.
-func (a *App) doDelete(id string) {
-	sessions := a.svc.FindByID(id)
-	if len(sessions) == 0 {
+// deleteByID removes one session; for a series member it offers to remove just
+// that occurrence or the whole series.
+func (a *App) deleteByID(id string) {
+	s, ok := a.svc.ByID(id)
+	if !ok {
 		fmt.Println(color.Red(errMark + " Запись не найдена"))
 		return
 	}
-	session := a.svc.HydrateSession(sessions[0])
-	isOriginalRepeat := models.HasRepeatSuffix(id)
-
 	fmt.Printf("Запись: %s | %s | %s\n",
-		color.Green(session.Name), color.Magenta(session.Date()), session.Time)
-	var question string
-	switch {
-	case isOriginalRepeat:
-		question = color.Yellow(warnMark + " Это оригинал повторяющейся записи. Удалить её вместе со всеми повторениями?")
-	case len(sessions) > 1:
-		question = color.Yellow(fmt.Sprintf(warnMark+" Будет удалено %d записей с этим ID. Продолжить?", len(sessions)))
-	default:
-		question = color.Yellow(askMark + " Удалить?")
+		color.Green(s.Name), color.Magenta(parser.FormatDate(mustISO(s.Date()))), s.Time)
+
+	if s.IsRepeat() {
+		n := len(a.svc.BySeries(s.SeriesID))
+		fmt.Println(color.Yellow(warnMark + " Это повторяющаяся запись."))
+		fmt.Println("  1. Удалить только эту")
+		fmt.Printf("  2. Удалить всю серию (%d записей)\n", n)
+		fmt.Println("  0. Отмена")
+		switch a.prompt("") {
+		case "1":
+			a.svc.Delete(id)
+			if a.save() == nil {
+				fmt.Println(color.Green(okMark + " Запись удалена"))
+			}
+		case "2":
+			removed := a.svc.DeleteSeries(s.SeriesID)
+			if a.save() == nil {
+				fmt.Println(color.Green(okMark + fmt.Sprintf(" Удалено записей серии: %d", removed)))
+			}
+		default:
+			fmt.Println(color.Yellow(warnMark + " Удаление отменено"))
+		}
+		return
 	}
-	if !a.confirm(question) {
+
+	if !a.confirm(color.Yellow(askMark + " Удалить?")) {
 		fmt.Println(color.Yellow(warnMark + " Удаление отменено"))
 		return
 	}
-
-	count := a.svc.DeleteEntry(id)
-	if isOriginalRepeat {
-		count += a.svc.DeleteRepeats(id)
-	}
-	if err := a.svc.Save(a.ctx); err != nil {
-		fmt.Println(color.Red(errMark + " Ошибка сохранения: " + err.Error()))
-		return
-	}
-	switch {
-	case isOriginalRepeat:
-		fmt.Println(color.Green(okMark + fmt.Sprintf(" Удалено %d записей (включая все повторения)", count)))
-	case count > 1:
-		fmt.Println(color.Green(okMark + fmt.Sprintf(" Успешно удалено %d записей", count)))
-	case count == 1:
-		fmt.Println(color.Green(okMark + " Запись успешно удалена"))
-	default:
-		fmt.Println(color.Yellow(warnMark + " Запись не найдена"))
+	a.svc.Delete(id)
+	if a.save() == nil {
+		fmt.Println(color.Green(okMark + " Запись удалена"))
 	}
 }
 
-func repeatsInvolved(entries []models.DateEntry) bool {
-	for _, de := range entries {
-		for _, s := range de.Sessions {
-			if s.IsRepeat || s.SeriesRef() != "" || models.HasRepeatSuffix(s.ID) {
-				return true
-			}
+func seriesHit(sessions []models.Session) bool {
+	for _, s := range sessions {
+		if s.IsRepeat() {
+			return true
 		}
 	}
 	return false
 }
 
-// searchSessions resolves free-form "ID" or "date [time]" input to a session list.
-func (a *App) searchSessions(input string) []models.Session {
-	input = strings.TrimSpace(input)
-	if input == "" {
+// lookup resolves free-form "ID" or "date [time]" input to a list of sessions,
+// printing a clear message when nothing matches.
+func (a *App) lookup(in string) []models.Session {
+	in = strings.TrimSpace(in)
+	if in == "" {
 		fmt.Println(color.Yellow(warnMark + " Пустой ввод"))
 		return nil
 	}
 
-	if isDigits(strings.TrimSuffix(input, models.RepeatSuffix)) &&
-		(len(input) == models.IDLen || models.HasRepeatSuffix(input)) {
-		if s := a.svc.FindByID(input); len(s) > 0 {
-			return s
-		}
-		fmt.Println(color.Yellow(warnMark + " Запись с таким ID не найдена"))
-		return nil
+	if s, ok := a.svc.ByID(in); ok {
+		return []models.Session{s}
 	}
 
-	datePart, timePart := input, ""
-	if d, tm, err := parser.ParseDateTime(input); err == nil {
+	datePart, timePart := in, ""
+	if d, tm, err := parser.ParseDateTime(in); err == nil {
 		datePart = d.Format("2006-01-02")
 		timePart = tm.Format("15:04")
 	}
 
 	date, err := parser.ParseDate(datePart, time.Time{})
 	if err != nil {
-		fmt.Println(color.Red(errMark + " Некорректная дата"))
+		fmt.Println(color.Red(errMark + " Не распознаны ни ID, ни дата: " + in))
 		return nil
 	}
-	dateStr := date.Format("2006-01-02")
+	iso := date.Format("2006-01-02")
 
 	if timePart == "" {
-		de := a.svc.FindByDate(dateStr)
-		if de == nil || len(de.Sessions) == 0 {
-			fmt.Println(color.Yellow(warnMark + " Записей на " + color.Magenta(parser.FormatDate(date)) + " не найдено"))
-			return nil
+		on := a.svc.OnDate(iso)
+		if len(on) == 0 {
+			fmt.Println(color.Yellow(warnMark + " На " + color.Magenta(parser.FormatDate(date)) + " записей нет"))
 		}
-		return a.svc.SessionsOn(dateStr)
+		return on
 	}
-
-	sessions := a.svc.FindByDateTime(dateStr, timePart)
-	if len(sessions) == 0 {
-		fmt.Println(color.Yellow(warnMark + " Записей на " +
-			color.Magenta(parser.FormatDate(date)) + " " + timePart + " не найдено"))
+	at := a.svc.Conflicts(iso, timePart)
+	if len(at) == 0 {
+		fmt.Println(color.Yellow(warnMark + " На " + color.Magenta(parser.FormatDate(date)) + " " + timePart + " записей нет"))
 	}
-	return sessions
+	return at
 }
