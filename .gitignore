@@ -1,5 +1,6 @@
 # Binaries and builds
 /builds/
+/dist/
 mycalendar
 mycalendar-*
 *.exe
