@@ -41,9 +41,13 @@ jobs:
           (cd dist && sha256sum * > SHA256SUMS.txt)
           ls -la dist
 
+      # Attaches the built binaries to the release for this tag. If the release
+      # was created by hand its notes are left untouched; if the tag was pushed
+      # on its own, a release is created with auto-generated notes.
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*
           generate_release_notes: true
+          append_body: true
           fail_on_unmatched_files: true
