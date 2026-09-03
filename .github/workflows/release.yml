@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          check-latest: true
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build binaries
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          mkdir -p dist
+          build() {
+            local goos=$1 goarch=$2 ext=$3
+            local out="dist/mycalendar-${goos}-${goarch}${ext}"
+            echo "building $out"
+            GOOS=$goos GOARCH=$goarch CGO_ENABLED=0 \
+              go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "$out" .
+          }
+          build linux   amd64 ""
+          build linux   arm64 ""
+          build darwin   amd64 ""
+          build darwin   arm64 ""
+          build windows  amd64 .exe
+          build windows  arm64 .exe
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+          ls -la dist
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

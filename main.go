@@ -16,7 +16,18 @@ import (
 	"mycalendar/config"
 )
 
+// version is set at build time via -ldflags "-X main.version=vX.Y.Z".
+var version = "dev"
+
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "version", "-v", "--version":
+			fmt.Printf("mycalendar %s\n", version)
+			return
+		}
+	}
+
 	// SIGINT cancels the context so an in-flight disk write can abort cleanly.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
