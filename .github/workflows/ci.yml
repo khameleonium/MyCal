@@ -14,6 +14,7 @@ jobs:
         with:
           go-version: 'stable'
           check-latest: true
+          cache: false
 
       - name: gofmt
         run: |

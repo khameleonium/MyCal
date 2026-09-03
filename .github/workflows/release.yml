@@ -17,6 +17,7 @@ jobs:
         with:
           go-version: 'stable'
           check-latest: true
+          cache: false
 
       - name: Test
         run: go test ./...
