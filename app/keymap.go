@@ -38,3 +38,28 @@ func match(input string, keys ...string) bool {
 	}
 	return false
 }
+
+// resolve returns the index of the first menu entry whose keys accept input, or
+// -1. Literal matches are tried across all entries before any layout folding,
+// so an explicitly declared mnemonic (e.g. Cyrillic "в" for Выход) is never
+// swallowed by an earlier entry whose Latin hotkey sits on the same physical
+// key ("в" folds to "d", which belongs to Удалить).
+func resolve(input string, entries [][]string) int {
+	lower := strings.ToLower(strings.TrimSpace(input))
+	if lower == "" {
+		return -1
+	}
+	for i, keys := range entries {
+		for _, k := range keys {
+			if lower == strings.ToLower(k) {
+				return i
+			}
+		}
+	}
+	for i, keys := range entries {
+		if match(input, keys...) {
+			return i
+		}
+	}
+	return -1
+}

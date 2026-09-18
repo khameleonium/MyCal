@@ -128,6 +128,7 @@ func (a *App) handleBadDate(raw string, corrected time.Time) (time.Time, bool) {
 		}
 		if a.confirm(color.Yellow(askMark + " Запомнить выбор и впредь исправлять автоматически?")) {
 			a.cfg.DateCheckMode = models.DateCheckFix
+			a.saveConfig()
 		}
 		return corrected, true
 	}

@@ -138,45 +138,65 @@ func (a *App) save() error {
 	return nil
 }
 
+// saveConfig persists the configuration. Every setting the user changes outside
+// the settings menu (a remembered date-check choice, a new custom status or
+// frequent name) goes through here, so a choice the program promised to
+// remember actually survives the session.
+func (a *App) saveConfig() {
+	if err := config.Save(a.ctx, a.cfgPath, a.cfg); err != nil {
+		fmt.Println(color.Red(errMark + " Не удалось сохранить настройки: " + err.Error()))
+	}
+}
+
+// mainMenuItems is the single source of truth for the top-level menu: the keys
+// each entry accepts (digit, Latin hotkey, Russian mnemonic), its label, and
+// what it does. run returns false to leave the menu.
+var mainMenuItems = []struct {
+	keys  []string
+	label string
+	run   func(*App) bool
+}{
+	{[]string{"1", "a", "д"}, " a | 1. Добавить запись", func(a *App) bool { a.addEntry(); return true }},
+	{[]string{"2", "v", "п"}, " v | 2. Посмотреть записи", func(a *App) bool { a.viewMenu(); return true }},
+	{[]string{"3", "d", "у"}, " d | 3. Удалить запись", func(a *App) bool { a.deleteMenu(); return true }},
+	{[]string{"4", "t", "с"}, " t | 4. Сегодня", func(a *App) bool { a.todayView(); return true }},
+	{[]string{"5", "x", "э"}, " x | 5. Экспорт в CSV", func(a *App) bool { a.exportMenu(); return true }},
+	{[]string{"6", "s", "н"}, " s | 6. Настройки", func(a *App) bool { a.settingsMenu(); return true }},
+	{[]string{"7", "h", "?", "м"}, " h | 7. Справка", func(a *App) bool { PrintHelp(); return true }},
+	{[]string{"8", "q", "в"}, " q | 8. Выход", func(a *App) bool { return false }},
+}
+
+func mainMenuKeys() [][]string {
+	keys := make([][]string, len(mainMenuItems))
+	for i, it := range mainMenuItems {
+		keys[i] = it.keys
+	}
+	return keys
+}
+
 // mainMenu is the top-level loop.
 func (a *App) mainMenu() {
+	keys := mainMenuKeys()
 	for {
 		fmt.Println()
 		fmt.Println(color.Yellow(hdrSep + " Мои записи " + hdrSep))
-		fmt.Println(" a | 1. Добавить запись")
-		fmt.Println(" v | 2. Посмотреть записи")
-		fmt.Println(" d | 3. Удалить запись")
-		fmt.Println(" t | 4. Сегодня")
-		fmt.Println(" x | 5. Экспорт в CSV")
-		fmt.Println(" s | 6. Настройки")
-		fmt.Println(" h | 7. Справка")
-		fmt.Println(" q | 8. Выход")
+		for _, it := range mainMenuItems {
+			fmt.Println(it.label)
+		}
 
 		choice, ok := a.menuChoice()
 		if !ok {
 			fmt.Println()
 			return
 		}
-		switch {
-		case match(choice, "1", "a", "д"):
-			a.addEntry()
-		case match(choice, "2", "v", "п"):
-			a.viewMenu()
-		case match(choice, "3", "d", "у"):
-			a.deleteMenu()
-		case match(choice, "4", "t", "с"):
-			a.todayView()
-		case match(choice, "5", "x", "э"):
-			a.exportMenu()
-		case match(choice, "6", "s", "н"):
-			a.settingsMenu()
-		case match(choice, "7", "h", "?", "м"):
-			PrintHelp()
-		case match(choice, "8", "q", "в"):
+		idx := resolve(choice, keys)
+		if idx < 0 {
+			fmt.Println(color.Red(errMark + " Некорректный выбор (1–8)"))
+			continue
+		}
+		if !mainMenuItems[idx].run(a) {
 			fmt.Println()
 			return
-		default:
-			fmt.Println(color.Red(errMark + " Некорректный выбор (1–8)"))
 		}
 	}
 }

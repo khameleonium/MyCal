@@ -164,7 +164,7 @@ func TestParseDateTime(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			date, tm, err := ParseDateTime(tt.input)
+			date, tm, err := ParseDateTime(tt.input, time.Time{})
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("expected error, got nil")

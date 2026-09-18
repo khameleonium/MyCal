@@ -181,12 +181,12 @@ func (a *App) lookup(in string) []models.Session {
 	}
 
 	datePart, timePart := in, ""
-	if d, tm, err := parser.ParseDateTime(in); err == nil {
+	if d, tm, err := parser.ParseDateTime(in, a.today()); err == nil {
 		datePart = d.Format("2006-01-02")
 		timePart = tm.Format("15:04")
 	}
 
-	date, err := parser.ParseDate(datePart, time.Time{})
+	date, err := parser.ParseDate(datePart, a.today())
 	if err != nil {
 		fmt.Println(color.Red(errMark + " Не распознаны ни ID, ни дата: " + in))
 		return nil

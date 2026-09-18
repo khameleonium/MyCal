@@ -3,13 +3,6 @@ package models
 
 import "encoding/json"
 
-// IDLen is the length of a well-formed session ID (YYYYMMDDHHMMnn, minute
-// precision plus a two-digit per-minute counter). IDs may be longer if a
-// minute somehow holds more than 100 entries. Note: length checks elsewhere
-// (e.g. calendar.Validate/Repair, Session.Date) use the 8/12-char date/date+time
-// prefixes, not this constant, since they only need to locate those prefixes.
-const IDLen = 14
-
 // SplitMode selects how data files are laid out on disk.
 const (
 	SplitNone  = "none"  // one file: <base>.json

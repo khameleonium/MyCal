@@ -58,9 +58,7 @@ func (s *Service) Save(ctx context.Context) error {
 	return storage.Save(ctx, s.dir, s.baseName, &models.Calendar{Sessions: s.sessions}, s.mode)
 }
 
-func (s *Service) Mode() string            { return s.mode }
 func (s *Service) DataDir() string         { return s.dir }
-func (s *Service) BaseName() string        { return s.baseName }
 func (s *Service) SetMode(mode string)     { s.mode = mode }
 func (s *Service) SetBaseName(name string) { s.baseName = name }
 func (s *Service) Count() int              { return len(s.sessions) }
@@ -164,18 +162,27 @@ func (s *Service) Conflicts(iso, hhmm string) []models.Session {
 			out = append(out, x)
 		}
 	}
+	storage.SortSessions(out)
 	return out
+}
+
+// Matches reports whether a session's name or type contains query, ignoring
+// case. It is the single definition of "matches a search/filter query", shared
+// by Search and by the interactive list filter.
+func Matches(x models.Session, query string) bool {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return false
+	}
+	return strings.Contains(strings.ToLower(x.Name), q) ||
+		strings.Contains(strings.ToLower(x.Type), q)
 }
 
 // Search returns sessions whose name or type contains query (case-insensitive).
 func (s *Service) Search(query string) []models.Session {
-	q := strings.ToLower(strings.TrimSpace(query))
-	if q == "" {
-		return nil
-	}
 	var out []models.Session
 	for _, x := range s.sessions {
-		if strings.Contains(strings.ToLower(x.Name), q) || strings.Contains(strings.ToLower(x.Type), q) {
+		if Matches(x, query) {
 			out = append(out, x)
 		}
 	}
@@ -261,15 +268,8 @@ func (s *Service) GenerateID(date, tm time.Time) string {
 
 // Add inserts a session, keeping the list sorted.
 func (s *Service) Add(session models.Session) error {
-	if session.ID == "" {
-		return fmt.Errorf("внутренняя ошибка: ID записи не сгенерирован")
-	}
-	if _, exists := s.ByID(session.ID); exists {
-		return fmt.Errorf("запись с ID %s уже существует", session.ID)
-	}
-	s.sessions = append(s.sessions, session)
-	storage.SortSessions(s.sessions)
-	return nil
+	_, err := s.AddBatch([]models.Session{session})
+	return err
 }
 
 // AddBatch inserts several sessions (e.g. the occurrences of a repeating
@@ -460,17 +460,7 @@ func (s *Service) Repair() int {
 			continue
 		}
 		if seen[x.ID] {
-			base := x.ID[:12]
-			for n := 0; ; n++ {
-				cand := fmt.Sprintf("%s%02d", base, n)
-				if n >= 100 {
-					cand = fmt.Sprintf("%s%d", base, n)
-				}
-				if !seen[cand] {
-					x.ID = cand
-					break
-				}
-			}
+			x.ID = freeID(x.ID, seen)
 			changed++
 		}
 		if x.Duration < 0 {
@@ -500,6 +490,26 @@ func (s *Service) Repair() int {
 	s.sessions = kept
 	storage.SortSessions(s.sessions)
 	return changed
+}
+
+// freeID returns an unused ID built from id's date/time prefix. The prefix is
+// only trimmed when it is longer than YYYYMMDDHHMM, so a short-but-usable ID
+// (10 or 11 chars, which Validate lets through) is extended rather than sliced
+// out of range.
+func freeID(id string, seen map[string]bool) string {
+	base := id
+	if len(base) > 12 {
+		base = base[:12]
+	}
+	for n := 0; ; n++ {
+		cand := fmt.Sprintf("%s%02d", base, n)
+		if n >= 100 {
+			cand = fmt.Sprintf("%s%d", base, n)
+		}
+		if !seen[cand] {
+			return cand
+		}
+	}
 }
 
 func isDigits(s string) bool {

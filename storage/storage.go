@@ -33,9 +33,9 @@ func Load(ctx context.Context, dir, baseName, mode string) (cal *models.Calendar
 	case models.SplitNone:
 		files = []string{filepath.Join(dir, baseName+".json")}
 	case models.SplitYear:
-		files = globFiles(dir, "????_"+baseName+".json")
+		files = append(globFiles(dir, "????_"+baseName+".json"), orphanPath(dir, baseName))
 	case models.SplitMonth:
-		files = globFiles(dir, "????-??_"+baseName+".json")
+		files = append(globFiles(dir, "????-??_"+baseName+".json"), orphanPath(dir, baseName))
 	default:
 		return nil, nil, fmt.Errorf("неизвестный режим хранения: %q", mode)
 	}
@@ -119,6 +119,7 @@ func Save(ctx context.Context, dir, baseName string, cal *models.Calendar, mode 
 		}
 		removeFiles(globFiles(dir, "????_"+baseName+".json"))
 		removeFiles(globFiles(dir, "????-??_"+baseName+".json"))
+		removeFiles([]string{orphanPath(dir, baseName)})
 		return nil
 	case models.SplitYear:
 		return saveSplit(dir, baseName, cal, 4)
@@ -131,9 +132,14 @@ func Save(ctx context.Context, dir, baseName string, cal *models.Calendar, mode 
 
 func saveSplit(dir, baseName string, cal *models.Calendar, keyLen int) error {
 	groups := make(map[string]*models.Calendar)
+	// Sessions whose ID carries no usable date cannot be filed under a year or
+	// month. They are kept in a dedicated bucket file (which Load reads back)
+	// rather than dropped, so a split-mode save never loses data.
+	var orphans models.Calendar
 	for _, s := range cal.Sessions {
 		d := s.Date()
 		if len(d) < keyLen {
+			orphans.Sessions = append(orphans.Sessions, s)
 			continue
 		}
 		key := d[:keyLen]
@@ -148,11 +154,19 @@ func saveSplit(dir, baseName string, cal *models.Calendar, keyLen int) error {
 			return err
 		}
 	}
+	if len(orphans.Sessions) > 0 {
+		if err := writeJSON(orphanPath(dir, baseName), &orphans); err != nil {
+			return err
+		}
+	}
 
 	// Delete the single-file copy, the other split mode's files, and any files
 	// of this mode whose group no longer has sessions.
 	var stale []string
 	stale = append(stale, filepath.Join(dir, baseName+".json"))
+	if len(orphans.Sessions) == 0 {
+		stale = append(stale, orphanPath(dir, baseName))
+	}
 	if keyLen == 4 {
 		stale = append(stale, globFiles(dir, "????-??_"+baseName+".json")...)
 		for _, f := range globFiles(dir, "????_"+baseName+".json") {
@@ -236,6 +250,13 @@ func trimBOM(b []byte) []byte {
 	return b
 }
 
+// orphanPath is the bucket file holding sessions whose ID has no usable date.
+// Its name deliberately does not match the ????_ / ????-??_ globs, so it is
+// never mistaken for a year or month group.
+func orphanPath(dir, baseName string) string {
+	return filepath.Join(dir, "unknown_"+baseName+".json")
+}
+
 func groupKey(path, baseName string, keyLen int) string {
 	prefix := strings.TrimSuffix(filepath.Base(path), "_"+baseName+".json")
 	if len(prefix) >= keyLen {
@@ -265,9 +286,33 @@ func removeFiles(paths []string) {
 // RemoveDataFiles deletes every data file (and its .bak) for baseName in dir,
 // across all split-mode layouts. Used when the data file name changes.
 func RemoveDataFiles(dir, baseName string) {
-	removeFiles([]string{filepath.Join(dir, baseName+".json")})
+	removeFiles([]string{filepath.Join(dir, baseName+".json"), orphanPath(dir, baseName)})
 	removeFiles(globFiles(dir, "????_"+baseName+".json"))
 	removeFiles(globFiles(dir, "????-??_"+baseName+".json"))
+}
+
+// EnsureWritableDir creates dir if needed and verifies it can be written to,
+// so an unusable data path is reported when it is chosen rather than on the
+// next launch. The probe file is created and removed via the temp-file API, so
+// nothing is left behind if the process dies mid-check.
+func EnsureWritableDir(dir string) error {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		dir = "."
+	}
+	if dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("не удалось создать каталог %q: %s", dir, reason(err))
+		}
+	}
+	probe, err := os.CreateTemp(dir, ".mycal-write-test-*")
+	if err != nil {
+		return fmt.Errorf("каталог %q недоступен для записи: %s", dir, reason(err))
+	}
+	name := probe.Name()
+	probe.Close()
+	os.Remove(name)
+	return nil
 }
 
 // SortSessions orders sessions by date then time then ID (stable, total order).

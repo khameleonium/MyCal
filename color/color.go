@@ -1,9 +1,6 @@
 package color
 
-import (
-	"fmt"
-	"os"
-)
+import "os"
 
 const (
 	reset   = "\033[0m"
@@ -54,18 +51,3 @@ func Magenta(s string) string { return wrap(magenta, s) }
 
 // Orange wraps s in orange ANSI codes (256-color).
 func Orange(s string) string { return wrap(orange, s) }
-
-// Greenf is like fmt.Sprintf with green wrapping.
-func Greenf(format string, a ...any) string { return Green(fmt.Sprintf(format, a...)) }
-
-// Yellowf is like fmt.Sprintf with yellow wrapping.
-func Yellowf(format string, a ...any) string { return Yellow(fmt.Sprintf(format, a...)) }
-
-// Redf is like fmt.Sprintf with red wrapping.
-func Redf(format string, a ...any) string { return Red(fmt.Sprintf(format, a...)) }
-
-// Magentaf is like fmt.Sprintf with magenta wrapping.
-func Magentaf(format string, a ...any) string { return Magenta(fmt.Sprintf(format, a...)) }
-
-// Orangef is like fmt.Sprintf with orange wrapping.
-func Orangef(format string, a ...any) string { return Orange(fmt.Sprintf(format, a...)) }

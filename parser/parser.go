@@ -147,7 +147,9 @@ func atoiStrict(s string) (int, error) {
 }
 
 // ParseDateTime parses a combined date+time string like "DD-MM-YYYY HH:MM".
-func ParseDateTime(input string) (time.Time, time.Time, error) {
+// now is the reference date used to resolve a year-less date (the app's
+// configured "today"); a zero value falls back to time.Now().
+func ParseDateTime(input string, now time.Time) (time.Time, time.Time, error) {
 	input = strings.TrimSpace(input)
 	parts := splitDateTime(input)
 
@@ -158,7 +160,7 @@ func ParseDateTime(input string) (time.Time, time.Time, error) {
 	datePart := strings.Join(parts[:len(parts)-1], " ")
 	timePart := parts[len(parts)-1]
 
-	date, err := ParseDate(datePart, time.Time{})
+	date, err := ParseDate(datePart, now)
 	if err != nil {
 		return time.Time{}, time.Time{}, fmt.Errorf("некорректная дата: %w", err)
 	}
