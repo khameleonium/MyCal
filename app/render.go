@@ -24,18 +24,19 @@ func (a *App) renderList(sessions []models.Session, label string) {
 		fmt.Println(color.Yellow(warnMark + " Записей нет"))
 		return
 	}
-	a.printSessions(sessions)
-	a.printSummary(sessions)
-	a.printStats(sessions)
-	a.detailLoop(sessions)
-}
-
-// printSessions prints sessions grouped by date with a running row number and
-// returns the sessions in the exact order they were numbered.
-func (a *App) printSessions(sessions []models.Session) {
 	ordered := append([]models.Session(nil), sessions...)
 	sortForDisplay(ordered)
 
+	a.printSessions(ordered)
+	a.printSummary(ordered)
+	a.printStats(ordered)
+	a.detailLoop(ordered)
+}
+
+// printSessions prints an already display-ordered list, grouped by date, with a
+// running row number. The caller sorts once so the numbers printed here and the
+// numbers detailLoop accepts cannot drift apart.
+func (a *App) printSessions(ordered []models.Session) {
 	lastDate := ""
 	for i, s := range ordered {
 		if s.Date() != lastDate {
@@ -117,10 +118,7 @@ func (a *App) showSessionDetail(s models.Session) {
 // detailLoop lets the user drill into a listed session by number or ID, edit
 // one with a "\" prefix, filter the current list with "/text", or expand
 // everything with "all". Returns on Enter or closed stdin.
-func (a *App) detailLoop(sessions []models.Session) {
-	ordered := append([]models.Session(nil), sessions...)
-	sortForDisplay(ordered)
-
+func (a *App) detailLoop(ordered []models.Session) {
 	for {
 		fmt.Println()
 		fmt.Print("Номер/ID — подробности  |  \\N или \\ID — правка  |  /текст — фильтр  |  Enter — назад > ")
@@ -142,23 +140,22 @@ func (a *App) detailLoop(sessions []models.Session) {
 		}
 
 		target, edit := strings.TrimPrefix(in, "\\"), strings.HasPrefix(in, "\\")
+		id := target
 		if idx, err := strconv.Atoi(target); err == nil && idx >= 1 && idx <= len(ordered) {
-			if edit {
-				a.editSession(ordered[idx-1].ID)
-			} else {
-				a.showSessionDetail(ordered[idx-1])
-			}
+			id = ordered[idx-1].ID
+		}
+		// Always re-read through the service: the listed slice is a snapshot
+		// taken before any edit or delete made from inside this loop.
+		s, ok := a.svc.ByID(id)
+		if !ok {
+			fmt.Println(color.Yellow(warnMark + " Запись не найдена (возможно, уже удалена)"))
 			continue
 		}
-		if s, ok := a.svc.ByID(target); ok {
-			if edit {
-				a.editSession(s.ID)
-			} else {
-				a.showSessionDetail(s)
-			}
-			continue
+		if edit {
+			a.editSession(s.ID)
+		} else {
+			a.showSessionDetail(s)
 		}
-		fmt.Println(color.Yellow(warnMark + " Запись не найдена"))
 	}
 }
 
@@ -168,10 +165,9 @@ func (a *App) filterAndShow(sessions []models.Session, query string) {
 	if query == "" {
 		return
 	}
-	q := strings.ToLower(query)
 	var matched []models.Session
 	for _, s := range sessions {
-		if strings.Contains(strings.ToLower(s.Name), q) || strings.Contains(strings.ToLower(s.Type), q) {
+		if calendar.Matches(s, query) {
 			matched = append(matched, s)
 		}
 	}

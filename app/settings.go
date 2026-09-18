@@ -9,6 +9,7 @@ import (
 	"mycalendar/config"
 	"mycalendar/models"
 	"mycalendar/parser"
+	"mycalendar/storage"
 )
 
 func (a *App) settingsMenu() {
@@ -25,7 +26,8 @@ func (a *App) settingsMenu() {
 		fmt.Printf(" p | 5. Путь к данным           [%s]\n", dataPathDisplay(a.cfg.DataPath))
 		fmt.Printf(" c | 6. Проверка даты           [%s]\n", dateCheckLabels[a.cfg.DateCheckMode])
 		fmt.Printf(" d | 7. Дата                    [%s]\n", a.dateDisplay())
-		fmt.Printf(" u | 8. Частые имена            [%d шт]\n", len(a.cfg.CustomNames))
+		fmt.Printf(" u | 8. Свои списки             [имён: %d, статусов: %d]\n",
+			len(a.cfg.CustomNames), len(a.cfg.CustomStatuses))
 		fmt.Printf(" i | 9. Молча добавлять частые имена [%s]\n", onOff(a.cfg.SilentAddNames))
 		fmt.Println(" q | 0. Сохранить и выйти")
 
@@ -59,14 +61,21 @@ func (a *App) settingsMenu() {
 			}
 		case match(choice, "5", "p"):
 			if v := a.dialog(fmt.Sprintf("Путь к данным [%s]:", dataPathDisplay(a.cfg.DataPath)), "0 — отмена"); v != "" && !isCancel(v) {
-				a.cfg.DataPath = v
+				// Checked here, not at next launch: an unusable path saved to
+				// the config would stop the program from starting at all.
+				if err := storage.EnsureWritableDir(v); err != nil {
+					fmt.Println(color.Red(errMark + " " + err.Error()))
+					fmt.Println(color.Yellow(warnMark + " Путь не изменён"))
+				} else {
+					a.cfg.DataPath = v
+				}
 			}
 		case match(choice, "6", "c"):
 			a.cfg.DateCheckMode = nextInCycle(dateCheckOrder, a.cfg.DateCheckMode)
 		case match(choice, "7", "d"):
 			a.dateSettings()
 		case match(choice, "8", "u"):
-			a.customNamesSettings()
+			a.listsSettings()
 		case match(choice, "9", "i"):
 			a.cfg.SilentAddNames = !a.cfg.SilentAddNames
 		case match(choice, "0", "q"):
@@ -165,19 +174,48 @@ func (a *App) dateSettings() {
 	}
 }
 
-func (a *App) customNamesSettings() {
+// listsSettings manages both user-editable lists. Custom statuses used to be
+// append-only from the status picker with no way to review or remove them.
+func (a *App) listsSettings() {
 	for {
 		fmt.Println()
-		fmt.Println(color.Yellow("  Частые имена (для автодополнения)"))
-		if len(a.cfg.CustomNames) == 0 {
+		fmt.Println(color.Yellow("  Свои списки"))
+		fmt.Printf(" n | 1. Частые имена   [%d шт]\n", len(a.cfg.CustomNames))
+		fmt.Printf(" s | 2. Свои статусы   [%d шт]\n", len(a.cfg.CustomStatuses))
+		fmt.Println(" q | 0. Назад")
+
+		choice, ok := a.menuChoice()
+		if !ok {
+			return
+		}
+		switch {
+		case match(choice, "1", "n"):
+			a.editStringList("Частые имена (для быстрого выбора)", "имя", &a.cfg.CustomNames)
+		case match(choice, "2", "s"):
+			a.editStringList("Свои статусы", "статус", &a.cfg.CustomStatuses)
+		case match(choice, "0", "q"):
+			return
+		default:
+			fmt.Println(color.Red(errMark + " Некорректный выбор (0–2)"))
+		}
+	}
+}
+
+// editStringList is the add/remove editor shared by the frequent-names and the
+// custom-statuses lists.
+func (a *App) editStringList(title, noun string, list *[]string) {
+	for {
+		fmt.Println()
+		fmt.Println(color.Yellow("  " + title))
+		if len(*list) == 0 {
 			fmt.Println("  (Список пуст)")
 		}
-		for i, name := range a.cfg.CustomNames {
-			fmt.Printf("  %d. %s\n", i+1, name)
+		for i, v := range *list {
+			fmt.Printf("  %d. %s\n", i+1, v)
 		}
 		fmt.Println(sep)
-		fmt.Println(" a | 1. Добавить имя")
-		fmt.Println(" r | 2. Удалить имя")
+		fmt.Println(" a | 1. Добавить (" + noun + ")")
+		fmt.Println(" r | 2. Удалить")
 		fmt.Println(" q | 0. Назад")
 
 		choice, ok := a.menuChoice()
@@ -186,12 +224,16 @@ func (a *App) customNamesSettings() {
 		}
 		switch {
 		case match(choice, "1", "a"):
-			if name := a.dialog("Новое имя:", "0 — отмена"); name != "" && !isCancel(name) {
-				a.cfg.CustomNames = append(a.cfg.CustomNames, name)
-				fmt.Println(color.Green(okMark + " Добавлено"))
+			if v := a.dialog("Новый "+noun+":", "0 — отмена"); v != "" && !isCancel(v) {
+				if containsFold(*list, v) {
+					fmt.Println(color.Yellow(warnMark + " Такое значение уже есть в списке"))
+				} else {
+					*list = append(*list, v)
+					fmt.Println(color.Green(okMark + " Добавлено"))
+				}
 			}
 		case match(choice, "2", "r"):
-			if len(a.cfg.CustomNames) == 0 {
+			if len(*list) == 0 {
 				fmt.Println(color.Yellow(warnMark + " Список пуст"))
 				continue
 			}
@@ -200,11 +242,11 @@ func (a *App) customNamesSettings() {
 				continue
 			}
 			idx, err := strconv.Atoi(idxStr)
-			if err != nil || idx < 1 || idx > len(a.cfg.CustomNames) {
+			if err != nil || idx < 1 || idx > len(*list) {
 				fmt.Println(color.Red(errMark + " Неверный номер"))
 				continue
 			}
-			a.cfg.CustomNames = append(a.cfg.CustomNames[:idx-1], a.cfg.CustomNames[idx:]...)
+			*list = append((*list)[:idx-1], (*list)[idx:]...)
 			fmt.Println(color.Green(okMark + " Удалено"))
 		case match(choice, "0", "q"):
 			return
@@ -212,6 +254,15 @@ func (a *App) customNamesSettings() {
 			fmt.Println(color.Red(errMark + " Некорректный выбор"))
 		}
 	}
+}
+
+func containsFold(list []string, v string) bool {
+	for _, x := range list {
+		if strings.EqualFold(x, v) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a *App) dateDisplay() string {

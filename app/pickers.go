@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"mycalendar/color"
-	"mycalendar/config"
 )
 
 // askName prompts for a mandatory entry name, offering the frequent-names
@@ -84,10 +83,7 @@ func (a *App) trackNameFrequency(name string) {
 		return
 	}
 	a.cfg.CustomNames = append(a.cfg.CustomNames, name)
-	if err := config.Save(a.ctx, a.cfgPath, a.cfg); err != nil {
-		fmt.Println(color.Red(errMark + " Ошибка сохранения настроек: " + err.Error()))
-		return
-	}
+	a.saveConfig()
 	if !a.cfg.SilentAddNames {
 		fmt.Println(color.Green(okMark + " Добавлено"))
 	}
@@ -193,6 +189,7 @@ func (a *App) askStatus(current string) (string, bool) {
 			}
 			if a.confirm(color.Yellow(askMark + " Добавить в список?")) {
 				a.cfg.CustomStatuses = append(a.cfg.CustomStatuses, custom)
+				a.saveConfig()
 			}
 			return custom, true
 		}

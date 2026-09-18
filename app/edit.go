@@ -79,10 +79,7 @@ func (a *App) editSession(id string) {
 			patch.Duration = &d
 		}
 	case "5":
-		v := a.dialog("Комментарий ["+session.Notes+"]:", "Enter — без изменений, 0 — отмена")
-		if isCancel(v) {
-			cancelled = true
-		} else if v != "" {
+		if v, ok, changed := a.askNotesChange(session.Notes); set(ok) && changed {
 			patch.Notes = &v
 		}
 	case "6":
@@ -156,10 +153,10 @@ func (a *App) fullEdit(s models.Session, patch *calendar.Patch, cancelled *bool)
 		patch.Duration = &d
 	}
 
-	if v := a.dialog("Комментарий ["+s.Notes+"]:", "Enter — без изменений, 0 — отмена"); isCancel(v) {
+	if v, ok, changed := a.askNotesChange(s.Notes); !ok {
 		*cancelled = true
 		return
-	} else if v != "" {
+	} else if changed {
 		patch.Notes = &v
 	}
 
@@ -168,6 +165,24 @@ func (a *App) fullEdit(s models.Session, patch *calendar.Patch, cancelled *bool)
 		return
 	} else if st != s.Status {
 		patch.Status = &st
+	}
+}
+
+// askNotesChange returns (value, ok, changed). Enter keeps the current note and
+// "-" clears it — without an explicit clear token an existing comment could
+// never be removed, since an empty reply means "unchanged" and "0" cancels.
+func (a *App) askNotesChange(current string) (string, bool, bool) {
+	v := a.dialog("Комментарий ["+dash(current)+"]:",
+		"Enter — без изменений, '-' — очистить, 0 — отмена")
+	switch {
+	case isCancel(v):
+		return "", false, false
+	case v == "":
+		return "", true, false
+	case v == "-":
+		return "", true, current != ""
+	default:
+		return v, true, v != current
 	}
 }
 

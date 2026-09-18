@@ -3,17 +3,15 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 
 	"mycalendar/app"
 	"mycalendar/calendar"
 	"mycalendar/config"
+	"mycalendar/storage"
 )
 
 // version is set at build time via -ldflags "-X main.version=vX.Y.Z".
@@ -84,22 +82,8 @@ func prepareDataDir(dataPath string) (string, error) {
 	if dataPath == "" {
 		dataPath = "."
 	}
-	if dataPath != "." {
-		if err := os.MkdirAll(dataPath, 0o755); err != nil {
-			return "", fmt.Errorf("не удалось создать каталог данных %q: %s", dataPath, explain(err))
-		}
+	if err := storage.EnsureWritableDir(dataPath); err != nil {
+		return "", err
 	}
-	probe := filepath.Join(dataPath, ".mycal-write-test")
-	if err := os.WriteFile(probe, []byte("ok"), 0o644); err != nil {
-		return "", fmt.Errorf("каталог данных %q недоступен для записи: %s", dataPath, explain(err))
-	}
-	_ = os.Remove(probe)
 	return dataPath, nil
-}
-
-func explain(err error) string {
-	if errors.Is(err, fs.ErrPermission) {
-		return "нет прав доступа"
-	}
-	return err.Error()
 }

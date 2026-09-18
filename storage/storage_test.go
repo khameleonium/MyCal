@@ -135,3 +135,51 @@ func TestLoadTrimsBOM(t *testing.T) {
 		t.Fatalf("BOM not handled: n=%d err=%v", len(got.Sessions), err)
 	}
 }
+
+// A session whose ID carries no usable date cannot be filed under a year or a
+// month. It used to be dropped silently on save; it must survive a round-trip.
+func TestSplitSaveKeepsSessionsWithUnusableID(t *testing.T) {
+	for _, mode := range []string{models.SplitYear, models.SplitMonth} {
+		t.Run(mode, func(t *testing.T) {
+			dir := t.TempDir()
+			cal := &models.Calendar{Sessions: []models.Session{
+				{ID: "20260101120000", Time: "12:00", Name: "обычная"},
+				{ID: "xx", Time: "09:00", Name: "битый ID"},
+			}}
+			if err := Save(context.Background(), dir, "mycal", cal, mode); err != nil {
+				t.Fatalf("save: %v", err)
+			}
+			got, _, err := Load(context.Background(), dir, "mycal", mode)
+			if err != nil {
+				t.Fatalf("load: %v", err)
+			}
+			if len(got.Sessions) != 2 {
+				t.Fatalf("round-trip lost data: %d of 2 sessions survived (%+v)", len(got.Sessions), got.Sessions)
+			}
+		})
+	}
+}
+
+// Once the bad records are gone the bucket file must not linger, or its stale
+// contents would reappear on the next load.
+func TestSplitSaveRemovesEmptyOrphanBucket(t *testing.T) {
+	dir := t.TempDir()
+	withOrphan := &models.Calendar{Sessions: []models.Session{
+		{ID: "20260101120000", Time: "12:00", Name: "обычная"},
+		{ID: "xx", Time: "09:00", Name: "битый ID"},
+	}}
+	if err := Save(context.Background(), dir, "mycal", withOrphan, models.SplitYear); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	clean := &models.Calendar{Sessions: withOrphan.Sessions[:1]}
+	if err := Save(context.Background(), dir, "mycal", clean, models.SplitYear); err != nil {
+		t.Fatalf("second save: %v", err)
+	}
+	got, _, err := Load(context.Background(), dir, "mycal", models.SplitYear)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if len(got.Sessions) != 1 {
+		t.Fatalf("stale bucket resurrected data: got %d sessions, want 1 (%+v)", len(got.Sessions), got.Sessions)
+	}
+}

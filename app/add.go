@@ -98,7 +98,12 @@ func (a *App) addOne(presetDate *time.Time) bool {
 
 	dates := []time.Time{date}
 	if mode != "" {
-		dates = append(dates, repeatDates(date, until, mode)...)
+		occurrences, truncated := repeatDates(date, until, mode)
+		if truncated {
+			fmt.Println(color.Yellow(fmt.Sprintf(
+				"%s Слишком много повторов: добавлены первые %d, серия обрезана.", warnMark, maxOccurrences)))
+		}
+		dates = append(dates, occurrences...)
 	}
 
 	first := base
@@ -177,8 +182,10 @@ func (a *App) resolveConflicts(iso, hhmm string) bool {
 	}
 }
 
-// askRepeat asks whether to repeat and until when.
-func (a *App) askRepeat(start time.Time) (mode string, until time.Time, ok bool) {
+// askRepeat asks whether to repeat and until when. An empty mode means "no
+// repeat"; ok=false means the user backed out of adding altogether.
+func (a *App) askRepeat(start time.Time) (string, time.Time, bool) {
+	var mode string
 	raw := a.prompt("\nПовторять запись? (d — каждый день, w — каждую неделю, m — каждый месяц, Enter — нет)")
 	switch {
 	case raw == "":
@@ -212,21 +219,50 @@ func (a *App) askRepeat(start time.Time) (mode string, until time.Time, ok bool)
 	}
 }
 
-// repeatDates returns the occurrence dates strictly after start, up to and
-// including until.
-func repeatDates(start, until time.Time, mode string) []time.Time {
-	step := map[string]func(time.Time) time.Time{
-		"d": func(t time.Time) time.Time { return t.AddDate(0, 0, 1) },
-		"w": func(t time.Time) time.Time { return t.AddDate(0, 0, 7) },
-		"m": func(t time.Time) time.Time { return t.AddDate(0, 1, 0) },
-	}[mode]
+// maxOccurrences caps one repeating series, so an accidental "every day until
+// 2099" cannot fill the calendar.
+const maxOccurrences = 5000
 
-	var out []time.Time
-	for cur := step(start); !cur.After(until); cur = step(cur) {
-		out = append(out, cur)
-		if len(out) > 5000 { // hard safety cap
-			break
+// repeatDates returns the occurrence dates strictly after start, up to and
+// including until. Every date is computed from start rather than from the
+// previous occurrence, so a series never drifts. truncated reports whether the
+// cap cut the series short.
+func repeatDates(start, until time.Time, mode string) (dates []time.Time, truncated bool) {
+	for i := 1; ; i++ {
+		var cur time.Time
+		switch mode {
+		case "d":
+			cur = start.AddDate(0, 0, i)
+		case "w":
+			cur = start.AddDate(0, 0, 7*i)
+		case "m":
+			cur = addMonths(start, i)
+		default:
+			return nil, false
+		}
+		if cur.After(until) {
+			return dates, false
+		}
+		dates = append(dates, cur)
+		if len(dates) >= maxOccurrences {
+			return dates, true
 		}
 	}
-	return out
+}
+
+// addMonths adds n months to t, clamping the day to the end of the target
+// month. Go's AddDate would roll 31 January into 3 March and shift every later
+// occurrence with it; clamping keeps a monthly series on its own day-of-month
+// and lands on the last day of shorter months.
+func addMonths(t time.Time, n int) time.Time {
+	first := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, t.Location()).AddDate(0, n, 0)
+	day := t.Day()
+	if last := daysInMonth(first.Year(), first.Month()); day > last {
+		day = last
+	}
+	return time.Date(first.Year(), first.Month(), day, 0, 0, 0, 0, t.Location())
+}
+
+func daysInMonth(year int, month time.Month) int {
+	return time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
 }
