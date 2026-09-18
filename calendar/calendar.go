@@ -80,6 +80,17 @@ func (s *Service) All() []models.Session {
 	return out
 }
 
+// CountByName reports how many sessions have the given name (case-insensitive).
+func (s *Service) CountByName(name string) int {
+	n := 0
+	for _, x := range s.sessions {
+		if strings.EqualFold(x.Name, name) {
+			n++
+		}
+	}
+	return n
+}
+
 // InRange returns sessions whose date falls within [start, end] (inclusive).
 func (s *Service) InRange(start, end time.Time) []models.Session {
 	lo, hi := start.Format("2006-01-02"), end.Format("2006-01-02")
@@ -261,6 +272,27 @@ func (s *Service) Add(session models.Session) error {
 	return nil
 }
 
+// AddBatch inserts several sessions (e.g. the occurrences of a repeating
+// series), sorting the list once at the end instead of after every session.
+// It stops at the first invalid/duplicate session and returns how many were
+// added before that.
+func (s *Service) AddBatch(sessions []models.Session) (added int, err error) {
+	for _, session := range sessions {
+		if session.ID == "" {
+			err = fmt.Errorf("внутренняя ошибка: ID записи не сгенерирован")
+			break
+		}
+		if _, exists := s.ByID(session.ID); exists {
+			err = fmt.Errorf("запись с ID %s уже существует", session.ID)
+			break
+		}
+		s.sessions = append(s.sessions, session)
+		added++
+	}
+	storage.SortSessions(s.sessions)
+	return added, err
+}
+
 // Patch describes a change. A nil field is left untouched; a non-nil field is
 // applied (including an empty string, which clears the field).
 type Patch struct {
@@ -394,7 +426,7 @@ func (s *Service) Validate() []Issue {
 		}
 		if x.ID != "" {
 			seen[x.ID]++
-			if seen[x.ID] == 2 {
+			if seen[x.ID] >= 2 {
 				issues = append(issues, Issue{x.ID, "дублирующийся ID"})
 			}
 		}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"mycalendar/models"
+	"mycalendar/storage"
 )
 
 const ConfigFile = "config_mycal.json"
@@ -120,6 +121,10 @@ func fsReason(err error) string {
 	switch {
 	case errors.Is(err, fs.ErrPermission):
 		return "нет прав доступа"
+	case errors.Is(err, fs.ErrNotExist):
+		return "файл или каталог не существует"
+	case storage.IsNoSpace(err):
+		return "недостаточно места на диске"
 	case errors.Is(err, fs.ErrExist):
 		return "файл уже существует"
 	default:
