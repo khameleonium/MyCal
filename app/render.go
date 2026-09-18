@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"mycalendar/calendar"
 	"mycalendar/color"
@@ -100,19 +101,30 @@ func (a *App) printStats(sessions []models.Session) {
 func (a *App) showSessionDetail(s models.Session) {
 	fmt.Println()
 	fmt.Println(sep)
-	fmt.Printf("  ИД:               %s\n", color.Yellow(s.ID))
-	fmt.Printf("  Дата:             %s\n", color.Magenta(parser.FormatDate(mustISO(s.Date()))))
-	fmt.Printf("  Время:            %s\n", s.Time)
-	fmt.Printf("  Имя:              %s\n", color.Green(s.Name))
-	fmt.Printf("  Тип:              %s\n", s.Type)
-	fmt.Printf("  Продолжительность: %s\n", color.Orange(fmt.Sprintf("%d мин", s.Duration)))
-	fmt.Printf("  Комментарий:      %s\n", dash(s.Notes))
-	fmt.Printf("  Статус:           %s\n", dash(s.Status))
+	fmt.Printf("  %s%s\n", detailLabel("ИД:"), color.Yellow(s.ID))
+	fmt.Printf("  %s%s\n", detailLabel("Дата:"), color.Magenta(parser.FormatDate(mustISO(s.Date()))))
+	fmt.Printf("  %s%s\n", detailLabel("Время:"), s.Time)
+	fmt.Printf("  %s%s\n", detailLabel("Имя:"), color.Green(s.Name))
+	fmt.Printf("  %s%s\n", detailLabel("Тип:"), s.Type)
+	fmt.Printf("  %s%s\n", detailLabel("Продолжительность:"), color.Orange(fmt.Sprintf("%d мин", s.Duration)))
+	fmt.Printf("  %s%s\n", detailLabel("Комментарий:"), dash(s.Notes))
+	fmt.Printf("  %s%s\n", detailLabel("Статус:"), dash(s.Status))
 	if s.IsRepeat() {
 		n := len(a.svc.BySeries(s.SeriesID))
-		fmt.Printf("  Серия:            %s\n", color.Magenta(fmt.Sprintf("повтор, записей в серии: %d", n)))
+		fmt.Printf("  %s%s\n", detailLabel("Серия:"), color.Magenta(fmt.Sprintf("повтор, записей в серии: %d", n)))
 	}
 	fmt.Println(sep)
+}
+
+// detailLabel pads a field name so every value in the card starts at the same
+// column. Padding counts runes, not bytes: "%-19s" would measure the Cyrillic
+// labels in UTF-8 bytes and align nothing.
+func detailLabel(name string) string {
+	const width = 19
+	if n := utf8.RuneCountInString(name); n < width {
+		return name + strings.Repeat(" ", width-n)
+	}
+	return name + " "
 }
 
 // detailLoop lets the user drill into a listed session by number or ID, edit

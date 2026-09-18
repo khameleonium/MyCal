@@ -101,7 +101,7 @@ func (a *App) addOne(presetDate *time.Time) bool {
 		occurrences, truncated := repeatDates(date, until, mode)
 		if truncated {
 			fmt.Println(color.Yellow(fmt.Sprintf(
-				"%s Слишком много повторов: добавлены первые %d, серия обрезана.", warnMark, maxOccurrences)))
+				"%s Достигнут предел в %d повторов — серия обрезана.", warnMark, maxOccurrences)))
 		}
 		dates = append(dates, occurrences...)
 	}
