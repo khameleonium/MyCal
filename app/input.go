@@ -80,7 +80,7 @@ func (a *App) askPeriod(title, help string) (start, end time.Time, ok bool) {
 		if isCancel(in) || a.stdinClosed {
 			return time.Time{}, time.Time{}, false
 		}
-		s, e, err := parser.ParsePeriod(in)
+		s, e, err := parser.ParsePeriod(in, a.today())
 		if err != nil {
 			fmt.Println(color.Red(errMark + " " + err.Error()))
 			continue

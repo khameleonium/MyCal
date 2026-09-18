@@ -59,7 +59,7 @@ func (a *App) viewByArgs(args []string) {
 		return
 	}
 	arg := strings.Join(args, " ")
-	start, end, err := parser.ParsePeriod(arg)
+	start, end, err := parser.ParsePeriod(arg, a.today())
 	if err != nil {
 		fmt.Println(color.Red(errMark + " Неверный формат периода: " + arg))
 		return
@@ -78,7 +78,7 @@ func (a *App) deleteByArgs(args []string) {
 		a.deleteByID(arg)
 		return
 	}
-	start, end, err := parser.ParsePeriod(arg)
+	start, end, err := parser.ParsePeriod(arg, a.today())
 	if err != nil {
 		fmt.Println(color.Red(errMark + " Не распознаны ни ID, ни период: " + arg))
 		return
@@ -94,7 +94,7 @@ func (a *App) exportByArgs(args []string) {
 		return
 	}
 	arg := strings.Join(args, " ")
-	start, end, err := parser.ParsePeriod(arg)
+	start, end, err := parser.ParsePeriod(arg, a.today())
 	if err != nil {
 		fmt.Println(color.Red(errMark + " Неверный формат периода: " + arg))
 		return

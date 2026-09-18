@@ -222,7 +222,7 @@ func TestParsePeriod(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			start, end, err := ParsePeriod(tt.input)
+			start, end, err := ParsePeriod(tt.input, time.Time{})
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("expected error, got nil")

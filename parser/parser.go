@@ -222,10 +222,16 @@ func splitDateTime(input string) []string {
 // - MM-MM (e.g., 10-12) -> 01-10-CurrentYear to 31-12-CurrentYear
 // - DD-MM-DD-MM (e.g., 01.12-15.12) -> 01-12-CurrentYear to 15-12-CurrentYear
 // - FullDate - FullDate -> parses using ParseDate
-func ParsePeriod(input string) (time.Time, time.Time, error) {
+//
+// now is the reference date used to resolve year-less input (the app's
+// configured "today", not necessarily the system clock); a zero value falls
+// back to time.Now().
+func ParsePeriod(input string, now time.Time) (time.Time, time.Time, error) {
 	input = strings.TrimSpace(input)
 
-	now := time.Now()
+	if now.IsZero() {
+		now = time.Now()
+	}
 	currYear := now.Year()
 
 	if input == "" {
@@ -239,8 +245,8 @@ func ParsePeriod(input string) (time.Time, time.Time, error) {
 	cleanInput = strings.ReplaceAll(cleanInput, " — ", " ")
 	parts := strings.Fields(cleanInput)
 	if len(parts) == 2 {
-		d1, err1 := ParseDate(parts[0], time.Time{})
-		d2, err2 := ParseDate(parts[1], time.Time{})
+		d1, err1 := ParseDate(parts[0], now)
+		d2, err2 := ParseDate(parts[1], now)
 		if err1 == nil && err2 == nil {
 			if d1.After(d2) {
 				d1, d2 = d2, d1
@@ -298,8 +304,8 @@ func ParsePeriod(input string) (time.Time, time.Time, error) {
 
 	// 4 tokens: DD-MM-DD-MM (e.g. 01.12-15.12)
 	if len(tokens) == 4 {
-		d1, err1 := ParseDate(tokens[0]+"-"+tokens[1], time.Time{})
-		d2, err2 := ParseDate(tokens[2]+"-"+tokens[3], time.Time{})
+		d1, err1 := ParseDate(tokens[0]+"-"+tokens[1], now)
+		d2, err2 := ParseDate(tokens[2]+"-"+tokens[3], now)
 		if err1 == nil && err2 == nil {
 			if d1.After(d2) {
 				d1, d2 = d2, d1
@@ -310,8 +316,8 @@ func ParsePeriod(input string) (time.Time, time.Time, error) {
 
 	// 6 tokens: DD-MM-YYYY-DD-MM-YYYY
 	if len(tokens) == 6 {
-		d1, err1 := ParseDate(tokens[0]+"-"+tokens[1]+"-"+tokens[2], time.Time{})
-		d2, err2 := ParseDate(tokens[3]+"-"+tokens[4]+"-"+tokens[5], time.Time{})
+		d1, err1 := ParseDate(tokens[0]+"-"+tokens[1]+"-"+tokens[2], now)
+		d2, err2 := ParseDate(tokens[3]+"-"+tokens[4]+"-"+tokens[5], now)
 		if err1 == nil && err2 == nil {
 			if d1.After(d2) {
 				d1, d2 = d2, d1
@@ -321,7 +327,7 @@ func ParsePeriod(input string) (time.Time, time.Time, error) {
 	}
 
 	// Fallback: try parsing as a single date
-	d, err := ParseDate(input, time.Time{})
+	d, err := ParseDate(input, now)
 	if err == nil {
 		return d, d, nil
 	}

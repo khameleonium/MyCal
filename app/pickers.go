@@ -74,12 +74,7 @@ func (a *App) trackNameFrequency(name string) {
 			return
 		}
 	}
-	count := 1
-	for _, s := range a.svc.All() {
-		if strings.EqualFold(s.Name, name) {
-			count++
-		}
-	}
+	count := a.svc.CountByName(name) + 1
 	if count < 3 {
 		return
 	}
@@ -174,14 +169,14 @@ func (a *App) askStatus(current string) (string, bool) {
 	for {
 		fmt.Print("> ")
 		input := a.line()
+		if a.stdinClosed || strings.EqualFold(strings.TrimSpace(input), "отмена") {
+			return "", false
+		}
 		if input == "0" {
 			return "", true // explicit clear
 		}
 		if input == "" {
 			return current, true // keep (== "" when there is nothing to keep)
-		}
-		if a.stdinClosed || strings.EqualFold(strings.TrimSpace(input), "отмена") {
-			return "", false
 		}
 		idx, err := strconv.Atoi(input)
 		if err != nil || idx < 1 || idx > len(statuses)+1 {

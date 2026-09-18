@@ -108,21 +108,22 @@ func (a *App) addOne(presetDate *time.Time) bool {
 		seriesID = first.ID
 		first.SeriesID = seriesID
 	}
-	if err := a.svc.Add(first); err != nil {
-		fmt.Println(color.Red(errMark + " Не удалось добавить запись: " + err.Error()))
-		return false
-	}
 
-	added := 1
+	toAdd := []models.Session{first}
 	for _, d := range dates[1:] {
 		occ := base
 		occ.ID = a.svc.GenerateID(d, tm)
 		occ.SeriesID = seriesID
-		if err := a.svc.Add(occ); err != nil {
-			fmt.Println(color.Red(errMark + " Не удалось добавить повтор: " + err.Error()))
-			break
+		toAdd = append(toAdd, occ)
+	}
+
+	added, err := a.svc.AddBatch(toAdd)
+	if err != nil {
+		if added == 0 {
+			fmt.Println(color.Red(errMark + " Не удалось добавить запись: " + err.Error()))
+			return false
 		}
-		added++
+		fmt.Println(color.Red(errMark + " Не удалось добавить повтор: " + err.Error()))
 	}
 
 	if err := a.save(); err != nil {

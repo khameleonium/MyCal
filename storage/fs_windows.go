@@ -17,6 +17,7 @@ const (
 	errorHandleDiskFull syscall.Errno = 39
 )
 
-func isNoSpace(err error) bool {
+// IsNoSpace reports whether err indicates the filesystem ran out of space.
+func IsNoSpace(err error) bool {
 	return errors.Is(err, errorDiskFull) || errors.Is(err, errorHandleDiskFull) || errors.Is(err, syscall.ENOSPC)
 }
