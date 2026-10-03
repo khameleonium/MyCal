@@ -23,6 +23,9 @@ func main() {
 		case "version", "-v", "--version":
 			fmt.Printf("mycalendar %s\n", version)
 			return
+		case "help", "-h", "--help", "/?":
+			app.PrintHelp()
+			return
 		}
 	}
 

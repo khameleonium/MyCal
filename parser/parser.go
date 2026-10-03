@@ -52,6 +52,9 @@ func ParseDate(input string, defaultDate time.Time) (time.Time, error) {
 		}
 	case 2: // DD-MM, year from the reference date
 		d, m, y = nums[0], nums[1], refYear
+		if m < 1 || m > 12 {
+			return time.Time{}, fmt.Errorf("не удалось распознать дату: %s", input)
+		}
 	default:
 		return time.Time{}, fmt.Errorf("не удалось распознать дату: %s", input)
 	}
@@ -69,7 +72,11 @@ func ParseDate(input string, defaultDate time.Time) (time.Time, error) {
 // would have to roll over (e.g. day 32, month 13, 29 Feb in a common year).
 func ParseDateStrict(input string) (time.Time, error) {
 	normalized := normalizeSeparators(strings.TrimSpace(input))
-	for _, layout := range []string{"02-01-2006", "2006-01-02", "02-01"} {
+	for _, layout := range []string{
+		"02-01-2006", "2-1-2006",
+		"2006-01-02", "2006-1-2",
+		"02-01", "2-1",
+	} {
 		if t, err := time.Parse(layout, normalized); err == nil {
 			return t, nil
 		}
@@ -245,6 +252,7 @@ func ParsePeriod(input string, now time.Time) (time.Time, time.Time, error) {
 	// 1. Check for standard two full dates with space or common range separators
 	cleanInput := strings.ReplaceAll(input, " - ", " ")
 	cleanInput = strings.ReplaceAll(cleanInput, " — ", " ")
+	cleanInput = strings.ReplaceAll(cleanInput, " – ", " ")
 	parts := strings.Fields(cleanInput)
 	if len(parts) == 2 {
 		d1, err1 := ParseDate(parts[0], now)
@@ -280,7 +288,7 @@ func ParsePeriod(input string, now time.Time) (time.Time, time.Time, error) {
 		}
 	}
 
-	// 2 tokens: MM-YYYY or MM-MM
+	// 2 tokens: MM-YYYY, YYYY-MM, MM-MM or DD-DD
 	if len(tokens) == 2 {
 		v1, err1 := strconv.Atoi(tokens[0])
 		v2, err2 := strconv.Atoi(tokens[1])
@@ -291,10 +299,25 @@ func ParsePeriod(input string, now time.Time) (time.Time, time.Time, error) {
 					end := time.Date(v2, time.Month(v1), lastDayOfMonth(v2, v1), 0, 0, 0, 0, time.Local)
 					return start, end, nil
 				}
-			} else if len(tokens[1]) <= 2 { // MM-MM
-				if v1 >= 1 && v1 <= 12 && v2 >= 1 && v2 <= 12 {
+			} else if len(tokens[0]) == 4 && len(tokens[1]) <= 2 { // YYYY-MM
+				if v2 >= 1 && v2 <= 12 {
+					start := time.Date(v1, time.Month(v2), 1, 0, 0, 0, 0, time.Local)
+					end := time.Date(v1, time.Month(v2), lastDayOfMonth(v1, v2), 0, 0, 0, 0, time.Local)
+					return start, end, nil
+				}
+			} else if len(tokens[1]) <= 2 {
+				if v1 >= 1 && v1 <= 12 && v2 >= 1 && v2 <= 12 { // MM-MM
 					start := time.Date(currYear, time.Month(v1), 1, 0, 0, 0, 0, time.Local)
 					end := time.Date(currYear, time.Month(v2), lastDayOfMonth(currYear, v2), 0, 0, 0, 0, time.Local)
+					if start.After(end) {
+						start, end = end, start
+					}
+					return start, end, nil
+				}
+				maxDays := lastDayOfMonth(currYear, int(now.Month()))
+				if v1 >= 1 && v1 <= maxDays && v2 >= 1 && v2 <= maxDays { // DD-DD (current month)
+					start := time.Date(currYear, now.Month(), v1, 0, 0, 0, 0, time.Local)
+					end := time.Date(currYear, now.Month(), v2, 0, 0, 0, 0, time.Local)
 					if start.After(end) {
 						start, end = end, start
 					}
@@ -338,5 +361,5 @@ func ParsePeriod(input string, now time.Time) (time.Time, time.Time, error) {
 }
 
 func lastDayOfMonth(year, month int) int {
-	return time.Date(year, time.Month(month+1), 0, 0, 0, 0, 0, time.Local).Day()
+	return time.Date(year, time.Month(month+1), 0, 0, 0, 0, 0, time.UTC).Day()
 }

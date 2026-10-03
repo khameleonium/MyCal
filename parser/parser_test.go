@@ -128,7 +128,10 @@ func TestParseDateLenientRollover(t *testing.T) {
 
 func TestValidateDate(t *testing.T) {
 	ref := time.Date(2026, 3, 3, 0, 0, 0, 0, time.UTC)
-	genuine := []string{"15.06.2026", "2026-06-15", "01.01.2026", "29.02.2024"}
+	genuine := []string{
+		"15.06.2026", "2026-06-15", "01.01.2026", "29.02.2024",
+		"5.1.2026", "2026-1-5", "5-1", "05-01",
+	}
 	rolled := []string{"32.01.2026", "31.04.2026", "29.02.2025", "1.13.2026"}
 	for _, s := range genuine {
 		d, err := ParseDate(s, ref)
@@ -201,6 +204,7 @@ func TestFormatTime(t *testing.T) {
 
 func TestParsePeriod(t *testing.T) {
 	currYear := time.Now().Year()
+	currMonth := time.Now().Month()
 	tests := []struct {
 		name      string
 		input     string
@@ -210,11 +214,17 @@ func TestParsePeriod(t *testing.T) {
 	}{
 		{"YYYY", "2025", "2025-01-01", "2025-12-31", false},
 		{"MM.YYYY", "12.2025", "2025-12-01", "2025-12-31", false},
+		{"YYYY-MM", "2025-12", "2025-12-01", "2025-12-31", false},
+		{"YYYY.MM", "2025.12", "2025-12-01", "2025-12-31", false},
 		{"MM/YYYY", "12/2025", "2025-12-01", "2025-12-31", false},
 		{"MM", "12", fmt.Sprintf("%d-12-01", currYear), fmt.Sprintf("%d-12-31", currYear), false},
 		{"MM-MM", "10-12", fmt.Sprintf("%d-10-01", currYear), fmt.Sprintf("%d-12-31", currYear), false},
 		{"DD.MM-DD.MM", "01.12-15.12", fmt.Sprintf("%d-12-01", currYear), fmt.Sprintf("%d-12-15", currYear), false},
 		{"DD.MM.YYYY - DD.MM.YYYY", "01.12.2025 - 15.12.2025", "2025-12-01", "2025-12-15", false},
+		{"en-dash range", "01.12.2025 – 15.12.2025", "2025-12-01", "2025-12-15", false},
+		{"DD-DD day range 15-20", "15-20", fmt.Sprintf("%d-%02d-15", currYear, currMonth), fmt.Sprintf("%d-%02d-20", currYear, currMonth), false},
+		{"DD-DD day range 10-15", "10-15", fmt.Sprintf("%d-%02d-10", currYear, currMonth), fmt.Sprintf("%d-%02d-15", currYear, currMonth), false},
+		{"DD-DD day range 01-15", "01-15", fmt.Sprintf("%d-%02d-01", currYear, currMonth), fmt.Sprintf("%d-%02d-15", currYear, currMonth), false},
 		{"Single Date Fallback", "15.12.2025", "2025-12-15", "2025-12-15", false},
 		{"Empty", "", fmt.Sprintf("%d-01-01", currYear), fmt.Sprintf("%d-12-31", currYear), false},
 		{"Garbage", "not-a-period", "", "", true},

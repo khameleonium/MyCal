@@ -133,7 +133,7 @@ func sanitizeBaseName(v string) string {
 		v = v[i+1:]
 	}
 	v = strings.TrimSuffix(v, ".json")
-	if v == "" || v == "." || v == ".." || strings.ContainsAny(v, `:*?"<>|`) {
+	if v == "" || v == "." || v == ".." || strings.ContainsAny(v, `:*?"<>|[]`) {
 		return ""
 	}
 	return v
