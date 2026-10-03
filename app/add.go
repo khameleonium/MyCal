@@ -190,11 +190,11 @@ func (a *App) askRepeat(start time.Time) (string, time.Time, bool) {
 	switch {
 	case raw == "":
 		return "", time.Time{}, true
-	case match(raw, "d"):
+	case match(raw, "d", "д"):
 		mode = "d"
-	case match(raw, "w"):
+	case match(raw, "w", "н"):
 		mode = "w"
-	case match(raw, "m"):
+	case match(raw, "m", "м"):
 		mode = "m"
 	default:
 		fmt.Println(color.Yellow(warnMark + " Не понял режим повтора, запись добавлена без повторов"))
