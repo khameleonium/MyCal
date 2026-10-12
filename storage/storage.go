@@ -33,9 +33,25 @@ func Load(ctx context.Context, dir, baseName, mode string) (cal *models.Calendar
 	case models.SplitNone:
 		files = []string{filepath.Join(dir, baseName+".json")}
 	case models.SplitYear:
-		files = append(globFiles(dir, "????_"+baseName+".json"), orphanPath(dir, baseName))
+		files = globFiles(dir, "????_"+baseName+".json")
+		for _, bak := range globFiles(dir, "????_"+baseName+".json.bak") {
+			target := strings.TrimSuffix(bak, ".bak")
+			if !contains(files, target) {
+				files = append(files, target)
+			}
+		}
+		sort.Strings(files)
+		files = append(files, orphanPath(dir, baseName))
 	case models.SplitMonth:
-		files = append(globFiles(dir, "????-??_"+baseName+".json"), orphanPath(dir, baseName))
+		files = globFiles(dir, "????-??_"+baseName+".json")
+		for _, bak := range globFiles(dir, "????-??_"+baseName+".json.bak") {
+			target := strings.TrimSuffix(bak, ".bak")
+			if !contains(files, target) {
+				files = append(files, target)
+			}
+		}
+		sort.Strings(files)
+		files = append(files, orphanPath(dir, baseName))
 	default:
 		return nil, nil, fmt.Errorf("неизвестный режим хранения: %q", mode)
 	}
@@ -53,11 +69,23 @@ func Load(ctx context.Context, dir, baseName, mode string) (cal *models.Calendar
 	return merged, warnings, nil
 }
 
-// loadFile reads one file. A missing file is not an error (empty calendar).
+// loadFile reads one file. A missing file is not an error (empty calendar),
+// unless a valid backup exists, in which case it is restored.
 func loadFile(path string) (*models.Calendar, []string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
+			base := filepath.Base(path)
+			if bak, bakErr := os.ReadFile(path + ".bak"); bakErr == nil {
+				if cal, ok := decode(bak); ok {
+					if writeErr := os.WriteFile(path, bak, 0o644); writeErr != nil {
+						return cal, []string{fmt.Sprintf(
+							"файл %s отсутствовал; восстановлен из резервной копии в памяти, но записать его обратно не удалось (%s)",
+							base, reason(writeErr))}, nil
+					}
+					return cal, []string{fmt.Sprintf("файл %s отсутствовал и был восстановлен из резервной копии %s.bak", base, base)}, nil
+				}
+			}
 			return &models.Calendar{}, nil, nil
 		}
 		return nil, nil, fmt.Errorf("не удалось прочитать %s: %s", path, reason(err))
@@ -67,22 +95,37 @@ func loadFile(path string) (*models.Calendar, []string, error) {
 		return cal, nil, nil
 	}
 
-	// The main file is corrupt. Try its backup.
 	base := filepath.Base(path)
+	isEmpty := len(strings.TrimSpace(string(data))) == 0
+
+	// The main file is corrupt or empty. Try its backup.
 	if bak, err := os.ReadFile(path + ".bak"); err == nil {
 		if cal, ok := decode(bak); ok {
+			var corruptNote string
+			if !isEmpty {
+				aside := corruptPath(path)
+				if renameErr := os.Rename(path, aside); renameErr == nil {
+					corruptNote = fmt.Sprintf(" (повреждённый файл сохранён как %s)", filepath.Base(aside))
+				}
+			}
 			if writeErr := os.WriteFile(path, bak, 0o644); writeErr != nil {
 				return cal, []string{fmt.Sprintf(
-					"файл %s повреждён; восстановлен из резервной копии в памяти, но записать его обратно не удалось (%s)",
-					base, reason(writeErr))}, nil
+					"файл %s повреждён; восстановлен из резервной копии в памяти, но записать его обратно не удалось (%s)%s",
+					base, reason(writeErr), corruptNote)}, nil
 			}
-			return cal, []string{fmt.Sprintf("файл %s был повреждён и восстановлен из резервной копии %s.bak", base, base)}, nil
+			if isEmpty {
+				return cal, []string{fmt.Sprintf("файл %s был пуст и восстановлен из резервной копии %s.bak", base, base)}, nil
+			}
+			return cal, []string{fmt.Sprintf("файл %s был повреждён и восстановлен из резервной копии %s.bak%s", base, base, corruptNote)}, nil
 		}
 	}
 
-	// No usable backup — set the corrupt file aside so nothing is lost and the
-	// next save starts clean.
-	aside := path + ".corrupt-" + time.Now().Format("20060102-150405")
+	// No usable backup.
+	if isEmpty {
+		return &models.Calendar{}, []string{fmt.Sprintf("файл %s пуст, календарь открыт пустым.", base)}, nil
+	}
+
+	aside := corruptPath(path)
 	msg := fmt.Sprintf("файл %s повреждён (нарушена структура) и не может быть прочитан.", base)
 	if renameErr := os.Rename(path, aside); renameErr == nil {
 		msg += " Он сохранён как " + filepath.Base(aside) + ", календарь открыт пустым."
@@ -95,7 +138,7 @@ func loadFile(path string) (*models.Calendar, []string, error) {
 func decode(data []byte) (*models.Calendar, bool) {
 	data = trimBOM(data)
 	if len(strings.TrimSpace(string(data))) == 0 {
-		return &models.Calendar{}, true
+		return nil, false
 	}
 	var cal models.Calendar
 	if err := json.Unmarshal(data, &cal); err != nil {
@@ -250,6 +293,20 @@ func trimBOM(b []byte) []byte {
 	return b
 }
 
+func corruptPath(path string) string {
+	ts := time.Now().Format("20060102-150405")
+	cand := path + ".corrupt-" + ts
+	if _, err := os.Stat(cand); errors.Is(err, fs.ErrNotExist) {
+		return cand
+	}
+	for n := 1; ; n++ {
+		candWithN := fmt.Sprintf("%s.%d", cand, n)
+		if _, err := os.Stat(candWithN); errors.Is(err, fs.ErrNotExist) {
+			return candWithN
+		}
+	}
+}
+
 // orphanPath is the bucket file holding sessions whose ID has no usable date.
 // Its name deliberately does not match the ????_ / ????-??_ globs, so it is
 // never mistaken for a year or month group.
@@ -272,6 +329,15 @@ func globFiles(dir, pattern string) []string {
 	}
 	sort.Strings(matches)
 	return matches
+}
+
+func contains(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }
 
 func removeFiles(paths []string) {
