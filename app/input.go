@@ -75,6 +75,9 @@ func (a *App) dialog(title, help string) string {
 }
 
 func (a *App) askPeriod(title, help string) (start, end time.Time, ok bool) {
+	if a.cfg.ShowHints {
+		help += "\n" + color.Cyan("  → Примеры: 15-20 (дни месяца), 10-12 (месяцы), 2026-10, 01.10-15.10")
+	}
 	for {
 		in := a.dialog(title, help)
 		if isCancel(in) || a.stdinClosed {
@@ -90,6 +93,9 @@ func (a *App) askPeriod(title, help string) (start, end time.Time, ok bool) {
 }
 
 func (a *App) askDate(title, help string) (time.Time, bool) {
+	if a.cfg.ShowHints {
+		help += "\n" + color.Cyan("  → Примеры: 17-10-2026, 17.10, Enter — сегодняшняя дата")
+	}
 	for {
 		in := a.dialog(title, help)
 		if isCancel(in) || a.stdinClosed {
@@ -154,8 +160,12 @@ func (a *App) askDuration(def int) (int, bool) {
 }
 
 func (a *App) askTime() (time.Time, bool) {
+	help := "HH:MM, 930, 9 — обязательно; 0 — отмена"
+	if a.cfg.ShowHints {
+		help += "\n" + color.Cyan("  → Примеры: 19:00, 930 (будет 09:30), 14 (будет 14:00)")
+	}
 	for {
-		in := a.dialog("Время записи:", "HH:MM, 930, 9 — обязательно; 0 — отмена")
+		in := a.dialog("Время записи:", help)
 		if isCancel(in) || a.stdinClosed {
 			return time.Time{}, false
 		}

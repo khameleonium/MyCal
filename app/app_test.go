@@ -156,3 +156,79 @@ func newTestAppInDir(t *testing.T, dir, script string) (*App, string) {
 	}
 	return a, dir
 }
+
+func TestAddWithSkip8(t *testing.T) {
+	// add: date, time, name, then "8" to skip all remaining optional questions and save
+	// then main menu: 8 to quit
+	script := lines(
+		"1", "15.06.2026", "14:30", "Быстрая встреча", "8",
+		"8",
+	)
+	a, dir := newTestApp(t, script)
+	a.mainMenu()
+
+	if a.svc.Count() != 1 {
+		t.Fatalf("expected 1 session, got %d", a.svc.Count())
+	}
+	s := a.svc.All()[0]
+	if s.Name != "Быстрая встреча" || s.Time != "14:30" || s.Duration != 60 || s.Notes != "" || s.Status != "" {
+		t.Fatalf("unexpected session: %+v", s)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "mycal.json")); err != nil {
+		t.Fatalf("data file not written: %v", err)
+	}
+}
+
+func TestConflictDefaultsAndEnterAdd(t *testing.T) {
+	// 1. AskOnConflict is false by default: second entry at same time added without any prompt
+	script := lines(
+		"1", "15.06.2026", "14:30", "Первая", "8",
+		"1", "15.06.2026", "14:30", "Вторая", "8",
+		"8",
+	)
+	a, dir := newTestApp(t, script)
+	a.mainMenu()
+	if a.svc.Count() != 2 {
+		t.Fatalf("expected 2 sessions, got %d", a.svc.Count())
+	}
+
+	// 2. Enable AskOnConflict: adding third entry at same time prompts conflict, Enter adds it anyway
+	a.cfg.AskOnConflict = true
+	a.feed(lines(
+		"1", "15.06.2026", "14:30", "Третья", "", "8", // "" presses Enter at conflict resolution
+		"8",
+	))
+	a.mainMenu()
+	if a.svc.Count() != 3 {
+		t.Fatalf("expected 3 sessions after Enter conflict resolution, got %d", a.svc.Count())
+	}
+	_ = dir
+}
+
+func TestSettingsToggleAskConflictAndShowHints(t *testing.T) {
+	// 6 (settings), 10 (toggle conflict), 11 (toggle hints), 0 (save & exit), 8 (main menu quit)
+	script := lines(
+		"6", "10", "11", "0",
+		"8",
+	)
+	a, dir := newTestApp(t, script)
+	a.mainMenu()
+
+	if !a.cfg.AskOnConflict {
+		t.Errorf("expected AskOnConflict true")
+	}
+	if !a.cfg.ShowHints {
+		t.Errorf("expected ShowHints true")
+	}
+
+	saved, err := config.Load(context.Background(), filepath.Join(dir, config.ConfigFile))
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if !saved.AskOnConflict {
+		t.Errorf("saved config AskOnConflict is false, want true")
+	}
+	if !saved.ShowHints {
+		t.Errorf("saved config ShowHints is false, want true")
+	}
+}

@@ -2,6 +2,8 @@ package app
 
 import (
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"mycalendar/color"
@@ -61,24 +63,6 @@ func (a *App) addOne(presetDate *time.Time) bool {
 	if name == "" {
 		return false
 	}
-	typ, ok := a.askType("")
-	if !ok {
-		return false
-	}
-	duration, ok := a.askDuration(a.cfg.DefaultDuration)
-	if !ok {
-		return false
-	}
-	notes := a.dialog("Комментарий (Enter — пропустить, 0 — отмена):", "")
-	if isCancel(notes) || a.stdinClosed {
-		fmt.Println(color.Yellow(warnMark + " Добавление отменено"))
-		return false
-	}
-	status, ok := a.askStatus("")
-	if !ok {
-		fmt.Println(color.Yellow(warnMark + " Добавление отменено"))
-		return false
-	}
 
 	iso := date.Format("2006-01-02")
 	hhmm := tm.Format("15:04")
@@ -86,9 +70,72 @@ func (a *App) addOne(presetDate *time.Time) bool {
 		return false
 	}
 
-	mode, until, ok := a.askRepeat(date)
-	if !ok {
-		return false
+	// Optional questions: can be skipped individually with Enter,
+	// or all at once by typing "8" at any prompt.
+	skipRest := false
+
+	typ := a.cfg.DefaultType
+	if typ == "" {
+		if types := a.svc.Types(); len(types) > 0 {
+			typ = types[0]
+		}
+	}
+	if !skipRest {
+		t, ok, skip := a.askTypeAdd(typ)
+		if !ok {
+			return false
+		}
+		typ = t
+		if skip {
+			skipRest = true
+		}
+	}
+
+	duration := a.cfg.DefaultDuration
+	if !skipRest {
+		d, ok, skip := a.askDurationAdd(duration)
+		if !ok {
+			return false
+		}
+		duration = d
+		if skip {
+			skipRest = true
+		}
+	}
+
+	notes := ""
+	if !skipRest {
+		n, ok, skip := a.askNotesAdd()
+		if !ok {
+			return false
+		}
+		notes = n
+		if skip {
+			skipRest = true
+		}
+	}
+
+	status := ""
+	if !skipRest {
+		st, ok, skip := a.askStatusAdd()
+		if !ok {
+			return false
+		}
+		status = st
+		if skip {
+			skipRest = true
+		}
+	}
+
+	var mode string
+	var until time.Time
+	if !skipRest {
+		m, u, ok := a.askRepeat(date)
+		if !ok {
+			return false
+		}
+		mode = m
+		until = u
 	}
 
 	base := models.Session{
@@ -142,9 +189,148 @@ func (a *App) addOne(presetDate *time.Time) bool {
 	return true
 }
 
+func (a *App) askTypeAdd(defaultType string) (string, bool, bool) {
+	types := a.svc.Types(defaultType)
+	fmt.Println()
+	fmt.Println(color.Yellow("Тип записи:"))
+	for i, t := range types {
+		fmt.Printf("  %d. %s\n", i+1, t)
+	}
+	fmt.Printf("  %d. Ручной ввод\n", len(types)+1)
+	fmt.Println("  Enter — по умолчанию: " + color.Green(defaultType))
+	fmt.Println("  8 — пропустить остальные вопросы и добавить запись, 0 — отмена")
+	if a.cfg.ShowHints {
+		fmt.Println(color.Cyan("  → Категория события; Enter выберет значение по умолчанию, 8 сразу добавит запись"))
+	}
+
+	for {
+		fmt.Print("> ")
+		input := a.line()
+		if a.stdinClosed || isCancel(input) {
+			return "", false, false
+		}
+		if input == "8" {
+			return defaultType, true, true
+		}
+		if input == "" {
+			return defaultType, true, false
+		}
+		idx, err := strconv.Atoi(input)
+		if err != nil || idx < 1 || idx > len(types)+1 {
+			fmt.Println(color.Yellow(warnMark + " Введите номер из списка или 8 для сохранения"))
+			continue
+		}
+		if idx == len(types)+1 {
+			custom := a.dialog("Название нового типа:", "0 — отмена")
+			if isCancel(custom) {
+				return "", false, false
+			}
+			if custom == "" {
+				return defaultType, true, false
+			}
+			return custom, true, false
+		}
+		return types[idx-1], true, false
+	}
+}
+
+func (a *App) askDurationAdd(def int) (int, bool, bool) {
+	promptMsg := fmt.Sprintf("Продолжительность (мин) [%d]:", def)
+	helpMsg := fmt.Sprintf("Enter — %d мин; 8 — пропустить остальные вопросы и добавить; 0 — отмена", def)
+	if a.cfg.ShowHints {
+		helpMsg += "\n" + color.Cyan("  → Длительность события в минутах (напр. 30, 45, 60)")
+	}
+	in := a.dialog(promptMsg, helpMsg)
+	if isCancel(in) || a.stdinClosed {
+		return 0, false, false
+	}
+	if in == "8" {
+		return def, true, true
+	}
+	if in == "" {
+		return def, true, false
+	}
+	d, err := strconv.Atoi(in)
+	if err != nil || d <= 0 {
+		fmt.Println(color.Yellow(warnMark + " Некорректно, используется " + strconv.Itoa(def)))
+		return def, true, false
+	}
+	return d, true, false
+}
+
+func (a *App) askNotesAdd() (string, bool, bool) {
+	helpMsg := "Enter — пропустить; 8 — пропустить остальные вопросы и добавить; 0 — отмена"
+	if a.cfg.ShowHints {
+		helpMsg += "\n" + color.Cyan("  → Дополнительный комментарий к записи (произвольный текст)")
+	}
+	notes := a.dialog("Комментарий:", helpMsg)
+	if isCancel(notes) || a.stdinClosed {
+		fmt.Println(color.Yellow(warnMark + " Добавление отменено"))
+		return "", false, false
+	}
+	if notes == "8" {
+		return "", true, true
+	}
+	return notes, true, false
+}
+
+func (a *App) askStatusAdd() (string, bool, bool) {
+	statuses := a.svc.Statuses(a.cfg.CustomStatuses...)
+
+	fmt.Println()
+	fmt.Println(color.Yellow("Статус:"))
+	fmt.Println("  0. <пусто>")
+	for i, st := range statuses {
+		fmt.Printf("  %d. %s\n", i+1, st)
+	}
+	fmt.Printf("  %d. Ручной ввод\n", len(statuses)+1)
+	fmt.Println("  Enter — пропустить (пусто)")
+	fmt.Println("  8 — пропустить остальные вопросы и добавить, отмена — отмена")
+	if a.cfg.ShowHints {
+		fmt.Println(color.Cyan("  → Текущий статус (Активно, Пропущено, Отменено и др.)"))
+	}
+
+	for {
+		fmt.Print("> ")
+		input := a.line()
+		if a.stdinClosed || strings.EqualFold(strings.TrimSpace(input), "отмена") {
+			return "", false, false
+		}
+		if input == "8" {
+			return "", true, true
+		}
+		if input == "0" || input == "" {
+			return "", true, false
+		}
+		idx, err := strconv.Atoi(input)
+		if err != nil || idx < 1 || idx > len(statuses)+1 {
+			fmt.Println(color.Yellow(warnMark + " Введите номер из списка или 8 для сохранения"))
+			continue
+		}
+		if idx == len(statuses)+1 {
+			custom := a.dialog("Название статуса:", "0 — отмена")
+			if isCancel(custom) {
+				return "", false, false
+			}
+			if custom == "" {
+				return "", true, false
+			}
+			if a.confirm(color.Yellow(askMark + " Добавить в список?")) {
+				a.cfg.CustomStatuses = append(a.cfg.CustomStatuses, custom)
+				a.saveConfig()
+			}
+			return custom, true, false
+		}
+		return statuses[idx-1], true, false
+	}
+}
+
 // resolveConflicts shows existing sessions at the same date/time and lets the
 // user edit/delete one or proceed. Returns false if the user backed out.
 func (a *App) resolveConflicts(iso, hhmm string) bool {
+	if !a.cfg.AskOnConflict {
+		return true
+	}
 	conflicts := a.svc.Conflicts(iso, hhmm)
 	if len(conflicts) == 0 {
 		return true
@@ -161,8 +347,11 @@ func (a *App) resolveConflicts(iso, hhmm string) bool {
 	fmt.Println()
 	fmt.Println("  1. Редактировать существующую")
 	fmt.Println("  2. Удалить существующую")
-	fmt.Println("  3. Всё равно добавить")
+	fmt.Println("  3. Всё равно добавить (Enter)")
 	fmt.Println("  0. Вернуться в меню")
+	if a.cfg.ShowHints {
+		fmt.Println(color.Cyan("  → Enter или 3 добавит новую запись параллельно с существующими"))
+	}
 
 	switch a.prompt("") {
 	case "1":
@@ -175,7 +364,7 @@ func (a *App) resolveConflicts(iso, hhmm string) bool {
 			a.deleteByID(s.ID)
 		}
 		return false
-	case "3":
+	case "3", "":
 		return true
 	default:
 		return false
@@ -186,9 +375,13 @@ func (a *App) resolveConflicts(iso, hhmm string) bool {
 // repeat"; ok=false means the user backed out of adding altogether.
 func (a *App) askRepeat(start time.Time) (string, time.Time, bool) {
 	var mode string
-	raw := a.prompt("\nПовторять запись? (d — каждый день, w — каждую неделю, m — каждый месяц, Enter — нет)")
+	promptMsg := "\nПовторять запись? (d — каждый день, w — каждую неделю, m — каждый месяц, Enter или 8 — нет)"
+	if a.cfg.ShowHints {
+		promptMsg += "\n" + color.Cyan("  → Создание серии повторяющихся событий; Enter или 8 — одиночная запись")
+	}
+	raw := a.prompt(promptMsg)
 	switch {
-	case raw == "":
+	case raw == "" || raw == "8":
 		return "", time.Time{}, true
 	case match(raw, "d", "д"):
 		mode = "d"

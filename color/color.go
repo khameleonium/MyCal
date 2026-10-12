@@ -9,6 +9,7 @@ const (
 	red     = "\033[31m"
 	magenta = "\033[35m"
 	orange  = "\033[38;5;208m"
+	cyan    = "\033[36m"
 )
 
 // enabled reports whether ANSI colour codes should be emitted. Colours are
@@ -51,3 +52,6 @@ func Magenta(s string) string { return wrap(magenta, s) }
 
 // Orange wraps s in orange ANSI codes (256-color).
 func Orange(s string) string { return wrap(orange, s) }
+
+// Cyan wraps s in cyan ANSI codes.
+func Cyan(s string) string { return wrap(cyan, s) }

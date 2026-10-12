@@ -17,10 +17,15 @@ func (a *App) exportMenu() {
 	fmt.Println()
 	fmt.Println(color.Yellow(hdrSep + " Экспорт в CSV " + hdrSep))
 	fmt.Println(" w | 1. За эту неделю")
+	a.hint("Выгрузить события текущей недели в файл .csv")
 	fmt.Println(" m | 2. За этот месяц")
+	a.hint("Выгрузить события текущего месяца в файл .csv")
 	fmt.Println(" p | 3. Указать период")
+	a.hint("Выгрузить диапазон дат (напр. \"10-12\", \"01.10-15.10\")")
 	fmt.Println(" a | 4. Все записи")
+	a.hint("Экспортировать абсолютно все записи календаря")
 	fmt.Println(" q | 0. Назад")
+	a.hint("Возврат в главное меню")
 
 	choice, ok := a.menuChoice()
 	if !ok {

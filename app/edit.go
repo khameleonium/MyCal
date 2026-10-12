@@ -43,6 +43,9 @@ func (a *App) editSession(id string) {
 	fmt.Println("1. Наименование   4. Продолжительность   7. Полностью")
 	fmt.Println("2. Тип            5. Комментарий          0. Отмена")
 	fmt.Println("3. Время          6. Статус")
+	if a.cfg.ShowHints {
+		fmt.Println(color.Cyan("  → Номер поля (1–7) для изменения, Enter без ввода — оставить, '-' очистить, 0 отмена"))
+	}
 
 	choice := a.prompt("")
 	if choice == "0" || isCancel(choice) {

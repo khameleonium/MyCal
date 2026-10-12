@@ -26,6 +26,8 @@ var DefaultConfig = Config{
 	DataFileName:    "mycal",
 	DateCheckMode:   DateCheckOff,
 	UseSystemDate:   true,
+	AskOnConflict:   false,
+	ShowHints:       false,
 }
 
 // Config mirrors config_mycal.json.
@@ -41,6 +43,8 @@ type Config struct {
 	CustomStatuses  []string `json:"custom_statuses"`
 	CustomNames     []string `json:"custom_names"`
 	SilentAddNames  bool     `json:"silent_add_names"`
+	AskOnConflict   bool     `json:"ask_on_conflict"`
+	ShowHints       bool     `json:"show_hints"`
 }
 
 // UnmarshalJSON overlays the JSON document onto a copy of DefaultConfig, so any
