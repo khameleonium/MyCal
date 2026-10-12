@@ -33,6 +33,12 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
+	go func() {
+		<-ctx.Done()
+		fmt.Println()
+		os.Exit(0)
+	}()
+
 	if err := run(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, "[✗] "+err.Error())
 		os.Exit(1)

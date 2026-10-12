@@ -148,22 +148,30 @@ func (a *App) saveConfig() {
 	}
 }
 
+// hint prints an explanatory line when ShowHints is enabled.
+func (a *App) hint(text string) {
+	if a.cfg.ShowHints {
+		fmt.Println(color.Cyan("     → " + text))
+	}
+}
+
 // mainMenuItems is the single source of truth for the top-level menu: the keys
 // each entry accepts (digit, Latin hotkey, Russian mnemonic), its label, and
 // what it does. run returns false to leave the menu.
 var mainMenuItems = []struct {
 	keys  []string
 	label string
+	hint  string
 	run   func(*App) bool
 }{
-	{[]string{"1", "a", "д"}, " a | 1. Добавить запись", func(a *App) bool { a.addEntry(); return true }},
-	{[]string{"2", "v", "п"}, " v | 2. Посмотреть записи", func(a *App) bool { a.viewMenu(); return true }},
-	{[]string{"3", "d", "у"}, " d | 3. Удалить запись", func(a *App) bool { a.deleteMenu(); return true }},
-	{[]string{"4", "t", "с"}, " t | 4. Сегодня", func(a *App) bool { a.todayView(); return true }},
-	{[]string{"5", "x", "э"}, " x | 5. Экспорт в CSV", func(a *App) bool { a.exportMenu(); return true }},
-	{[]string{"6", "s", "н"}, " s | 6. Настройки", func(a *App) bool { a.settingsMenu(); return true }},
-	{[]string{"7", "h", "?", "м"}, " h | 7. Справка", func(a *App) bool { PrintHelp(); return true }},
-	{[]string{"8", "q", "в"}, " q | 8. Выход", func(a *App) bool { return false }},
+	{[]string{"1", "a", "д"}, " a | 1. Добавить запись", "Создание события (напр. 17.10 19:00, тренировка)", func(a *App) bool { a.addEntry(); return true }},
+	{[]string{"2", "v", "п"}, " v | 2. Посмотреть записи", "Список за неделю, месяц, период (напр. 15-20) или все", func(a *App) bool { a.viewMenu(); return true }},
+	{[]string{"3", "d", "у"}, " d | 3. Удалить запись", "Удаление по номеру/ID, за дату, диапазон или всех", func(a *App) bool { a.deleteMenu(); return true }},
+	{[]string{"4", "t", "с"}, " t | 4. Сегодня", "Быстрый просмотр расписания на текущий день", func(a *App) bool { a.todayView(); return true }},
+	{[]string{"5", "x", "э"}, " x | 5. Экспорт в CSV", "Выгрузка записей в таблицу для Excel / Calc (.csv)", func(a *App) bool { a.exportMenu(); return true }},
+	{[]string{"6", "s", "н"}, " s | 6. Настройки", "Параметры хранения, автоисправление дат, подсказки", func(a *App) bool { a.settingsMenu(); return true }},
+	{[]string{"7", "h", "?", "м"}, " h | 7. Справка", "Руководство пользователя, горячие клавиши и параметры CLI", func(a *App) bool { PrintHelp(); return true }},
+	{[]string{"8", "q", "в"}, " q | 8. Выход", "Завершение работы программы (также работает Ctrl+C)", func(a *App) bool { return false }},
 }
 
 func mainMenuKeys() [][]string {
@@ -182,6 +190,9 @@ func (a *App) mainMenu() {
 		fmt.Println(color.Yellow(hdrSep + " Мои записи " + hdrSep))
 		for _, it := range mainMenuItems {
 			fmt.Println(it.label)
+			if a.cfg.ShowHints {
+				fmt.Println(color.Cyan("     → " + it.hint))
+			}
 		}
 
 		choice, ok := a.menuChoice()

@@ -14,10 +14,15 @@ func (a *App) viewMenu() {
 	fmt.Println()
 	fmt.Println(color.Yellow(hdrSep + " Просмотр записей " + hdrSep))
 	fmt.Println(" w | 1. За эту неделю")
+	a.hint("События с понедельника по воскресенье текущей недели")
 	fmt.Println(" m | 2. За этот месяц")
+	a.hint("Все события текущего календарного месяца")
 	fmt.Println(" p | 3. Указать период")
+	a.hint("Выборка дат (примеры: \"15-20\", \"2026-10\", \"01.10-15.10\")")
 	fmt.Println(" a | 4. Все записи")
+	a.hint("Полный список всех сохранённых записей")
 	fmt.Println(" q | 0. Назад")
+	a.hint("Возврат в главное меню")
 
 	choice, ok := a.menuChoice()
 	if !ok {

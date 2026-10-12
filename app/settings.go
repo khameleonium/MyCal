@@ -20,16 +20,30 @@ func (a *App) settingsMenu() {
 		fmt.Println()
 		fmt.Println(color.Yellow(hdrSep + " Настройки " + hdrSep))
 		fmt.Printf(" m | 1. Режим хранения          [%s]\n", splitModeLabels[a.cfg.SplitMode])
+		a.hint("Способ сохранения на диске (в одном файле, по годам или по месяцам)")
 		fmt.Printf(" n | 2. Имя файла данных        [%s]\n", a.cfg.DataFileName)
+		a.hint("Базовое имя файла базы (по умолчанию \"mycal\")")
 		fmt.Printf(" l | 3. Продолж. по умолчанию   [%d мин]\n", a.cfg.DefaultDuration)
+		a.hint("Длительность события при нажатии Enter (напр. 30, 45, 60 мин)")
 		fmt.Printf(" t | 4. Тип по умолчанию        [%s]\n", a.cfg.DefaultType)
+		a.hint("Категория события, подставляемая по умолчанию")
 		fmt.Printf(" p | 5. Путь к данным           [%s]\n", dataPathDisplay(a.cfg.DataPath))
+		a.hint("Каталог, где сохраняются json-файлы записей")
 		fmt.Printf(" c | 6. Проверка даты           [%s]\n", dateCheckLabels[a.cfg.DateCheckMode])
+		a.hint("Поведение при вводе некорректных дат вроде 32.01")
 		fmt.Printf(" d | 7. Дата                    [%s]\n", a.dateDisplay())
+		a.hint("Использовать системное время или ручной ввод фиксированной даты")
 		fmt.Printf(" u | 8. Свои списки             [имён: %d, статусов: %d]\n",
 			len(a.cfg.CustomNames), len(a.cfg.CustomStatuses))
+		a.hint("Настройка списков для быстрого выбора")
 		fmt.Printf(" i | 9. Молча добавлять частые имена [%s]\n", onOff(a.cfg.SilentAddNames))
+		a.hint("Автоматическое сохранение часто используемых имён")
+		fmt.Printf(" k | 10. Спрашивать при совпадении   [%s]\n", onOff(a.cfg.AskOnConflict))
+		a.hint("Предупреждать ли, если на это же время уже есть запись")
+		fmt.Printf(" h | 11. Подсказки                   [%s]\n", onOff(a.cfg.ShowHints))
+		a.hint("Пояснения и примеры под каждым пунктом меню и действием")
 		fmt.Println(" q | 0. Сохранить и выйти")
+		a.hint("Применить изменения и вернуться в главное меню")
 
 		choice, ok := a.menuChoice()
 		if !ok {
@@ -78,11 +92,15 @@ func (a *App) settingsMenu() {
 			a.listsSettings()
 		case match(choice, "9", "i"):
 			a.cfg.SilentAddNames = !a.cfg.SilentAddNames
+		case match(choice, "10", "k", "с"):
+			a.cfg.AskOnConflict = !a.cfg.AskOnConflict
+		case match(choice, "11", "h", "п"):
+			a.cfg.ShowHints = !a.cfg.ShowHints
 		case match(choice, "0", "q"):
 			a.persistSettings(startMode, startName, startPath)
 			return
 		default:
-			fmt.Println(color.Red(errMark + " Некорректный выбор (0–9)"))
+			fmt.Println(color.Red(errMark + " Некорректный выбор (0–11)"))
 		}
 	}
 }
