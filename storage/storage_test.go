@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"mycalendar/models"
@@ -181,5 +182,142 @@ func TestSplitSaveRemovesEmptyOrphanBucket(t *testing.T) {
 	}
 	if len(got.Sessions) != 1 {
 		t.Fatalf("stale bucket resurrected data: got %d sessions, want 1 (%+v)", len(got.Sessions), got.Sessions)
+	}
+}
+
+func TestMissingMainFileRestoredFromBackup(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	if err := Save(ctx, dir, "mycal", sample(), models.SplitNone); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := Save(ctx, dir, "mycal", sample(), models.SplitNone); err != nil {
+		t.Fatalf("Save 2: %v", err)
+	}
+	path := filepath.Join(dir, "mycal.json")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	got, warns, err := Load(ctx, dir, "mycal", models.SplitNone)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got.Sessions) != 3 {
+		t.Errorf("backup not used: %d sessions", len(got.Sessions))
+	}
+	if len(warns) == 0 || !strings.Contains(warns[0], "отсутствовал и был восстановлен") {
+		t.Errorf("expected warning about missing file restored, got: %v", warns)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("main file was not recreated on disk: %v", err)
+	}
+}
+
+func TestEmptyMainFileRestoredFromBackup(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	if err := Save(ctx, dir, "mycal", sample(), models.SplitNone); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := Save(ctx, dir, "mycal", sample(), models.SplitNone); err != nil {
+		t.Fatalf("Save 2: %v", err)
+	}
+	path := filepath.Join(dir, "mycal.json")
+	if err := os.WriteFile(path, []byte("   \n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, warns, err := Load(ctx, dir, "mycal", models.SplitNone)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got.Sessions) != 3 {
+		t.Errorf("backup not used: %d sessions", len(got.Sessions))
+	}
+	if len(warns) == 0 || !strings.Contains(warns[0], "был пуст и восстановлен") {
+		t.Errorf("expected warning about empty file restored, got: %v", warns)
+	}
+}
+
+func TestEmptyMainFileWithoutBackup(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "mycal.json")
+	if err := os.WriteFile(path, []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, warns, err := Load(context.Background(), dir, "mycal", models.SplitNone)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got.Sessions) != 0 {
+		t.Errorf("expected empty calendar, got %d", len(got.Sessions))
+	}
+	if len(warns) == 0 || !strings.Contains(warns[0], "пуст") {
+		t.Errorf("expected warning about empty file, got %v", warns)
+	}
+}
+
+func TestCorruptMainFilePreservedWhenRestoredFromBackup(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	if err := Save(ctx, dir, "mycal", sample(), models.SplitNone); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := Save(ctx, dir, "mycal", sample(), models.SplitNone); err != nil {
+		t.Fatalf("Save 2: %v", err)
+	}
+	path := filepath.Join(dir, "mycal.json")
+	corruptContent := "{ this is corrupted json"
+	if err := os.WriteFile(path, []byte(corruptContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, warns, err := Load(ctx, dir, "mycal", models.SplitNone)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got.Sessions) != 3 {
+		t.Errorf("backup not used: %d sessions", len(got.Sessions))
+	}
+	if len(warns) == 0 || !strings.Contains(warns[0], "был повреждён и восстановлен") {
+		t.Errorf("expected warning about corrupt file restored, got: %v", warns)
+	}
+	matches, err := filepath.Glob(filepath.Join(dir, "mycal.json.corrupt-*"))
+	if err != nil || len(matches) != 1 {
+		t.Fatalf("expected 1 corrupt file, got %v", matches)
+	}
+	savedCorrupt, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatalf("read corrupt file: %v", err)
+	}
+	if string(savedCorrupt) != corruptContent {
+		t.Errorf("corrupt content not preserved: got %q, want %q", string(savedCorrupt), corruptContent)
+	}
+}
+
+func TestSplitModeMissingFileRestoredFromBackup(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	if err := Save(ctx, dir, "mycal", sample(), models.SplitYear); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := Save(ctx, dir, "mycal", sample(), models.SplitYear); err != nil {
+		t.Fatalf("Save 2: %v", err)
+	}
+	// Delete 2025_mycal.json
+	missing := filepath.Join(dir, "2025_mycal.json")
+	if err := os.Remove(missing); err != nil {
+		t.Fatal(err)
+	}
+	got, warns, err := Load(ctx, dir, "mycal", models.SplitYear)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got.Sessions) != 3 {
+		t.Fatalf("expected 3 sessions restored, got %d", len(got.Sessions))
+	}
+	if len(warns) == 0 || !strings.Contains(warns[0], "отсутствовал и был восстановлен") {
+		t.Errorf("expected warning, got %v", warns)
+	}
+	if _, err := os.Stat(missing); err != nil {
+		t.Errorf("missing year file was not recreated on disk: %v", err)
 	}
 }
