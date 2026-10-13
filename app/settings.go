@@ -30,7 +30,7 @@ func (a *App) settingsMenu() {
 		fmt.Printf(" p | 5. Путь к данным           [%s]\n", dataPathDisplay(a.cfg.DataPath))
 		a.hint("Каталог, где сохраняются json-файлы записей")
 		fmt.Printf(" c | 6. Проверка даты           [%s]\n", dateCheckLabels[a.cfg.DateCheckMode])
-		a.hint("Поведение при вводе некорректных дат вроде 32.01")
+		a.hint(dateCheckHint(a.cfg.DateCheckMode))
 		fmt.Printf(" d | 7. Дата                    [%s]\n", a.dateDisplay())
 		a.hint("Использовать системное время или ручной ввод фиксированной даты")
 		fmt.Printf(" u | 8. Свои списки             [имён: %d, статусов: %d]\n",
@@ -315,3 +315,19 @@ func nextInCycle(order []string, current string) string {
 	}
 	return current
 }
+
+func dateCheckHint(mode string) string {
+	switch mode {
+	case models.DateCheckOff:
+		return "Реакция на ошибки (32.01, 31.02). Сейчас [Выключена]: молча сдвигать на след. месяц (32.01 → 01.02)"
+	case models.DateCheckAsk:
+		return "Реакция на ошибки (32.01, 31.02). Сейчас [Спрашивать]: спросить — принять сдвиг на 01.02 или ввести заново"
+	case models.DateCheckFix:
+		return "Реакция на ошибки (32.01, 31.02). Сейчас [Исправлять авто]: автоматически сдвинуть на 01.02 с предупреждением"
+	case models.DateCheckReask:
+		return "Реакция на ошибки (32.01, 31.02). Сейчас [Переспрашивать]: отклонить 32.01 и потребовать ввести дату заново"
+	default:
+		return "Реакция на ошибки в дате (напр. 32.01): Выключена, Спрашивать, Исправлять авто, Переспрашивать"
+	}
+}
+

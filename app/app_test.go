@@ -232,3 +232,14 @@ func TestSettingsToggleAskConflictAndShowHints(t *testing.T) {
 		t.Errorf("saved config ShowHints is false, want true")
 	}
 }
+
+func TestDateCheckHint(t *testing.T) {
+	modes := []string{models.DateCheckOff, models.DateCheckAsk, models.DateCheckFix, models.DateCheckReask}
+	for _, m := range modes {
+		h := dateCheckHint(m)
+		if h == "" || !strings.Contains(h, "32.01") {
+			t.Errorf("dateCheckHint(%q) = %q, expected non-empty hint containing 32.01", m, h)
+		}
+	}
+}
+
