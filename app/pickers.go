@@ -24,7 +24,7 @@ func (a *App) askName(title, current string) string {
 		default:
 			fmt.Println("Обязательное поле; 0 — отмена")
 		}
-		fmt.Print("> ")
+		a.printPrompt("> ")
 		input := a.line()
 
 		if a.stdinClosed || isCancel(input) {
@@ -113,7 +113,7 @@ func (a *App) askType(current string) (string, bool) {
 	}
 
 	for {
-		fmt.Print("> ")
+		a.printPrompt("> ")
 		input := a.line()
 		if a.stdinClosed || isCancel(input) {
 			return "", false
@@ -163,7 +163,7 @@ func (a *App) askStatus(current string) (string, bool) {
 	}
 
 	for {
-		fmt.Print("> ")
+		a.printPrompt("> ")
 		input := a.line()
 		if a.stdinClosed || strings.EqualFold(strings.TrimSpace(input), "отмена") {
 			return "", false

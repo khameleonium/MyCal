@@ -57,6 +57,12 @@ type App struct {
 	in          *bufio.Reader
 	stdinClosed bool
 
+	// tty is set when stdin and stdout are both terminals: input is then read
+	// by the line editor (see lineedit.go) instead of the terminal's own line
+	// discipline. promptText is what was printed before the cursor.
+	tty        bool
+	promptText string
+
 	todayCache time.Time
 }
 
@@ -69,6 +75,7 @@ func NewApp(ctx context.Context, svc *calendar.Service, cfg *models.Config, cfgP
 		cfgPath: cfgPath,
 		ctx:     ctx,
 		in:      bufio.NewReader(os.Stdin),
+		tty:     isTerminal(os.Stdin.Fd()) && isTerminal(os.Stdout.Fd()),
 	}
 }
 
