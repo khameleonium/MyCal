@@ -31,6 +31,13 @@ func (a *App) readLine() (string, bool) {
 	return strings.TrimRight(s, "\r\n"), true
 }
 
+// printPrompt prints the text that precedes the cursor and remembers it, so the
+// line editor can redraw the input row after the prompt.
+func (a *App) printPrompt(s string) {
+	a.promptText = s
+	fmt.Print(s)
+}
+
 // line reads a trimmed line, treating EOF as empty input.
 func (a *App) line() string {
 	s, _ := a.readLine()
@@ -42,14 +49,14 @@ func (a *App) prompt(msg string) string {
 	if msg != "" {
 		fmt.Println(msg)
 	}
-	fmt.Print("> ")
+	a.printPrompt("> ")
 	return a.line()
 }
 
 // menuChoice is prompt plus an EOF signal, for menu loops that must exit
 // cleanly when stdin closes.
 func (a *App) menuChoice() (string, bool) {
-	fmt.Print("> ")
+	a.printPrompt("> ")
 	s, ok := a.readLine()
 	return strings.TrimSpace(s), ok && !a.stdinClosed
 }
@@ -57,9 +64,9 @@ func (a *App) menuChoice() (string, bool) {
 // confirm asks a yes/no question; only an explicit yes returns true. EOF = no.
 func (a *App) confirm(question string) bool {
 	if question != "" {
-		fmt.Print(question + " ")
+		question += " "
 	}
-	fmt.Print("(Да/Нет) > ")
+	a.printPrompt(question + "(Да/Нет) > ")
 	return isYes(a.line())
 }
 
@@ -70,7 +77,7 @@ func (a *App) dialog(title, help string) string {
 	if help != "" {
 		fmt.Println(help)
 	}
-	fmt.Print("> ")
+	a.printPrompt("> ")
 	return a.line()
 }
 

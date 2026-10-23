@@ -136,7 +136,7 @@ func (a *App) detailLoop(ordered []models.Session) {
 		if a.cfg.ShowHints {
 			fmt.Println(color.Cyan("  → '1' подробности, '\\1' правка, '/лук' фильтр, 'all' все карточки"))
 		}
-		fmt.Print("Номер/ID — подробности  |  \\N или \\ID — правка  |  /текст — фильтр  |  Enter — назад > ")
+		a.printPrompt("Номер/ID — подробности  |  \\N или \\ID — правка  |  /текст — фильтр  |  Enter — назад > ")
 		in, ok := a.readLine()
 		in = strings.TrimSpace(in)
 		if !ok || in == "" {

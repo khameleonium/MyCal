@@ -204,7 +204,7 @@ func (a *App) askTypeAdd(defaultType string) (string, bool, bool) {
 	}
 
 	for {
-		fmt.Print("> ")
+		a.printPrompt("> ")
 		input := a.line()
 		if a.stdinClosed || isCancel(input) {
 			return "", false, false
@@ -291,7 +291,7 @@ func (a *App) askStatusAdd() (string, bool, bool) {
 	}
 
 	for {
-		fmt.Print("> ")
+		a.printPrompt("> ")
 		input := a.line()
 		if a.stdinClosed || strings.EqualFold(strings.TrimSpace(input), "отмена") {
 			return "", false, false
