@@ -292,7 +292,7 @@ func (a *App) dateDisplay() string {
 
 func dataPathDisplay(p string) string {
 	if p == "" || p == "." {
-		return "./"
+		return "~/.mycal"
 	}
 	return p
 }
