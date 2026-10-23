@@ -98,16 +98,41 @@ func Save(ctx context.Context, path string, cfg *models.Config) error {
 	return nil
 }
 
-// ResolveConfigPath returns the active config path, preferring config_mycal.json
-// and falling back to a legacy config.json if only that exists.
-func ResolveConfigPath() string {
-	if _, err := os.Stat(ConfigFile); err == nil {
-		return ConfigFile
+// Dir returns the global application directory: $MYCAL_HOME if set, otherwise
+// ~/.mycal (on Windows %USERPROFILE%\.mycal).
+func Dir() (string, error) {
+	if d := os.Getenv("MYCAL_HOME"); d != "" {
+		return d, nil
 	}
-	if _, err := os.Stat("config.json"); err == nil {
-		return "config.json"
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("не удалось определить домашний каталог: %w", err)
 	}
-	return ConfigFile
+	return filepath.Join(home, ".mycal"), nil
+}
+
+// ResolveConfigPath returns the path of the global config file inside Dir,
+// creating the directory if needed. If the global file does not exist yet but a
+// config from an older version lies in the current directory (config_mycal.json
+// or config.json), that path is returned as legacyPath so the caller can migrate it.
+func ResolveConfigPath() (path, legacyPath string, err error) {
+	dir, err := Dir()
+	if err != nil {
+		return "", "", err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", "", fmt.Errorf("не удалось создать каталог %s: %s", dir, fsReason(err))
+	}
+	path = filepath.Join(dir, ConfigFile)
+	if _, err := os.Stat(path); err == nil {
+		return path, "", nil
+	}
+	for _, name := range []string{ConfigFile, "config.json"} {
+		if _, err := os.Stat(name); err == nil {
+			return path, name, nil
+		}
+	}
+	return path, "", nil
 }
 
 func trimBOM(b []byte) []byte {

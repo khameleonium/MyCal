@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 
 	"mycalendar/app"
@@ -46,23 +47,35 @@ func main() {
 }
 
 func run(ctx context.Context) error {
-	cfgPath := config.ResolveConfigPath()
-	cfg, err := config.Load(ctx, cfgPath)
+	cfgPath, legacyPath, err := config.ResolveConfigPath()
 	if err != nil {
-		return fmt.Errorf("не удалось загрузить настройки (%s): %w", cfgPath, err)
+		return err
+	}
+	loadPath := cfgPath
+	if legacyPath != "" {
+		loadPath = legacyPath
+	}
+	cfg, err := config.Load(ctx, loadPath)
+	if err != nil {
+		return fmt.Errorf("не удалось загрузить настройки (%s): %w", loadPath, err)
 	}
 
-	// Move a legacy config file to the canonical name.
-	if cfgPath != config.ConfigFile {
-		if err := config.Save(ctx, config.ConfigFile, cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "[!] не удалось создать %s: %v\n", config.ConfigFile, err)
+	// Move a config from the current directory to the global location. A legacy
+	// config kept the data next to it, so pin the data path to that directory.
+	if legacyPath != "" {
+		if strings.TrimSpace(cfg.DataPath) == "" {
+			if wd, wdErr := os.Getwd(); wdErr == nil {
+				cfg.DataPath = wd
+			}
+		}
+		if err := config.Save(ctx, cfgPath, cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "[!] не удалось создать %s: %v\n", cfgPath, err)
 		} else {
-			_ = os.Remove(cfgPath)
-			cfgPath = config.ConfigFile
+			_ = os.Remove(legacyPath)
 		}
 	}
 
-	dataDir, err := prepareDataDir(cfg.DataPath)
+	dataDir, err := prepareDataDir(cfg.DataPath, filepath.Dir(cfgPath))
 	if err != nil {
 		return err
 	}
@@ -86,10 +99,10 @@ func run(ctx context.Context) error {
 
 // prepareDataDir resolves the data directory, creating it if needed, and checks
 // that it is writable so problems are reported up front rather than on first save.
-func prepareDataDir(dataPath string) (string, error) {
+func prepareDataDir(dataPath, defaultDir string) (string, error) {
 	dataPath = strings.TrimSpace(dataPath)
 	if dataPath == "" {
-		dataPath = "."
+		dataPath = defaultDir
 	}
 	if err := storage.EnsureWritableDir(dataPath); err != nil {
 		return "", err
