@@ -31,16 +31,16 @@
 
 | Система | Файл | Запуск |
 |---|---|---|
-| Windows (64-бит) | `mycalendar-windows-amd64.exe` | двойной клик или `.\mycalendar-windows-amd64.exe` |
-| Windows (ARM) | `mycalendar-windows-arm64.exe` | `.\mycalendar-windows-arm64.exe` |
-| Linux (64-бит) | `mycalendar-linux-amd64` | `chmod +x mycalendar-linux-amd64 && ./mycalendar-linux-amd64` |
-| Linux (ARM) | `mycalendar-linux-arm64` | `chmod +x … && ./mycalendar-linux-arm64` |
-| macOS (Intel) | `mycalendar-darwin-amd64` | `chmod +x … && ./mycalendar-darwin-amd64` |
-| macOS (Apple Silicon) | `mycalendar-darwin-arm64` | `chmod +x … && ./mycalendar-darwin-arm64` |
+| Windows (64-бит) | `mycal-windows-amd64.exe` | двойной клик или `.\mycal-windows-amd64.exe` |
+| Windows (ARM) | `mycal-windows-arm64.exe` | `.\mycal-windows-arm64.exe` |
+| Linux (64-бит) | `mycal-linux-amd64` | `chmod +x mycal-linux-amd64 && ./mycal-linux-amd64` |
+| Linux (ARM) | `mycal-linux-arm64` | `chmod +x … && ./mycal-linux-arm64` |
+| macOS (Intel) | `mycal-darwin-amd64` | `chmod +x … && ./mycal-darwin-amd64` |
+| macOS (Apple Silicon) | `mycal-darwin-arm64` | `chmod +x … && ./mycal-darwin-arm64` |
 
 > macOS может заблокировать неподписанный бинарник при первом запуске —
 > «Системные настройки → Конфиденциальность и безопасность → Всё равно открыть»,
-> либо `xattr -d com.apple.quarantine ./mycalendar-darwin-arm64`.
+> либо `xattr -d com.apple.quarantine ./mycal-darwin-arm64`.
 
 Удобно переименовать файл в `mycal` и положить в каталог из `PATH`, тогда команды
 из этого README будут работать один в один.
@@ -336,8 +336,8 @@ ID, но с общей меткой серии (`series_id`).
 ```bash
 git clone https://github.com/khameleonium/MyCal.git
 cd MyCal
-go build -o mycal .        # или: go install .
-./mycal
+go build -o dist/mycal .        # или: go install .
+./dist/mycal
 ```
 
 Проверки (те же, что в CI):

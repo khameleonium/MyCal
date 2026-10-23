@@ -1,8 +1,8 @@
 # Binaries and builds
 /builds/
 /dist/
-mycalendar
-mycalendar-*
+mycal
+mycal-*
 *.exe
 *.app
 

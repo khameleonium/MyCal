@@ -1,4 +1,4 @@
-// Command mycalendar is a small offline CLI calendar / time tracker.
+// Command mycal is a small offline CLI calendar / time tracker.
 package main
 
 import (
@@ -22,7 +22,7 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "version", "-v", "--version":
-			fmt.Printf("mycalendar %s\n", version)
+			fmt.Printf("mycal %s\n", version)
 			return
 		case "help", "-h", "--help", "/?":
 			app.PrintHelp()
