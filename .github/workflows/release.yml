@@ -28,7 +28,7 @@ jobs:
           mkdir -p dist
           build() {
             local goos=$1 goarch=$2 ext=$3
-            local out="dist/mycalendar-${goos}-${goarch}${ext}"
+            local out="dist/mycal-${goos}-${goarch}${ext}"
             echo "building $out"
             GOOS=$goos GOARCH=$goarch CGO_ENABLED=0 \
               go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "$out" .
