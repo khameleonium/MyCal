@@ -19,19 +19,26 @@ import (
 // (week/month/period/all/today/CLI) goes through here so the layout and the
 // "\edit" / "/filter" affordances stay identical.
 func (a *App) renderList(sessions []models.Session, label string) {
-	fmt.Println()
-	fmt.Println(color.Magenta(hdrSep + " " + label + " " + hdrSep))
 	if len(sessions) == 0 {
+		fmt.Println()
+		fmt.Println(color.Magenta(hdrSep + " " + label + " " + hdrSep))
 		fmt.Println(color.Yellow(warnMark + " Записей нет"))
 		return
 	}
 	ordered := append([]models.Session(nil), sessions...)
 	sortForDisplay(ordered)
 
+	a.displayList(ordered, label)
+	a.detailLoop(ordered, label)
+}
+
+// displayList prints the header, date-grouped sessions, summary, and stats.
+func (a *App) displayList(ordered []models.Session, label string) {
+	fmt.Println()
+	fmt.Println(color.Magenta(hdrSep + " " + label + " " + hdrSep))
 	a.printSessions(ordered)
 	a.printSummary(ordered)
 	a.printStats(ordered)
-	a.detailLoop(ordered, label)
 }
 
 // printSessions prints an already display-ordered list, grouped by date, with a
@@ -150,11 +157,15 @@ func (a *App) detailLoop(ordered []models.Session, currentLabel ...string) {
 
 		// Direct type filter command: "t", "т", "тип", "type"
 		if match(in, "t", "т", "тип", "type") {
-			a.filterByTypesInteractive(ordered, label)
+			if a.filterByTypesInteractive(ordered, label) {
+				a.displayList(ordered, label)
+			}
 			continue
 		}
 		if after, ok := trimPrefixWord(in, "t", "т", "тип", "type"); ok {
-			a.filterByTypesDirect(ordered, label, after)
+			if a.filterByTypesDirect(ordered, label, after) {
+				a.displayList(ordered, label)
+			}
 			continue
 		}
 
@@ -164,14 +175,20 @@ func (a *App) detailLoop(ordered []models.Session, currentLabel ...string) {
 				continue
 			}
 			if match(rest, "t", "т", "тип", "type") {
-				a.filterByTypesInteractive(ordered, label)
+				if a.filterByTypesInteractive(ordered, label) {
+					a.displayList(ordered, label)
+				}
 				continue
 			}
 			if after, ok := trimPrefixWord(rest, "t", "т", "тип", "type"); ok {
-				a.filterByTypesDirect(ordered, label, after)
+				if a.filterByTypesDirect(ordered, label, after) {
+					a.displayList(ordered, label)
+				}
 				continue
 			}
-			a.filterAndShow(ordered, label, rest)
+			if a.filterAndShow(ordered, label, rest) {
+				a.displayList(ordered, label)
+			}
 			continue
 		}
 		if match(in, "all", "все", "a") {
@@ -203,9 +220,10 @@ func (a *App) detailLoop(ordered []models.Session, currentLabel ...string) {
 
 // filterAndShow narrows the sessions currently on screen (not the whole
 // calendar) and shows the matches with statistics.
-func (a *App) filterAndShow(sessions []models.Session, currentLabel, query string) {
+// Returns true if a filtered sub-view was shown and exited, requiring re-display of the parent list.
+func (a *App) filterAndShow(sessions []models.Session, currentLabel, query string) bool {
 	if query == "" {
-		return
+		return false
 	}
 	var matched []models.Session
 	for _, s := range sessions {
@@ -215,44 +233,49 @@ func (a *App) filterAndShow(sessions []models.Session, currentLabel, query strin
 	}
 	if len(matched) == 0 {
 		fmt.Println(color.Yellow(warnMark + " Ничего не найдено по запросу: " + query))
-		return
+		return false
 	}
 	a.renderList(matched, currentLabel+" [Поиск: "+query+"]")
+	return true
 }
 
 // filterByTypesInteractive prompts for types present in the current view and displays matching sessions.
-func (a *App) filterByTypesInteractive(sessions []models.Session, currentLabel string) {
+// Returns true if a sub-view or picker was shown, requiring re-display of the parent list.
+func (a *App) filterByTypesInteractive(sessions []models.Session, currentLabel string) bool {
 	types := a.existingTypes(sessions)
 	if len(types) == 0 {
 		fmt.Println(color.Yellow(warnMark + " В текущем списке нет записей с типами."))
-		return
+		return false
 	}
 	selected, ok := a.pickTypesMulti(types, "Фильтр текущего списка по типам")
 	if !ok || len(selected) == 0 {
-		return
+		return true
 	}
 	matched := filterSessionsByTypes(sessions, selected)
 	if len(matched) == 0 {
 		fmt.Println(color.Yellow(warnMark + " Записей выбранных типов не найдено."))
-		return
+		return true
 	}
 	label := formatTypesLabel(currentLabel, selected)
 	a.renderList(matched, label)
+	return true
 }
 
 // filterByTypesDirect filters the current view by types matching query substring.
-func (a *App) filterByTypesDirect(sessions []models.Session, currentLabel, query string) {
+// Returns true if a filtered sub-view was shown and exited, requiring re-display of the parent list.
+func (a *App) filterByTypesDirect(sessions []models.Session, currentLabel, query string) bool {
 	query = strings.TrimSpace(query)
 	if query == "" {
-		return
+		return false
 	}
 	matched := filterSessionsByTypes(sessions, []string{query})
 	if len(matched) == 0 {
 		fmt.Println(color.Yellow(warnMark + " Нет записей с типом, содержащим: " + query))
-		return
+		return false
 	}
 	label := formatTypesLabel(currentLabel, []string{query})
 	a.renderList(matched, label)
+	return true
 }
 
 // pickSession asks the user to choose when a lookup returned several sessions.

@@ -3,6 +3,7 @@ package app
 import (
 	"bufio"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -221,10 +222,9 @@ func TestFilterByTypesInsideList_Interactive(t *testing.T) {
 	// 3. Inside record list: press "t" (Фильтр по типам)
 	// 4. Type picker opens: "1" (Плавание/Стрельба), "" (confirm)
 	// 5. Filtered view: "" (Enter to back)
-	// 6. Back in All records: "" (Enter to back)
-	// 7. Back in View menu: "0" (Назад)
-	// 8. Main menu: "8" (Выход)
-	script := lines("2", "4", "t", "1", "", "", "", "0", "8")
+	// 6. Back in All records: "" (Enter to back) -> returns to Main menu
+	// 7. Main menu: "8" (Выход)
+	script := lines("2", "4", "t", "1", "", "", "", "8")
 	cfg := config.DefaultConfig()
 	a := &App{
 		svc:     svc,
@@ -273,5 +273,55 @@ func TestExportByTypes_Interactive(t *testing.T) {
 	content, _ := os.ReadFile(matches[0])
 	if len(content) == 0 {
 		t.Fatal("exported CSV file is empty")
+	}
+}
+
+func TestFilterByTypesInsideList_RedisplaysParentListOnBack(t *testing.T) {
+	dir := t.TempDir()
+	svc, err := calendar.NewService(context.Background(), dir, "mycal", models.SplitNone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = svc.Add(models.Session{ID: "20261101100000", Name: "Сессия 1", Type: "Стрельба из лука", Duration: 30})
+	_ = svc.Add(models.Session{ID: "20261102110000", Name: "Сессия 2", Type: "Плавание", Duration: 45})
+	_ = svc.Save(context.Background())
+
+	// Flow:
+	// 1. "2" -> "4" (Все записи)
+	// 2. "t" (filter by types)
+	// 3. "1", "" (pick first type and confirm)
+	// 4. "" (Enter - back to All records, should re-display All records)
+	// 5. "" (Enter - back to Main menu)
+	// 6. "8" (exit)
+	script := lines("2", "4", "t", "1", "", "", "", "8")
+
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+
+	cfg := config.DefaultConfig()
+	a := &App{
+		svc:     svc,
+		cfg:     cfg,
+		cfgPath: filepath.Join(dir, config.ConfigFile),
+		ctx:     context.Background(),
+		in:      bufio.NewReader(strings.NewReader(script)),
+	}
+	a.mainMenu()
+
+	_ = w.Close()
+	os.Stdout = oldStdout
+	outBytes, _ := io.ReadAll(r)
+	out := string(outBytes)
+
+	// "Все записи" header should appear twice:
+	// 1) When first entering "Все записи"
+	// 2) When returning from filtered view back to "Все записи"
+	countAll := strings.Count(out, "═══ Все записи ═══")
+	if countAll < 2 {
+		t.Fatalf("expected '═══ Все записи ═══' to appear at least twice, got %d. Output:\n%s", countAll, out)
 	}
 }
