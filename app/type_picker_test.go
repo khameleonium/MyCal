@@ -205,6 +205,41 @@ func TestViewByTypes_Interactive(t *testing.T) {
 	}
 }
 
+func TestFilterByTypesInsideList_Interactive(t *testing.T) {
+	dir := t.TempDir()
+	svc, err := calendar.NewService(context.Background(), dir, "mycal", models.SplitNone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = svc.Add(models.Session{ID: "20261101100000", Name: "Сессия 1", Type: "Стрельба из лука", Duration: 30})
+	_ = svc.Add(models.Session{ID: "20261102110000", Name: "Сессия 2", Type: "Плавание", Duration: 45})
+	_ = svc.Save(context.Background())
+
+	// Flow:
+	// 1. Main menu: "2" (Посмотреть записи)
+	// 2. View menu: "4" (Все записи)
+	// 3. Inside record list: press "t" (Фильтр по типам)
+	// 4. Type picker opens: "1" (Плавание/Стрельба), "" (confirm)
+	// 5. Filtered view: "" (Enter to back)
+	// 6. Back in All records: "" (Enter to back)
+	// 7. Back in View menu: "0" (Назад)
+	// 8. Main menu: "8" (Выход)
+	script := lines("2", "4", "t", "1", "", "", "", "0", "8")
+	cfg := config.DefaultConfig()
+	a := &App{
+		svc:     svc,
+		cfg:     cfg,
+		cfgPath: filepath.Join(dir, config.ConfigFile),
+		ctx:     context.Background(),
+		in:      bufio.NewReader(strings.NewReader(script)),
+	}
+	a.mainMenu()
+
+	if a.svc.Count() != 2 {
+		t.Fatalf("expected 2 sessions to remain untouched, got %d", a.svc.Count())
+	}
+}
+
 func TestExportByTypes_Interactive(t *testing.T) {
 	dir := t.TempDir()
 	svc, err := calendar.NewService(context.Background(), dir, "mycal", models.SplitNone)
