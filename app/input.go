@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +18,11 @@ import (
 func (a *App) readLine() (string, bool) {
 	if a.stdinClosed {
 		return "", false
+	}
+	if a.tty {
+		if line, ok, handled := a.readEdited(a.promptText); handled {
+			return line, ok
+		}
 	}
 	s, err := a.in.ReadString('\n')
 	if err != nil && s == "" {
@@ -146,24 +150,6 @@ func (a *App) handleBadDate(raw string, corrected time.Time) (time.Time, bool) {
 		return corrected, true
 	}
 	return corrected, true
-}
-
-func (a *App) askDuration(def int) (int, bool) {
-	in := a.dialog(
-		fmt.Sprintf("Продолжительность (мин) [%d]:", def),
-		"Enter — "+strconv.Itoa(def)+"; 0 — отмена")
-	if isCancel(in) || a.stdinClosed {
-		return 0, false
-	}
-	if in == "" {
-		return def, true
-	}
-	d, err := strconv.Atoi(in)
-	if err != nil || d <= 0 {
-		fmt.Println(color.Yellow(warnMark + " Некорректно, используется " + strconv.Itoa(def)))
-		return def, true
-	}
-	return d, true
 }
 
 func (a *App) askTime() (time.Time, bool) {
