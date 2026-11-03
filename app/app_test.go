@@ -242,4 +242,3 @@ func TestDateCheckHint(t *testing.T) {
 		}
 	}
 }
-
