@@ -128,15 +128,15 @@ func detailLabel(name string) string {
 }
 
 // detailLoop lets the user drill into a listed session by number or ID, edit
-// one with a "\" prefix, filter the current list with "/text", or expand
-// everything with "all". Returns on Enter or closed stdin.
+// one with a "\" prefix, filter the current list with "/text" (or "/t" for types),
+// or expand everything with "all". Returns on Enter or closed stdin.
 func (a *App) detailLoop(ordered []models.Session) {
 	for {
 		fmt.Println()
 		if a.cfg.ShowHints {
-			fmt.Println(color.Cyan("  → '1' подробности, '\\1' правка, '/лук' фильтр, 'all' все карточки"))
+			fmt.Println(color.Cyan("  → '1' подробности, '\\1' правка, '/лук' поиск, '/t' фильтр по типам, 'all' все карточки"))
 		}
-		a.printPrompt("Номер/ID — подробности  |  \\N или \\ID — правка  |  /текст — фильтр  |  Enter — назад > ")
+		a.printPrompt("Номер/ID — подробности  |  \\N или \\ID — правка  |  /текст — поиск (/t по типу)  |  Enter — назад > ")
 		in, ok := a.readLine()
 		in = strings.TrimSpace(in)
 		if !ok || in == "" {
@@ -144,7 +144,19 @@ func (a *App) detailLoop(ordered []models.Session) {
 		}
 
 		if rest, isFilter := strings.CutPrefix(in, "/"); isFilter {
-			a.filterAndShow(ordered, strings.TrimSpace(rest))
+			rest = strings.TrimSpace(rest)
+			if rest == "" {
+				continue
+			}
+			if match(rest, "t", "тип", "type") {
+				a.filterByTypesInteractive(ordered)
+				continue
+			}
+			if after, ok := trimPrefixWord(rest, "t", "тип", "type"); ok {
+				a.filterByTypesDirect(ordered, after)
+				continue
+			}
+			a.filterAndShow(ordered, rest)
 			continue
 		}
 		if match(in, "all", "все", "a") {
@@ -192,6 +204,49 @@ func (a *App) filterAndShow(sessions []models.Session, query string) {
 	}
 	fmt.Println()
 	fmt.Println(color.Magenta(hdrSep + " Фильтр: " + query + " " + hdrSep))
+	a.printSessions(matched)
+	a.printStats(matched)
+	a.detailLoop(matched)
+}
+
+// filterByTypesInteractive prompts for types present in the current view and displays matching sessions.
+func (a *App) filterByTypesInteractive(sessions []models.Session) {
+	types := a.existingTypes(sessions)
+	if len(types) == 0 {
+		fmt.Println(color.Yellow(warnMark + " В текущем списке нет записей с типами."))
+		return
+	}
+	selected, ok := a.pickTypesMulti(types, "Фильтр текущего списка по типам")
+	if !ok || len(selected) == 0 {
+		return
+	}
+	matched := filterSessionsByTypes(sessions, selected)
+	if len(matched) == 0 {
+		fmt.Println(color.Yellow(warnMark + " Записей выбранных типов не найдено."))
+		return
+	}
+	fmt.Println()
+	label := formatTypesLabel("Текущий список", selected)
+	fmt.Println(color.Magenta(hdrSep + " " + label + " " + hdrSep))
+	a.printSessions(matched)
+	a.printStats(matched)
+	a.detailLoop(matched)
+}
+
+// filterByTypesDirect filters the current view by types matching query substring.
+func (a *App) filterByTypesDirect(sessions []models.Session, query string) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return
+	}
+	matched := filterSessionsByTypes(sessions, []string{query})
+	if len(matched) == 0 {
+		fmt.Println(color.Yellow(warnMark + " Нет записей с типом, содержащим: " + query))
+		return
+	}
+	fmt.Println()
+	label := formatTypesLabel("Текущий список", []string{query})
+	fmt.Println(color.Magenta(hdrSep + " " + label + " " + hdrSep))
 	a.printSessions(matched)
 	a.printStats(matched)
 	a.detailLoop(matched)

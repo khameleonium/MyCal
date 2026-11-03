@@ -25,6 +25,14 @@ func (a *App) RunCLI(cmd string, args []string) bool {
 		a.exportByArgs(args)
 	case "today", "t":
 		a.todayView()
+	case "type", "types", "тип", "типы":
+		if len(args) == 0 {
+			a.viewByTypes()
+		} else {
+			typeFilter := strings.Join(args, " ")
+			filtered := filterSessionsByTypes(a.svc.All(), []string{typeFilter})
+			a.renderList(filtered, formatTypesLabel("Все записи", []string{typeFilter}))
+		}
 	case "week", "w":
 		a.renderList(a.svc.Week(a.today()), weekLabel(a.today()))
 	case "month", "m":
@@ -58,14 +66,33 @@ func (a *App) viewByArgs(args []string) {
 		a.viewMenu()
 		return
 	}
-	arg := strings.Join(args, " ")
+	typeFilter, remaining := extractTypeArg(args)
+	if len(remaining) == 0 {
+		if typeFilter != "" {
+			filtered := filterSessionsByTypes(a.svc.All(), []string{typeFilter})
+			a.renderList(filtered, formatTypesLabel("Все записи", []string{typeFilter}))
+			return
+		}
+		a.viewMenu()
+		return
+	}
+	if len(remaining) == 1 && (remaining[0] == "type" || remaining[0] == "types" || remaining[0] == "тип" || remaining[0] == "типы") {
+		a.viewByTypes()
+		return
+	}
+	arg := strings.Join(remaining, " ")
 	start, end, err := parser.ParsePeriod(arg, a.today())
 	if err != nil {
 		fmt.Println(color.Red(errMark + " Неверный формат периода: " + arg))
 		return
 	}
-	a.renderList(a.svc.InRange(start, end),
-		parser.FormatDate(start)+" — "+parser.FormatDate(end))
+	sessions := a.svc.InRange(start, end)
+	label := parser.FormatDate(start) + " — " + parser.FormatDate(end)
+	if typeFilter != "" {
+		sessions = filterSessionsByTypes(sessions, []string{typeFilter})
+		label = formatTypesLabel(label, []string{typeFilter})
+	}
+	a.renderList(sessions, label)
 }
 
 func (a *App) deleteByArgs(args []string) {
@@ -93,11 +120,29 @@ func (a *App) exportByArgs(args []string) {
 		a.exportMenu()
 		return
 	}
-	arg := strings.Join(args, " ")
+	typeFilter, remaining := extractTypeArg(args)
+	if len(remaining) == 0 {
+		if typeFilter != "" {
+			filtered := filterSessionsByTypes(a.svc.All(), []string{typeFilter})
+			a.exportCSV(filtered)
+			return
+		}
+		a.exportMenu()
+		return
+	}
+	if len(remaining) == 1 && (remaining[0] == "type" || remaining[0] == "types" || remaining[0] == "тип" || remaining[0] == "типы") {
+		a.exportByTypes()
+		return
+	}
+	arg := strings.Join(remaining, " ")
 	start, end, err := parser.ParsePeriod(arg, a.today())
 	if err != nil {
 		fmt.Println(color.Red(errMark + " Неверный формат периода: " + arg))
 		return
 	}
-	a.exportCSV(a.svc.InRange(start, end))
+	sessions := a.svc.InRange(start, end)
+	if typeFilter != "" {
+		sessions = filterSessionsByTypes(sessions, []string{typeFilter})
+	}
+	a.exportCSV(sessions)
 }
