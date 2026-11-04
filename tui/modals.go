@@ -102,7 +102,7 @@ func (m *ModalStatusPicker) Draw(s *Screen) {
 	}
 
 	hint := "[↑↓/1-9] Выбор  [Enter]  [Esc Отмена]"
-	s.DrawText(x+2, y+h-2, hint, FgDim, BgModal, w-4, false, false, false)
+	s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, hint, FgDim, BgModal)
 }
 
 func (m *ModalStatusPicker) HandleKey(k Key, app *App) bool {
@@ -241,7 +241,7 @@ func (m *ModalQuickEditField) Draw(s *Screen) {
 			s.Fill(x+2, rowY, w-4, 1, ' ', fg, bg)
 			s.DrawText(x+2, rowY, fmt.Sprintf("%s[%d] %s", prefix, i+1, f), fg, bg, w-4, isCur, false, false)
 		}
-		s.DrawText(x+2, y+h-2, "[↑↓/1-7] Выбор  [Enter] Далее  [Esc Отмена]", FgDim, BgModal, w-4, false, false, false)
+		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓/1-7] Выбор  [Enter] Далее  [Esc Отмена]", FgDim, BgModal)
 	} else {
 		fieldName := m.fields[m.selected]
 		s.DrawText(x+2, y+2, "Поле: "+fieldName, FgCyan, BgModal, w-4, true, false, false)
@@ -296,11 +296,11 @@ func (m *ModalQuickEditField) Draw(s *Screen) {
 		}
 
 		if m.catPickerOpen {
-			s.DrawText(x+2, y+h-2, "[↑↓] Выбор категории  [Enter] Применить  [Esc/←] Закрыть", FgDim, BgModal, w-4, false, false, false)
+			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор категории  [Enter] Применить  [Esc/←] Закрыть", FgDim, BgModal)
 		} else if m.selected == 2 {
-			s.DrawText(x+2, y+h-2, "[Enter] Сохранить  [→] Выбрать из списка  [Esc] Назад", FgDim, BgModal, w-4, false, false, false)
+			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Enter] Сохранить  [→] Выбрать из списка  [Esc] Назад", FgDim, BgModal)
 		} else {
-			s.DrawText(x+2, y+h-2, "[Enter] Сохранить  [Esc] Назад", FgDim, BgModal, w-4, false, false, false)
+			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Enter] Сохранить  [Esc] Назад", FgDim, BgModal)
 		}
 	}
 }
@@ -708,11 +708,11 @@ func (m *ModalSessionForm) Draw(s *Screen) {
 	}
 
 	if m.catPickerOpen {
-		s.DrawText(x+2, y+h-2, "[↑↓] Выбор категории  [Enter] Выбрать  [Esc/←] Закрыть", FgDim, BgModal, w-4, false, false, false)
+		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор категории  [Enter] Выбрать  [Esc/←] Закрыть", FgDim, BgModal)
 	} else if m.fieldIdx == 3 {
-		s.DrawText(x+2, y+h-2, "[Tab] Поля  [→] Выбрать из списка  [Enter] Сохранить  [Esc] Отмена", FgDim, BgModal, w-4, false, false, false)
+		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab] Поля  [→] Выбрать из списка  [Enter] Сохранить  [Esc] Отмена", FgDim, BgModal)
 	} else {
-		s.DrawText(x+2, y+h-2, "[Tab/Shift+Tab] Поля  [Enter] Сохранить  [Esc] Отмена", FgDim, BgModal, w-4, false, false, false)
+		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab/Shift+Tab] Поля  [Enter] Сохранить  [Esc] Отмена", FgDim, BgModal)
 	}
 }
 
@@ -1055,7 +1055,7 @@ func (m *ModalConfirmDelete) Draw(s *Screen) {
 	s.DrawText(x+3, y+2, msg, FgWhite, BgModal, w-6, true, false, false)
 	s.DrawText(x+3, y+3, "Это действие необратимо.", FgRed, BgModal, w-6, false, false, false)
 
-	s.DrawText(x+3, y+5, "[Enter] Удалить      [Esc] Отмена", FgDim, BgModal, w-6, true, false, false)
+	s.DrawBottomWrappedHint(x+3, y+h-2, w-6, 2, "[Enter] Удалить      [Esc] Отмена", FgDim, BgModal)
 }
 
 func (m *ModalConfirmDelete) HandleKey(k Key, app *App) bool {
@@ -1171,16 +1171,22 @@ func (m *ModalYearCalendar) Draw(s *Screen) {
 	if w > s.Width-2 {
 		w = s.Width - 2
 	}
-	if w < 66 {
-		w = 66
+	if w < 30 {
+		w = 30
+	}
+	if w > s.Width {
+		w = s.Width
 	}
 
 	h := 29
 	if h > s.Height-2 {
 		h = s.Height - 2
 	}
-	if h < 21 {
-		h = 21
+	if h < 12 {
+		h = 12
+	}
+	if h > s.Height {
+		h = s.Height
 	}
 
 	x := (s.Width - w) / 2
@@ -1213,6 +1219,9 @@ func (m *ModalYearCalendar) Draw(s *Screen) {
 		}
 	}
 
+	maxDrawX := x + w - 2
+	maxDrawY := y + h - 2
+
 	tilesBottomY := y + 2
 	for r := 0; r < numRows; r++ {
 		rowIdx := startRow + r
@@ -1226,10 +1235,26 @@ func (m *ModalYearCalendar) Draw(s *Screen) {
 			mNum := monthIdx + 1
 
 			var bx int
+			tileW := 15
 			if wide {
 				bx = x + 3 + (col * 22)
+				tileW = 21
 			} else {
 				bx = x + 2 + (col * 16)
+			}
+
+			if bx > maxDrawX {
+				continue
+			}
+
+			tileMaxX := bx + tileW - 1
+			if tileMaxX > maxDrawX {
+				tileMaxX = maxDrawX
+			}
+
+			maxTitleW := tileMaxX - bx + 1
+			if maxTitleW <= 0 || by > maxDrawY {
+				continue
 			}
 
 			// Month Title
@@ -1238,13 +1263,15 @@ func (m *ModalYearCalendar) Draw(s *Screen) {
 			if mNum == m.selMonth {
 				mTitleFg = FgCyan
 			}
-			s.DrawText(bx, by, mTitle, mTitleFg, BgModal, 16, mNum == m.selMonth, false, false)
+			s.DrawText(bx, by, mTitle, mTitleFg, BgModal, min(16, maxTitleW), mNum == m.selMonth, false, false)
 
 			// Weekdays Header
-			if wide {
-				s.DrawText(bx, by+1, "Пн Вт Ср Чт Пт Сб Вс", FgDim, BgModal, 20, false, false, false)
-			} else {
-				s.DrawText(bx, by+1, "Пн Вт Ср Чт Пт Сб Вс", FgDim, BgModal, 14, false, false, false)
+			if by+1 <= maxDrawY {
+				hdrW := 14
+				if wide {
+					hdrW = 20
+				}
+				s.DrawText(bx, by+1, "Пн Вт Ср Чт Пт Сб Вс", FgDim, BgModal, min(hdrW, maxTitleW), false, false, false)
 			}
 
 			firstDay := time.Date(m.year, time.Month(mNum), 1, 0, 0, 0, 0, time.UTC)
@@ -1265,6 +1292,9 @@ func (m *ModalYearCalendar) Draw(s *Screen) {
 			curY := by + 2
 
 			for d := 1; d <= daysInMonth; d++ {
+				if curY > maxDrawY {
+					break
+				}
 				fg := FgMuted
 				bg := BgModal
 				bold := false
@@ -1307,8 +1337,10 @@ func (m *ModalYearCalendar) Draw(s *Screen) {
 				}
 
 				cellW := 2
-				s.Fill(curX, curY, cellW, 1, ' ', fg, bg)
-				s.DrawText(curX, curY, fmt.Sprintf("%2d", d), fg, bg, 2, bold, false, under)
+				if curX+cellW-1 <= tileMaxX {
+					s.Fill(curX, curY, cellW, 1, ' ', fg, bg)
+					s.DrawText(curX, curY, fmt.Sprintf("%2d", d), fg, bg, 2, bold, false, under)
+				}
 
 				if wide {
 					curX += 3
@@ -1318,11 +1350,7 @@ func (m *ModalYearCalendar) Draw(s *Screen) {
 				weekday++
 				if weekday == 7 {
 					weekday = 0
-					if wide {
-						curX = bx
-					} else {
-						curX = bx
-					}
+					curX = bx
 					curY++
 				}
 				if curY > tilesBottomY {
@@ -1334,7 +1362,7 @@ func (m *ModalYearCalendar) Draw(s *Screen) {
 
 	// Centered hint line located below the tiles
 	hintY := y + h - 2
-	if hintY <= tilesBottomY {
+	if hintY <= tilesBottomY && tilesBottomY < y+h-2 {
 		hintY = tilesBottomY + 1
 	}
 
@@ -1344,12 +1372,7 @@ func (m *ModalYearCalendar) Draw(s *Screen) {
 	} else {
 		hintText = "[↑↓←→] Выбор дня  [Space] Период  [Enter] Применить  [t] Сегодня  [y] Год  [Esc] Закрыть"
 	}
-	hintW := StringVisualWidth(hintText)
-	hintX := x + (w-hintW)/2
-	if hintX < x+2 {
-		hintX = x + 2
-	}
-	s.DrawText(hintX, hintY, hintText, FgDim, BgModal, w-4, false, false, false)
+	s.DrawBottomWrappedCenteredHint(x+2, hintY, w-4, 2, hintText, FgDim, BgModal)
 
 	// Year text input overlay (if active)
 	if m.inputMode {
@@ -1645,22 +1668,33 @@ func (m *ModalSettings) Draw(s *Screen) {
 		if isCur {
 			fg = FgYellow
 		}
-		s.DrawText(x+2, rowY, f.lbl, fg, BgModal, 26, isCur, false, false)
+		lblW := 26
+		if lblW > w-12 {
+			lblW = w - 12
+		}
+		if lblW < 8 {
+			lblW = 8
+		}
+		s.DrawText(x+2, rowY, f.lbl, fg, BgModal, lblW, isCur, false, false)
 
 		valBg := BgInput
 		valFg := FgWhite
 		if isCur {
 			valBg = BgSelected
 		}
-		s.Fill(x+28, rowY, w-30, 1, ' ', valFg, valBg)
-		disp := f.val
-		if isCur && (i == 1 || i == 2) {
-			disp += "█"
+		valX := x + 2 + lblW
+		valW := (x + w - 2) - valX
+		if valW > 0 {
+			s.Fill(valX, rowY, valW, 1, ' ', valFg, valBg)
+			disp := f.val
+			if isCur && (i == 1 || i == 2) {
+				disp += "█"
+			}
+			s.DrawText(valX+1, rowY, disp, valFg, valBg, valW-2, isCur, false, false)
 		}
-		s.DrawText(x+29, rowY, disp, valFg, valBg, w-32, isCur, false, false)
 	}
 
-	s.DrawText(x+2, y+h-2, "[↑↓] Выбор  [Space/0-9] Изменить  [Enter] Сохранить  [Esc]", FgDim, BgModal, w-4, false, false, false)
+	s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор  [Space/0-9] Изменить  [Enter] Сохранить  [Esc]", FgDim, BgModal)
 }
 
 func (m *ModalSettings) svcStatusText() string {
@@ -1811,8 +1845,14 @@ func (m *ModalDateRange) Draw(s *Screen) {
 		f0Fg = FgWhite
 	}
 	s.DrawText(x+2, y+3, "Дата начала (От):", FgDim, BgModal, 18, false, false, false)
-	s.Fill(x+20, y+3, 16, 1, ' ', f0Fg, f0Bg)
-	s.DrawText(x+21, y+3, m.fromStr, f0Fg, f0Bg, 14, m.focused == 0, false, false)
+	val0W := (x + w - 2) - (x + 20)
+	if val0W > 16 {
+		val0W = 16
+	}
+	if val0W > 0 {
+		s.Fill(x+20, y+3, val0W, 1, ' ', f0Fg, f0Bg)
+		s.DrawText(x+21, y+3, m.fromStr, f0Fg, f0Bg, val0W-1, m.focused == 0, false, false)
+	}
 
 	// Field 1: To
 	f1Bg := BgCard
@@ -1822,8 +1862,14 @@ func (m *ModalDateRange) Draw(s *Screen) {
 		f1Fg = FgWhite
 	}
 	s.DrawText(x+2, y+5, "Дата конца (До):", FgDim, BgModal, 18, false, false, false)
-	s.Fill(x+20, y+5, 16, 1, ' ', f1Fg, f1Bg)
-	s.DrawText(x+21, y+5, m.toStr, f1Fg, f1Bg, 14, m.focused == 1, false, false)
+	val1W := (x + w - 2) - (x + 20)
+	if val1W > 16 {
+		val1W = 16
+	}
+	if val1W > 0 {
+		s.Fill(x+20, y+5, val1W, 1, ' ', f1Fg, f1Bg)
+		s.DrawText(x+21, y+5, m.toStr, f1Fg, f1Bg, val1W-1, m.focused == 1, false, false)
+	}
 
 	// Error message
 	if m.errMsg != "" {
@@ -1839,8 +1885,11 @@ func (m *ModalDateRange) Draw(s *Screen) {
 		btnApplyFg = FgWhite
 	}
 	applyLbl := "  Применить (Enter)  "
-	s.Fill(x+4, btnY, len(applyLbl), 1, ' ', btnApplyFg, btnApplyBg)
-	s.DrawText(x+4, btnY, applyLbl, btnApplyFg, btnApplyBg, len(applyLbl), m.focused == 2, false, false)
+	applyW := len(applyLbl)
+	if x+4+applyW <= x+w-2 {
+		s.Fill(x+4, btnY, applyW, 1, ' ', btnApplyFg, btnApplyBg)
+		s.DrawText(x+4, btnY, applyLbl, btnApplyFg, btnApplyBg, applyW, m.focused == 2, false, false)
+	}
 
 	btnCancelBg := BgPanelAlt
 	btnCancelFg := FgMain
@@ -1849,10 +1898,17 @@ func (m *ModalDateRange) Draw(s *Screen) {
 		btnCancelFg = FgWhite
 	}
 	cancelLbl := "  Отмена (Esc)  "
-	s.Fill(x+26, btnY, len(cancelLbl), 1, ' ', btnCancelFg, btnCancelBg)
-	s.DrawText(x+26, btnY, cancelLbl, btnCancelFg, btnCancelBg, len(cancelLbl), m.focused == 3, false, false)
+	cancelW := len(cancelLbl)
+	cancelX := x + 26
+	if cancelX+cancelW > x+w-2 {
+		cancelX = x + w - 2 - cancelW
+	}
+	if cancelX > x+4+applyW && cancelX+cancelW <= x+w-2 {
+		s.Fill(cancelX, btnY, cancelW, 1, ' ', btnCancelFg, btnCancelBg)
+		s.DrawText(cancelX, btnY, cancelLbl, btnCancelFg, btnCancelBg, cancelW, m.focused == 3, false, false)
+	}
 
-	s.DrawText(x+2, y+h-2, "[Tab / ↑↓] Переход  [Enter] Применить  [Esc] Отмена", FgDim, BgModal, w-4, false, false, false)
+	s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab / ↑↓] Переход  [Enter] Применить  [Esc] Отмена", FgDim, BgModal)
 }
 
 func (m *ModalDateRange) HandleKey(k Key, app *App) bool {
@@ -1981,13 +2037,24 @@ func (m *ModalHelp) Draw(s *Screen) {
 		{"q / й, Ctrl+C", "Выход из полноэкранного режима TUI"},
 	}
 
+	maxRows := h - 4
 	for i, item := range lines {
+		if i >= maxRows {
+			break
+		}
 		rowY := y + 2 + i
-		s.DrawText(x+2, rowY, PadRight(item.key, 18), FgCyan, BgModal, 18, true, false, false)
-		s.DrawText(x+20, rowY, item.desc, FgMain, BgModal, w-22, false, false, false)
+		keyW := 18
+		if w < 50 {
+			keyW = 14
+		}
+		s.DrawText(x+2, rowY, PadRight(item.key, keyW), FgCyan, BgModal, keyW, true, false, false)
+		descW := (x + w - 2) - (x + 2 + keyW)
+		if descW > 0 {
+			s.DrawText(x+2+keyW, rowY, item.desc, FgMain, BgModal, descW, false, false, false)
+		}
 	}
 
-	s.DrawText(x+2, y+h-2, "[Esc / Enter / q] Закрыть справку", FgDim, BgModal, w-4, false, false, false)
+	s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Esc / Enter / q] Закрыть справку", FgDim, BgModal)
 }
 
 func (m *ModalHelp) HandleKey(k Key, app *App) bool {

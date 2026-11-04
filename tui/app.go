@@ -1157,16 +1157,25 @@ func (a *App) render() {
 	// 1. Top Header Bar (row 0)
 	a.renderHeader(screen)
 
-	// 2. Main Workspace Layout
-	workspaceY := 1
-	workspaceH := a.height - 3
+	// 2. Dynamic footer layout to determine workspace height
+	statusLines, hintLines := a.layoutFooter()
+	footerH := len(statusLines) + len(hintLines)
+	if footerH < 1 {
+		footerH = 1
+	}
 
+	workspaceY := 1
 	if a.width < 115 {
 		// Responsive Tab bar at row 1 for vertical/compact proportions
 		a.renderTabBar(screen)
 		workspaceY = 2
-		workspaceH = a.height - 4
+	}
+	workspaceH := a.height - workspaceY - footerH
+	if workspaceH < 4 {
+		workspaceH = 4
+	}
 
+	if a.width < 115 {
 		switch a.activeTab {
 		case TabFeed:
 			a.renderFeed(screen, 0, workspaceY, a.width, workspaceH)
@@ -1194,7 +1203,7 @@ func (a *App) render() {
 		a.renderInspector(screen, xInspector, workspaceY, wInspector, workspaceH)
 	}
 
-	// 3. Footer Bar (Bottom 2 rows)
+	// 3. Footer Bar (Dynamic multi-line wrapped hotkeys and status)
 	a.renderFooter(screen)
 
 	// 4. Modal Dialog Overlay (if active)
@@ -1225,12 +1234,25 @@ func (a *App) renderTabBar(s *Screen) {
 		fg := FgMuted
 		bg := BgPanelAlt
 		bold := false
-		label := fmt.Sprintf(" [%s] %s ", t.num, t.name)
+		tName := t.name
+		if a.width < 56 {
+			switch t.id {
+			case TabFeed:
+				tName = "Зап"
+			case TabCalendar:
+				tName = "Кал"
+			case TabInspector:
+				tName = "Карт"
+			case TabStats:
+				tName = "Стат"
+			}
+		}
+		label := fmt.Sprintf(" [%s] %s ", t.num, tName)
 		if isActive {
 			fg = FgWhite
 			bg = BgHighlight
 			bold = true
-			label = fmt.Sprintf(" ► %s: %s ", t.num, t.name)
+			label = fmt.Sprintf(" ► %s: %s ", t.num, tName)
 		}
 		lblW := StringVisualWidth(label)
 		if cx+lblW > a.width-1 {
@@ -1251,8 +1273,16 @@ func (a *App) renderHeader(s *Screen) {
 	s.Fill(0, 0, a.width, 1, ' ', FgMain, BgPanelAlt)
 
 	title := fmt.Sprintf("🗓️ MyCal TUI %s", a.version)
+	maxTitleW := a.width - 9
+	if maxTitleW < 6 {
+		maxTitleW = 6
+	}
 	titleW := StringVisualWidth(title)
-	s.DrawText(2, 0, title, FgCyan, BgPanelAlt, titleW, true, false, false)
+	if titleW > maxTitleW {
+		title = TruncateString(title, maxTitleW, "…")
+		titleW = StringVisualWidth(title)
+	}
+	s.DrawText(2, 0, title, FgCyan, BgPanelAlt, maxTitleW, true, false, false)
 
 	// Period & filter breadcrumbs
 	monthsRu := []string{
@@ -1459,8 +1489,15 @@ func (a *App) renderCalendarBox(s *Screen, x, y, w, h int) {
 			}
 		}
 
-		s.Fill(curX, curY, 2, 1, ' ', fg, bg)
-		s.DrawText(curX, curY, fmt.Sprintf("%2d", d), fg, bg, 2, bold, false, under)
+		maxDrawX := x + w - 2
+		if curX <= maxDrawX {
+			avail := maxDrawX - curX + 1
+			if avail > 2 {
+				avail = 2
+			}
+			s.Fill(curX, curY, avail, 1, ' ', fg, bg)
+			s.DrawText(curX, curY, fmt.Sprintf("%2d", d), fg, bg, avail, bold, false, under)
+		}
 
 		curX += 3
 		weekday++
@@ -1471,17 +1508,16 @@ func (a *App) renderCalendarBox(s *Screen, x, y, w, h int) {
 		}
 	}
 
-	if h >= 12 {
-		hintY := y + h - 2
+	if h >= 10 {
+		hintText := "[Space] Период"
+		hintFg := FgDim
 		if a.rangeAnchor != nil {
-			s.DrawText(x+2, hintY, "[Space] Закрепить", FgYellow, BgSurface, w-4, true, false, false)
-		} else {
-			if w >= 24 {
-				s.DrawText(x+2, hintY, "[Space] Период  [y] Год", FgDim, BgSurface, w-4, false, false, false)
-			} else {
-				s.DrawText(x+2, hintY, "[Space] Период", FgDim, BgSurface, w-4, false, false, false)
-			}
+			hintText = "[Space] Закрепить"
+			hintFg = FgYellow
+		} else if w >= 22 {
+			hintText = "[Space] Период  [y] Год"
 		}
+		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, hintText, hintFg, BgSurface)
 	}
 }
 
@@ -1644,11 +1680,23 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 		}
 	} else {
 		// Narrow layout (e.g. w < 65)
-		colName = colDate + 11
-		wName = colStatus - colName - 1
-		if wName < 10 {
-			wName = 10
+		if w < 50 {
+			colStatus = x + w - 12
 		}
+		colName = colDate + 11
+		avail := colStatus - colName - 1
+		if avail < 4 {
+			avail = 4
+		}
+		wName = avail
+	}
+
+	wStatusHdr := x + w - 1 - colStatus
+	if wStatusHdr > 14 {
+		wStatusHdr = 14
+	}
+	if wStatusHdr < 0 {
+		wStatusHdr = 0
 	}
 
 	// Column Headers
@@ -1669,7 +1717,9 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 	if showCash {
 		s.DrawText(colCash, colY, "Кэш", FgMuted, BgCard, 8, true, false, false)
 	}
-	s.DrawText(colStatus, colY, "Статус", FgMuted, BgCard, 14, true, false, false)
+	if wStatusHdr > 0 {
+		s.DrawText(colStatus, colY, "Статус", FgMuted, BgCard, wStatusHdr, true, false, false)
+	}
 
 	// Rows viewport
 	viewportH := h - 3
@@ -1767,7 +1817,9 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 
 		// Status pill
 		badgeText, bFg, _ := StatusBadge(sess.Status)
-		s.DrawText(colStatus, rowY, badgeText, bFg, rowBg, 14, true, false, false)
+		if wStatusHdr > 0 {
+			s.DrawText(colStatus, rowY, badgeText, bFg, rowBg, wStatusHdr, true, false, false)
+		}
 	}
 }
 
@@ -1881,9 +1933,14 @@ func (a *App) renderInspector(s *Screen, x, y, w, h int) {
 		s.DrawText(x+2, actionTop+3, "[f] Изменить поле", FgYellow, BgSurface, maxContentW, false, false, false)
 		delHint := "[d] Удалить запись"
 		if a.width < 115 {
-			delHint += "    [1/Esc] К списку"
+			delHint += "  [1/Esc] К списку"
 		}
-		s.DrawText(x+2, actionTop+4, delHint, FgRed, BgSurface, maxContentW, false, false, false)
+		if a.width < 115 && maxContentW < 34 && actionTop+5 < y+h-1 {
+			s.DrawText(x+2, actionTop+4, "[d] Удалить запись", FgRed, BgSurface, maxContentW, false, false, false)
+			s.DrawText(x+2, actionTop+5, "[1/Esc] К списку", FgDim, BgSurface, maxContentW, false, false, false)
+		} else {
+			s.DrawText(x+2, actionTop+4, delHint, FgRed, BgSurface, maxContentW, false, false, false)
+		}
 	}
 }
 
@@ -1989,20 +2046,23 @@ func (a *App) renderStats(s *Screen, x, y, w, h int) {
 	}
 
 	// Hint at bottom
-	s.DrawText(x+2, y+h-2, "[1 / Esc] Вернуться к списку записей  [Tab] Следующая вкладка", FgDim, BgSurface, w-4, false, false, false)
+	s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[1 / Esc] Вернуться к списку записей  [Tab] Следующая вкладка", FgDim, BgSurface)
 }
 
-func (a *App) renderFooter(s *Screen) {
-	// Status notification row (H-2)
-	notifyY := a.height - 2
-	s.Fill(0, notifyY, a.width, 1, ' ', FgMain, BgPanelAlt)
-	if a.statusMsg != "" {
-		s.DrawText(2, notifyY, a.statusMsg, FgYellow, BgPanelAlt, a.width-4, true, false, false)
-	}
+type footerHintItem struct {
+	key  string
+	desc string
+	kW   int
+	dW   int
+}
 
-	// Hotkeys row (H-1)
-	hotkeyY := a.height - 1
-	s.Fill(0, hotkeyY, a.width, 1, ' ', FgMain, BgPrimary)
+func (a *App) layoutFooter() (statusLines []string, hintLines [][]footerHintItem) {
+	if a.statusMsg != "" {
+		statusLines = WrapText(a.statusMsg, a.width-4)
+		if len(statusLines) > 2 {
+			statusLines = statusLines[:2]
+		}
+	}
 
 	var hints []struct {
 		key  string
@@ -2052,16 +2112,85 @@ func (a *App) renderFooter(s *Screen) {
 		}
 	}
 
-	cx := 2
+	availW := a.width - 4
+	if availW < 10 {
+		availW = 10
+	}
+
+	maxHintLines := 3
+	if a.height < 24 {
+		maxHintLines = 2
+	}
+	if a.height < 14 {
+		maxHintLines = 1
+	}
+
+	var currentLine []footerHintItem
+	curW := 0
+
 	for _, h := range hints {
 		kW := StringVisualWidth(h.key)
 		dW := StringVisualWidth(h.desc)
-		if cx+kW+dW+2 >= a.width {
+		itemW := kW + 1 + dW
+		spacing := 2
+
+		if len(currentLine) == 0 {
+			currentLine = append(currentLine, footerHintItem{h.key, h.desc, kW, dW})
+			curW = itemW
+		} else if curW+spacing+itemW <= availW {
+			currentLine = append(currentLine, footerHintItem{h.key, h.desc, kW, dW})
+			curW += spacing + itemW
+		} else {
+			hintLines = append(hintLines, currentLine)
+			if len(hintLines) >= maxHintLines {
+				currentLine = nil
+				break
+			}
+			currentLine = []footerHintItem{{h.key, h.desc, kW, dW}}
+			curW = itemW
+		}
+	}
+	if len(currentLine) > 0 && len(hintLines) < maxHintLines {
+		hintLines = append(hintLines, currentLine)
+	}
+
+	return statusLines, hintLines
+}
+
+func (a *App) renderFooter(s *Screen) {
+	statusLines, hintLines := a.layoutFooter()
+	footerH := len(statusLines) + len(hintLines)
+	if footerH < 1 {
+		footerH = 1
+	}
+	curY := a.height - footerH
+
+	// 1. Status notification rows
+	for _, sLine := range statusLines {
+		if curY >= a.height {
 			break
 		}
-		s.DrawText(cx, hotkeyY, h.key, FgCyan, BgPrimary, kW, true, false, false)
-		cx += kW + 1
-		s.DrawText(cx, hotkeyY, h.desc, FgMuted, BgPrimary, dW, false, false, false)
-		cx += dW + 2
+		s.Fill(0, curY, a.width, 1, ' ', FgYellow, BgPanelAlt)
+		s.DrawText(2, curY, sLine, FgYellow, BgPanelAlt, a.width-4, true, false, false)
+		curY++
+	}
+
+	// 2. Hotkey hint rows
+	for _, lineItems := range hintLines {
+		if curY >= a.height {
+			break
+		}
+		s.Fill(0, curY, a.width, 1, ' ', FgMain, BgPrimary)
+		cx := 2
+		for _, item := range lineItems {
+			if cx+item.kW+item.dW+2 > a.width {
+				break
+			}
+			s.DrawText(cx, curY, item.key, FgCyan, BgPrimary, item.kW, true, false, false)
+			cx += item.kW + 1
+			s.DrawText(cx, curY, item.desc, FgMuted, BgPrimary, item.dW, false, false, false)
+			cx += item.dW + 2
+		}
+		curY++
 	}
 }
