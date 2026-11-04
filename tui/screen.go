@@ -172,6 +172,60 @@ func (s *Screen) DrawWrappedText(x, y, maxWidth, maxHeight int, text, fg, bg str
 	return drawn
 }
 
+// DrawBottomWrappedHint renders hint text anchored at bottomY. If text exceeds maxWidth,
+// it wraps up to maxLines (drawing backwards from bottomY so the last line lands on bottomY).
+// It returns the number of lines drawn.
+func (s *Screen) DrawBottomWrappedHint(x, bottomY, maxWidth, maxLines int, text, fg, bg string) int {
+	if maxWidth <= 0 || maxLines <= 0 || bottomY < 0 || bottomY >= s.Height {
+		return 0
+	}
+	lines := WrapText(text, maxWidth)
+	if len(lines) == 0 {
+		return 0
+	}
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
+	}
+	startY := bottomY - len(lines) + 1
+	for i, line := range lines {
+		drawY := startY + i
+		if drawY < 0 || drawY >= s.Height {
+			continue
+		}
+		s.DrawText(x, drawY, line, fg, bg, maxWidth, false, false, false)
+	}
+	return len(lines)
+}
+
+// DrawBottomWrappedCenteredHint renders wrapped hint text centered horizontally within totalWidth,
+// anchored at bottomY.
+func (s *Screen) DrawBottomWrappedCenteredHint(x, bottomY, totalWidth, maxLines int, text, fg, bg string) int {
+	if totalWidth <= 0 || maxLines <= 0 || bottomY < 0 || bottomY >= s.Height {
+		return 0
+	}
+	lines := WrapText(text, totalWidth)
+	if len(lines) == 0 {
+		return 0
+	}
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
+	}
+	startY := bottomY - len(lines) + 1
+	for i, line := range lines {
+		drawY := startY + i
+		if drawY < 0 || drawY >= s.Height {
+			continue
+		}
+		lw := StringVisualWidth(line)
+		lineX := x + (totalWidth-lw)/2
+		if lineX < x {
+			lineX = x
+		}
+		s.DrawText(lineX, drawY, line, fg, bg, totalWidth, false, false, false)
+	}
+	return len(lines)
+}
+
 // DrawHLine draws a horizontal line from x1 to x2 (inclusive) on row y.
 func (s *Screen) DrawHLine(x1, x2, y int, ch rune, fg, bg string) {
 	if y < 0 || y >= s.Height {

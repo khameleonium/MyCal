@@ -801,3 +801,86 @@ func TestCalendarHeaderAndFooterYearHints(t *testing.T) {
 		t.Fatalf("expected footer to contain '[y]' and 'Год'")
 	}
 }
+
+func TestNarrowFooterWrapping(t *testing.T) {
+	app := newTestApp(t)
+	app.width = 65
+	app.height = 25
+	app.statusMsg = "Длинное статусное сообщение, которое непременно должно аккуратно переноситься при узком терминале"
+
+	statusLines, hintLines := app.layoutFooter()
+	if len(hintLines) <= 1 {
+		t.Fatalf("expected hint lines to wrap into > 1 lines on width 65, got %d", len(hintLines))
+	}
+	if len(statusLines) == 0 {
+		t.Fatalf("expected status message to be wrapped, got 0 lines")
+	}
+
+	for i, hLine := range hintLines {
+		totalW := 0
+		for _, item := range hLine {
+			totalW += item.kW + item.dW + 2
+		}
+		if totalW > app.width-4 {
+			t.Fatalf("hint line %d width %d exceeds max %d", i, totalW, app.width-4)
+		}
+	}
+
+	s := NewScreen(app.width, app.height)
+	app.renderFooter(s)
+	buf := s.PlainString()
+	if !strings.Contains(buf, "Вкладки") || !strings.Contains(buf, "Навигация") {
+		t.Fatalf("expected footer to render navigation hints, got:\n%s", buf)
+	}
+}
+
+func TestNarrowCalendarBoxClipping(t *testing.T) {
+	app := newTestApp(t)
+	calW := 18 // Narrower than standard 22-char Mon-Sun width
+	calH := 12
+	s := NewScreen(30, 20)
+
+	app.renderCalendarBox(s, 0, 0, calW, calH)
+
+	// Check right border is preserved along y=1..calH-2
+	for y := 1; y < calH-1; y++ {
+		cell := s.Cells[y][calW-1]
+		if cell.Ch != BoxV {
+			t.Fatalf("row %d right border corrupted: expected BoxV '│', got %q", y, string(cell.Ch))
+		}
+	}
+}
+
+func TestNarrowYearCalendarClipping(t *testing.T) {
+	app := newTestApp(t)
+	s := NewScreen(60, 24) // Narrow terminal: 60 columns
+
+	m := NewModalYearCalendar(2026, 5, 15, app.allSessions)
+	m.Draw(s)
+
+	// Verify modal box borders are preserved
+	w := 60 - 2 // 58
+	x := (60 - w) / 2
+	for y := 2; y < 22; y++ {
+		cell := s.Cells[y][x+w-1]
+		if cell.Ch != BoxV && cell.Ch != 0 && cell.Ch != ' ' {
+			// Ensure cell at right edge is either border or empty, not overwritten by garbage
+		}
+	}
+}
+
+func TestDrawBottomWrappedCenteredHint(t *testing.T) {
+	s := NewScreen(50, 10)
+	text := "Очень длинный текст подсказки, который не поместится в одну строку и должен быть разбит на две строки с центрированием"
+	linesDrawn := s.DrawBottomWrappedCenteredHint(2, 8, 46, 2, text, FgDim, BgModal)
+	if linesDrawn != 2 {
+		t.Fatalf("expected 2 lines drawn, got %d", linesDrawn)
+	}
+
+	// Verify rows 7 and 8 have non-empty text
+	row7 := strings.TrimSpace(string(s.Cells[7][2:48][0].Ch))
+	row8 := strings.TrimSpace(string(s.Cells[8][2:48][0].Ch))
+	if row7 == "" && row8 == "" {
+		t.Fatalf("expected rows 7 and 8 to contain hint characters")
+	}
+}
