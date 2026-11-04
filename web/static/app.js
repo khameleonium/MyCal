@@ -297,7 +297,7 @@ function renderFeed() {
       const statusLabel = s.status ? s.status : "<пусто>";
       const repeatIcon = s.series_id ? '<span class="row-repeat-icon" title="Повторяющаяся серия">↻</span>' : '';
       const cashBadge = s.cash > 0
-        ? `<span class="row-cash" title="Кэш / Оплата: ${formatCash(s.cash)} ₽">💰 ${formatCash(s.cash)}</span>`
+        ? `<span class="row-cash" title="Кэш: ${formatCash(s.cash)}">${formatCash(s.cash)}</span>`
         : `<span class="row-cash row-cash-empty" aria-hidden="true"></span>`;
 
       html += `
@@ -492,13 +492,13 @@ function renderStats(data) {
   const totalCashEl = document.getElementById("statsTotalCash");
   if (totalCashEl) {
     const totalCash = data.total_cash !== undefined ? data.total_cash : 0;
-    totalCashEl.textContent = `${formatCash(totalCash)} ₽`;
+    totalCashEl.textContent = formatCash(totalCash);
   }
   const avgCashEl = document.getElementById("statsAvgCash");
   if (avgCashEl) {
     const totalCash = data.total_cash !== undefined ? data.total_cash : 0;
     const avgCash = data.count > 0 ? (totalCash / data.count) : 0;
-    avgCashEl.textContent = `${formatCash(avgCash)} ₽ / зап.`;
+    avgCashEl.textContent = `средн. ${formatCash(avgCash)}`;
   }
 
   // Breakdown by type
@@ -592,7 +592,7 @@ function renderInspector(s) {
     <div class="detail-field">
       <span class="detail-label">Кэш:</span>
       <span class="detail-val detail-val-editable" style="color: var(--accent-yellow); font-family: var(--font-mono);" onclick="editFocusedField('cash')" title="Нажмите для правки">
-        💰 ${formatCash(s.cash)} ₽ ✏️
+        ${formatCash(s.cash)} ✏️
       </span>
     </div>
     <div class="detail-field">
@@ -1538,7 +1538,7 @@ function onBatchFieldSelectChange(field) {
       break;
     case "cash":
       container.innerHTML = `
-        <label for="batchFieldValue" class="form-label">Новый кэш / оплата (руб):</label>
+        <label for="batchFieldValue" class="form-label">Новый кэш:</label>
         <input type="text" id="batchFieldValue" class="form-input" value="0.0" placeholder="0.0">
       `;
       break;
@@ -1734,7 +1734,7 @@ async function editFocusedField(field) {
       newVal = prompt("Введите продолжительность в минутах:", s.duration);
       break;
     case "cash":
-      newVal = prompt("Введите сумму кэша (руб):", s.cash !== undefined ? s.cash : 0.0);
+      newVal = prompt("Введите значение кэша:", s.cash !== undefined ? s.cash : 0.0);
       break;
     case "type":
       newVal = prompt("Введите тип записи:", s.type);

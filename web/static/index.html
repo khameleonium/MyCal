@@ -191,8 +191,8 @@
           </div>
           <div style="text-align: center;">
             <div class="stat-lbl">КЭШ</div>
-            <div class="stat-val-big stat-yellow" id="statsTotalCash">0.0 ₽</div>
-            <div class="stat-sub" id="statsAvgCash">0 ₽ / зап.</div>
+            <div class="stat-val-big stat-yellow" id="statsTotalCash">0.0</div>
+            <div class="stat-sub" id="statsAvgCash">средн. 0.0</div>
           </div>
           <div style="text-align: right;">
             <div class="stat-lbl">ЗАПИСЕЙ</div>
@@ -338,7 +338,7 @@
             </select>
           </div>
           <div class="form-group">
-            <label for="formCash" class="form-label">Кэш / Оплата (руб):</label>
+            <label for="formCash" class="form-label">Кэш:</label>
             <input type="text" id="formCash" class="form-input" placeholder="0.0" value="0.0" autocomplete="off">
           </div>
         </div>
@@ -640,7 +640,7 @@
           <label for="batchFieldSelect" class="form-label">Выберите поле для изменения:</label>
           <select id="batchFieldSelect" class="form-select" onchange="onBatchFieldSelectChange(this.value)">
             <option value="status">Статус записи</option>
-            <option value="cash">Кэш / Оплата (руб)</option>
+            <option value="cash">Кэш</option>
             <option value="name">Наименование</option>
             <option value="type">Тип записи</option>
             <option value="time">Время (ЧЧ:ММ)</option>
