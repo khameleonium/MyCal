@@ -18,6 +18,7 @@ import (
 	"mycalendar/config"
 	"mycalendar/models"
 	"mycalendar/parser"
+	"mycalendar/service"
 )
 
 // Server coordinates the web dashboard, providing a REST API and static frontend.
@@ -115,6 +116,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/info", s.handleInfo)
+	mux.HandleFunc("/api/service/status", s.handleServiceStatus)
+	mux.HandleFunc("/api/service/action", s.handleServiceAction)
 
 	// Embedded Static Frontend
 	mux.Handle("/", StaticHandler())
@@ -946,6 +949,68 @@ func parseCash(v interface{}) float64 {
 		}
 		return f
 	}
+}
+
+func (s *Server) handleServiceStatus(w http.ResponseWriter, r *http.Request) {
+	mgr := service.NewManager()
+	info, err := mgr.Status(r.Context())
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondJSON(w, http.StatusOK, info)
+}
+
+func (s *Server) handleServiceAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Action string `json:"action"`
+		Port   int    `json:"port"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Некорректный JSON запрос")
+		return
+	}
+
+	port := req.Port
+	if port <= 0 {
+		port = s.cfg.WebPort
+	}
+	if port <= 0 {
+		port = 8080
+	}
+
+	mgr := service.NewManager()
+	var actionErr error
+	switch strings.ToLower(req.Action) {
+	case "install", "enable":
+		actionErr = mgr.Install(r.Context(), port)
+	case "uninstall", "disable":
+		actionErr = mgr.Uninstall(r.Context())
+	case "start":
+		actionErr = mgr.Start(r.Context())
+	case "stop":
+		actionErr = mgr.Stop(r.Context())
+	case "restart":
+		actionErr = mgr.Restart(r.Context())
+	default:
+		respondError(w, http.StatusBadRequest, "Неизвестное действие: "+req.Action)
+		return
+	}
+
+	if actionErr != nil {
+		respondError(w, http.StatusInternalServerError, actionErr.Error())
+		return
+	}
+
+	info, _ := mgr.Status(r.Context())
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"ok":     true,
+		"status": info,
+	})
 }
 
 func respondJSON(w http.ResponseWriter, status int, data interface{}) {

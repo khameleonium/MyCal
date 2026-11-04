@@ -15,7 +15,7 @@ func TestLoadMissingReturnsDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if cfg.DefaultDuration != 60 || cfg.SplitMode != models.SplitNone || cfg.DataFileName != "mycal" || !cfg.UseSystemDate {
+	if cfg.DefaultDuration != 60 || cfg.SplitMode != models.SplitNone || cfg.DataFileName != "mycal" || !cfg.UseSystemDate || cfg.DefaultMode != models.ModeCLI || cfg.WebPort != 8080 {
 		t.Errorf("unexpected defaults: %+v", cfg)
 	}
 }
@@ -38,7 +38,7 @@ func TestLoadOverlaysDefaults(t *testing.T) {
 	if cfg.DefaultDuration != 60 {
 		t.Errorf("invalid duration not repaired: %d", cfg.DefaultDuration)
 	}
-	if cfg.SplitMode != models.SplitNone || cfg.DataFileName != "mycal" || !cfg.UseSystemDate {
+	if cfg.SplitMode != models.SplitNone || cfg.DataFileName != "mycal" || !cfg.UseSystemDate || cfg.DefaultMode != models.ModeCLI || cfg.WebPort != 8080 {
 		t.Errorf("missing keys not defaulted: %+v", cfg)
 	}
 }
