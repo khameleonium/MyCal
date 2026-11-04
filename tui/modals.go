@@ -514,7 +514,7 @@ func (m *ModalQuickEditField) openStatusPicker(app *App) {
 	if app != nil {
 		list = app.getAvailableStatuses()
 	} else {
-		list = []string{"Активно", "Завершено", "Запланировано", "В процессе", "Отменено"}
+		list = []string{"Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"}
 	}
 	m.pickerList = list
 	m.pickerTitle = " Статусы [Enter] "
@@ -843,8 +843,15 @@ func (m *ModalSessionForm) Draw(s *Screen) {
 		if popW < 28 {
 			popW = 28
 		}
-		if popX+popW > s.Width-1 {
-			popW = s.Width - 1 - popX
+		if popX+popW > x+w-1 {
+			popW = x + w - 1 - popX
+		}
+		if popW < 14 {
+			popW = 14
+			popX = x + w - 1 - popW
+		}
+		if popX < x+1 {
+			popX = x + 1
 		}
 		visibleRows := 6
 		if len(m.pickerList) < visibleRows {
@@ -1187,7 +1194,7 @@ func (m *ModalSessionForm) openStatusPicker(app *App) {
 	if app != nil {
 		list = app.getAvailableStatuses()
 	} else {
-		list = []string{"Активно", "Завершено", "Запланировано", "В процессе", "Отменено"}
+		list = []string{"Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"}
 	}
 	m.pickerList = list
 	m.pickerTitle = " Статусы [Enter] "
@@ -1236,7 +1243,7 @@ func (m *ModalSessionForm) openNamePicker(app *App) {
 }
 
 func (m *ModalSessionForm) cycleStatus(app *App) {
-	order := []string{"Активно", "Завершено", "Запланировано", "В процессе", "Отменено"}
+	order := []string{"Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"}
 	if app != nil {
 		order = app.getAvailableStatuses()
 	}

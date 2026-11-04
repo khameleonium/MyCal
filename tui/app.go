@@ -1154,7 +1154,7 @@ func (a *App) getAvailableTypes() []string {
 	seen := map[string]bool{}
 	var res []string
 	if a != nil {
-		if a.cfg.DefaultType != "" {
+		if a.cfg != nil && a.cfg.DefaultType != "" {
 			t := strings.TrimSpace(a.cfg.DefaultType)
 			if t != "" && !seen[t] {
 				seen[t] = true
@@ -1174,7 +1174,7 @@ func (a *App) getAvailableTypes() []string {
 }
 
 func (a *App) getAvailableStatuses() []string {
-	defaults := []string{"Активно", "Завершено", "Запланировано", "В процессе", "Отменено"}
+	defaults := []string{"Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"}
 	seen := map[string]bool{}
 	var list []string
 	for _, st := range defaults {
@@ -1184,11 +1184,13 @@ func (a *App) getAvailableStatuses() []string {
 		}
 	}
 	if a != nil {
-		for _, st := range a.cfg.CustomStatuses {
-			st = strings.TrimSpace(st)
-			if st != "" && !seen[st] {
-				seen[st] = true
-				list = append(list, st)
+		if a.cfg != nil {
+			for _, st := range a.cfg.CustomStatuses {
+				st = strings.TrimSpace(st)
+				if st != "" && !seen[st] {
+					seen[st] = true
+					list = append(list, st)
+				}
 			}
 		}
 		for _, s := range a.allSessions {
@@ -1206,11 +1208,13 @@ func (a *App) getAvailableNames() []string {
 	seen := map[string]bool{}
 	var list []string
 	if a != nil {
-		for _, n := range a.cfg.CustomNames {
-			n = strings.TrimSpace(n)
-			if n != "" && !seen[n] {
-				seen[n] = true
-				list = append(list, n)
+		if a.cfg != nil {
+			for _, n := range a.cfg.CustomNames {
+				n = strings.TrimSpace(n)
+				if n != "" && !seen[n] {
+					seen[n] = true
+					list = append(list, n)
+				}
 			}
 		}
 		for _, s := range a.allSessions {

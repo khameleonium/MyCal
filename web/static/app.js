@@ -7,7 +7,7 @@
 const state = {
   sessions: [],
   types: [],
-  statuses: ["Активно", "Пропущено", "Отменено"],
+  statuses: ["Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"],
   config: {},
   currentPeriod: "month", // "today", "week", "month", "all", "range", or "day"
   selectedDate: null,    // ISO date string if a single day is selected (YYYY-MM-DD), otherwise null
@@ -415,13 +415,36 @@ function promptCustomType() {
   }
 }
 
-function updateStatusSelect() {
+function updateStatusSelect(selectedVal) {
   const sel = document.getElementById("formStatus");
-  if (!sel || !state.statuses || state.statuses.length === 0) return;
-  const curVal = sel.value;
-  sel.innerHTML = state.statuses.map(st => `<option value="${escapeHtml(st)}">${escapeHtml(st)}</option>`).join("");
-  if (curVal) {
+  if (!sel) return;
+  const statuses = (state.statuses && state.statuses.length > 0)
+    ? state.statuses
+    : ["Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"];
+  const curVal = selectedVal !== undefined ? selectedVal : sel.value;
+  let optionsHtml = statuses.map(st => `<option value="${escapeHtml(st)}">${escapeHtml(st)}</option>`).join("");
+  if (curVal && !statuses.includes(curVal) && curVal !== "__custom__") {
+    optionsHtml = `<option value="${escapeHtml(curVal)}">${escapeHtml(curVal)}</option>` + optionsHtml;
+  }
+  optionsHtml += `<option value="__custom__">✏️ + Свой статус...</option>`;
+  sel.innerHTML = optionsHtml;
+  if (curVal && curVal !== "__custom__") {
     sel.value = curVal;
+  } else if (statuses.length > 0) {
+    sel.value = statuses[0];
+  }
+}
+
+function promptCustomStatusInForm() {
+  const custom = prompt("Введите новый статус записи (например, 'В ожидании', 'Перенесено'):");
+  if (custom && custom.trim()) {
+    const val = custom.trim();
+    if (!state.statuses.includes(val)) {
+      state.statuses.push(val);
+    }
+    updateStatusSelect(val);
+  } else {
+    updateStatusSelect();
   }
 }
 
@@ -743,6 +766,53 @@ function onRowContextMenu(e, id) {
 
 // ----------------- QUICK STATUS PICKER -----------------
 
+function renderStatusPickerPopup() {
+  const popup = document.getElementById("statusPickerPopup");
+  if (!popup) return;
+  const listEl = popup.querySelector(".status-options-list");
+  if (!listEl) return;
+
+  const statuses = (state.statuses && state.statuses.length > 0)
+    ? state.statuses
+    : ["Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"];
+
+  const getStatusMeta = (st) => {
+    switch (st) {
+      case "Активно": return { dot: "dot-green", icon: "●" };
+      case "Завершено": return { dot: "dot-green", icon: "✓" };
+      case "В процессе": return { dot: "dot-yellow", icon: "◐" };
+      case "Запланировано": return { dot: "dot-purple", icon: "◷" };
+      case "Пропущено": return { dot: "dot-orange", icon: "⊘" };
+      case "Отменено": return { dot: "dot-red", icon: "✕" };
+      default: return { dot: "dot-gray", icon: "•" };
+    }
+  };
+
+  let html = statuses.map(st => {
+    const meta = getStatusMeta(st);
+    return `
+      <button type="button" class="status-opt-btn" onclick="selectNewStatus('${escapeHtml(st)}')">
+        <span class="st-dot ${meta.dot}"></span>
+        <span>${escapeHtml(st)}</span>
+        <span class="st-icon">${meta.icon}</span>
+      </button>
+    `;
+  }).join("");
+
+  html += `
+    <button type="button" class="status-opt-btn status-opt-empty" onclick="selectNewStatus('')">
+      <span class="st-dot dot-gray"></span>
+      <span>&lt;Очистить статус&gt;</span>
+      <span class="st-icon">∅</span>
+    </button>
+    <button type="button" class="status-opt-btn status-opt-custom" onclick="promptCustomStatus()">
+      <span>✏️ Свой статус...</span>
+    </button>
+  `;
+
+  listEl.innerHTML = html;
+}
+
 function onStatusPillClick(e, id) {
   e.preventDefault();
   e.stopPropagation();
@@ -751,6 +821,8 @@ function onStatusPillClick(e, id) {
   const pillEl = e.currentTarget;
   const rect = pillEl.getBoundingClientRect();
   const popup = document.getElementById("statusPickerPopup");
+
+  renderStatusPickerPopup();
 
   popup.style.display = "block";
   popup.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - 200)}px`;
@@ -762,6 +834,11 @@ function onStatusPillClick(e, id) {
 }
 
 async function selectNewStatus(newStatus) {
+  if (newStatus && !state.statuses.includes(newStatus)) {
+    state.statuses.push(newStatus);
+    updateStatusSelect();
+  }
+
   if (state.isBatchStatusPicker) {
     const ids = Array.from(state.selectedBatchIds);
     hideStatusPopup();
@@ -812,12 +889,17 @@ async function promptCustomStatus() {
 
   const custom = prompt("Введите свой статус (например, 'В ожидании', 'Перенесено'):");
   if (custom !== null && custom.trim() !== "") {
+    const val = custom.trim();
+    if (!state.statuses.includes(val)) {
+      state.statuses.push(val);
+      updateStatusSelect();
+    }
     if (isBatch) {
       state.isBatchStatusPicker = true;
     } else {
       state.statusPopupTargetId = id;
     }
-    await selectNewStatus(custom.trim());
+    await selectNewStatus(val);
   }
 }
 
@@ -1584,6 +1666,8 @@ function openBatchStatusPicker(e) {
   const rect = btn.getBoundingClientRect();
   const popup = document.getElementById("statusPickerPopup");
 
+  renderStatusPickerPopup();
+
   popup.style.display = "block";
   popup.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - 220)}px`;
   popup.style.top = `${rect.bottom + window.scrollY + 6}px`;
@@ -1769,7 +1853,7 @@ function openAddModal() {
   updateTypeSelect(state.types[0] || "Стрельба из лука");
   document.getElementById("formDuration").value = state.config.default_duration || 60;
   document.getElementById("formCash").value = "0.0";
-  document.getElementById("formStatus").value = "Активно";
+  updateStatusSelect("Активно");
   document.getElementById("formNotes").value = "";
 
   document.getElementById("repeatSection").style.display = "block";
@@ -1793,7 +1877,7 @@ function editFocusedSession() {
   updateTypeSelect(s.type);
   document.getElementById("formDuration").value = s.duration;
   document.getElementById("formCash").value = s.cash !== undefined ? s.cash : 0.0;
-  document.getElementById("formStatus").value = s.status;
+  updateStatusSelect(s.status || "Активно");
   document.getElementById("formNotes").value = s.notes || "";
 
   document.getElementById("repeatSection").style.display = "none"; // cannot change repeat rule in edit

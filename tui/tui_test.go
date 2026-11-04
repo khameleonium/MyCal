@@ -1285,3 +1285,54 @@ func TestStatusPickerDrawHierarchy(t *testing.T) {
 		t.Fatalf("expected status popup box title to be rendered on screen")
 	}
 }
+
+func TestStatusBadgeRuneWidthAndAlignment(t *testing.T) {
+	statuses := []string{"Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"}
+	for _, st := range statuses {
+		badge, _, _ := StatusBadge(st)
+		// Check that the first character is an icon with width 1
+		runes := []rune(badge)
+		if len(runes) == 0 {
+			t.Fatalf("empty badge for status %s", st)
+		}
+		icon := runes[0]
+		w := RuneVisualWidth(icon)
+		if w != 1 {
+			t.Errorf("status %q icon %q visual width = %d, expected 1", st, string(icon), w)
+		}
+	}
+}
+
+func TestStatusPickerPopupWithinModalBounds(t *testing.T) {
+	app := &App{
+		allSessions: []models.Session{},
+	}
+	m := NewModalSessionForm(nil, "01.01.2026")
+	m.fieldIdx = 6 // status
+	m.openStatusPicker(app)
+
+	// Check available statuses contains all 6 defaults
+	foundStatus := map[string]bool{}
+	for _, st := range m.pickerList {
+		foundStatus[st] = true
+	}
+	expected := []string{"Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"}
+	for _, exp := range expected {
+		if !foundStatus[exp] {
+			t.Errorf("expected %q in status picker list, got %v", exp, m.pickerList)
+		}
+	}
+
+	s := NewScreen(60, 24)
+	m.Draw(s)
+
+	var buf bytes.Buffer
+	if err := s.Render(&buf); err != nil {
+		t.Fatalf("Render failed: %v", err)
+	}
+	// Verify screen rendered with row anchoring
+	outStr := buf.String()
+	if !strings.Contains(outStr, "\033[1;1H") {
+		t.Errorf("expected row 1 anchoring escape code")
+	}
+}

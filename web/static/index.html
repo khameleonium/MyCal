@@ -360,12 +360,11 @@
         <div class="form-row form-row-2">
           <div class="form-group">
             <label for="formStatus" class="form-label">Статус:</label>
-            <select id="formStatus" class="form-select">
-              <option value="">(без статуса)</option>
-              <option value="Активно" selected>Активно</option>
-              <option value="Пропущено">Пропущено</option>
-              <option value="Отменено">Отменено</option>
-            </select>
+            <div style="display:flex;gap:6px;">
+              <select id="formStatus" class="form-select" style="flex:1;" onchange="if(this.value==='__custom__') promptCustomStatusInForm();">
+              </select>
+              <button type="button" class="btn btn-secondary" onclick="promptCustomStatusInForm()" title="Добавить новый статус">+</button>
+            </div>
           </div>
           <div class="form-group">
             <label for="formCash" class="form-label">Кэш:</label>

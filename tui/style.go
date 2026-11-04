@@ -67,18 +67,18 @@ func StatusBadge(status string) (text string, fg string, bg string) {
 		return "● Активно", FgBlue, "\033[48;2;25;45;75m"
 	case strings.EqualFold(s, "Завершено") || strings.EqualFold(s, "Completed") || strings.EqualFold(s, "Done"):
 		return "✓ Завершено", FgGreen, "\033[48;2;20;50;35m"
-	case strings.EqualFold(s, "Запланировано") || strings.EqualFold(s, "Planned"):
-		return "⏱ Запланировано", FgCyan, "\033[48;2;20;50;60m"
-	case strings.EqualFold(s, "Отменено") || strings.EqualFold(s, "Cancelled"):
-		return "✗ Отменено", FgRed, "\033[48;2;60;25;25m"
 	case strings.EqualFold(s, "В процессе") || strings.EqualFold(s, "In Progress"):
-		return "⏳ В процессе", FgYellow, "\033[48;2;60;50;20m"
+		return "◐ В процессе", FgYellow, "\033[48;2;60;50;20m"
+	case strings.EqualFold(s, "Запланировано") || strings.EqualFold(s, "Planned"):
+		return "◷ Запланировано", FgCyan, "\033[48;2;20;50;60m"
 	case strings.EqualFold(s, "Пропущено") || strings.EqualFold(s, "Missed"):
 		return "⊘ Пропущено", FgOrange, "\033[48;2;60;40;20m"
+	case strings.EqualFold(s, "Отменено") || strings.EqualFold(s, "Cancelled"):
+		return "✗ Отменено", FgRed, "\033[48;2;60;25;25m"
 	case s == "":
 		return "(без статуса)", FgDim, BgCard
 	default:
-		return s, FgMain, BgCard
+		return "• " + s, FgMain, BgCard
 	}
 }
 
@@ -87,16 +87,35 @@ func RuneVisualWidth(r rune) int {
 	if r == 0 || r == '\uFE0F' || (r >= 0x200B && r <= 0x200D) {
 		return 0
 	}
-	// Wide characters: emojis, symbols, and CJK ideographs
-	if (r >= 0x1F300 && r <= 0x1FAFF) ||
-		(r >= 0x2600 && r <= 0x27BF) ||
-		(r >= 0x2E80 && r <= 0x9FFF) ||
-		(r >= 0xAC00 && r <= 0xD7AF) ||
+	// Combining characters
+	if (r >= 0x0300 && r <= 0x036F) || (r >= 0x1AB0 && r <= 0x1AFF) ||
+		(r >= 0x1DC0 && r <= 0x1DFF) || (r >= 0x20D0 && r <= 0x20FF) ||
+		(r >= 0xFE20 && r <= 0xFE2F) {
+		return 0
+	}
+
+	// Wide emojis in miscellaneous blocks (watch, hourglass, etc.)
+	if r == 0x231A || r == 0x231B || (r >= 0x23E9 && r <= 0x23EC) || r == 0x23F0 || r == 0x23F3 {
+		return 2
+	}
+	if (r >= 0x2614 && r <= 0x2615) || (r >= 0x2648 && r <= 0x2653) || r == 0x267F ||
+		r == 0x2693 || r == 0x26A1 || r == 0x26AA || r == 0x26AB || r == 0x26BD ||
+		r == 0x26BE || r == 0x26C4 || r == 0x26C5 || r == 0x26CE || r == 0x26D4 ||
+		r == 0x26EA || r == 0x26F2 || r == 0x26F3 || r == 0x26F5 || r == 0x26FA || r == 0x26FD {
+		return 2
+	}
+
+	// Wide characters: emojis, symbols, and CJK ideographs (East Asian Width Wide/Fullwidth)
+	if (r >= 0x1100 && r <= 0x115F) ||
+		(r >= 0x2E80 && r <= 0xA4CF && (r < 0x3000 || r > 0x303E || r == 0x3000)) ||
+		(r >= 0xAC00 && r <= 0xD7A3) ||
 		(r >= 0xF900 && r <= 0xFAFF) ||
 		(r >= 0xFE10 && r <= 0xFE19) ||
 		(r >= 0xFE30 && r <= 0xFE6F) ||
 		(r >= 0xFF00 && r <= 0xFF60) ||
-		(r >= 0xFFE0 && r <= 0xFFE6) {
+		(r >= 0xFFE0 && r <= 0xFFE6) ||
+		(r >= 0x1F300 && r <= 0x1FAFF) ||
+		(r >= 0x20000 && r <= 0x3FFFD) {
 		return 2
 	}
 	return 1

@@ -3,6 +3,7 @@ package tui
 import (
 	"bytes"
 	"io"
+	"strconv"
 	"strings"
 )
 
@@ -349,6 +350,11 @@ func (s *Screen) Render(out io.Writer) error {
 	}
 
 	for y := 0; y < s.Height; y++ {
+		// Explicitly anchor cursor to the exact row and column 1
+		buf.WriteString("\033[")
+		buf.WriteString(strconv.Itoa(y + 1))
+		buf.WriteString(";1H")
+
 		for x := 0; x < s.Width; x++ {
 			c := s.Cells[y][x]
 			if c.Wide {
@@ -391,10 +397,6 @@ func (s *Screen) Render(out io.Writer) error {
 			} else {
 				buf.WriteRune(c.Ch)
 			}
-		}
-		if y < s.Height-1 {
-			resetStyles()
-			buf.WriteString("\r\n")
 		}
 	}
 	resetStyles()
