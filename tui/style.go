@@ -15,15 +15,15 @@ const (
 	Inverse   = "\033[7m"
 
 	// Background colors (24-bit TrueColor)
-	BgPrimary   = "\033[48;2;15;20;28m"  // #0f141c Main app backdrop
-	BgSurface   = "\033[48;2;22;29;39m"  // #161d27 Card / Panel background
-	BgPanelAlt  = "\033[48;2;19;25;35m"  // #131923 Header / Alt panel
-	BgCard      = "\033[48;2;27;35;48m"  // #1b2330 Inner section card
-	BgHighlight = "\033[48;2;40;51;70m"  // #283346 Row highlight / hover
-	BgSelected  = "\033[48;2;42;59;92m"  // #2a3b5c Focused selection
-	BgModal     = "\033[48;2;24;32;44m"  // #18202c Modal window body
-	BgModalHdr  = "\033[48;2;30;40;56m"  // #1e2838 Modal header
-	BgInput     = "\033[48;2;15;20;28m"  // #0f141c Input field background
+	BgPrimary   = "\033[48;2;15;20;28m" // #0f141c Main app backdrop
+	BgSurface   = "\033[48;2;22;29;39m" // #161d27 Card / Panel background
+	BgPanelAlt  = "\033[48;2;19;25;35m" // #131923 Header / Alt panel
+	BgCard      = "\033[48;2;27;35;48m" // #1b2330 Inner section card
+	BgHighlight = "\033[48;2;40;51;70m" // #283346 Row highlight / hover
+	BgSelected  = "\033[48;2;42;59;92m" // #2a3b5c Focused selection
+	BgModal     = "\033[48;2;24;32;44m" // #18202c Modal window body
+	BgModalHdr  = "\033[48;2;30;40;56m" // #1e2838 Modal header
+	BgInput     = "\033[48;2;15;20;28m" // #0f141c Input field background
 
 	// Foreground colors (24-bit TrueColor)
 	FgMain    = "\033[38;2;226;232;240m" // #e2e8f0 Primary text

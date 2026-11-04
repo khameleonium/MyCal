@@ -42,13 +42,13 @@ type App struct {
 
 	activeTab int // TabFeed, TabCalendar, TabInspector, TabStats (for compact mode)
 
-	focusPanel  int // PanelCalendar, PanelSidebar, PanelFeed, PanelInspector
+	focusPanel    int // PanelCalendar, PanelSidebar, PanelFeed, PanelInspector
 	lastLeftPanel int // PanelCalendar or PanelSidebar (for natural Left arrow restore)
-	periodMode  string
-	startDate   time.Time
-	endDate     time.Time
-	typeFilters map[string]bool
-	searchQuery string
+	periodMode    string
+	startDate     time.Time
+	endDate       time.Time
+	typeFilters   map[string]bool
+	searchQuery   string
 
 	allSessions []models.Session
 	sessions    []models.Session
@@ -76,20 +76,20 @@ type App struct {
 func NewApp(svc *calendar.Service, cfg *models.Config, cfgPath, version string) *App {
 	now := time.Now()
 	app := &App{
-		svc:         svc,
-		cfg:         cfg,
-		cfgPath:     cfgPath,
-		version:     version,
+		svc:           svc,
+		cfg:           cfg,
+		cfgPath:       cfgPath,
+		version:       version,
 		focusPanel:    PanelFeed,
 		lastLeftPanel: PanelCalendar,
 		periodMode:    "all",
-		selectedIDs: make(map[string]bool),
-		typeFilters: make(map[string]bool),
-		calYear:     now.Year(),
-		calMonth:    int(now.Month()),
-		calDay:      now.Day(),
-		sidebarIdx:  0, // "Все записи" (0-indexed)
-		activeTab:   TabFeed,
+		selectedIDs:   make(map[string]bool),
+		typeFilters:   make(map[string]bool),
+		calYear:       now.Year(),
+		calMonth:      int(now.Month()),
+		calDay:        now.Day(),
+		sidebarIdx:    0, // "Все записи" (0-indexed)
+		activeTab:     TabFeed,
 	}
 	return app
 }
