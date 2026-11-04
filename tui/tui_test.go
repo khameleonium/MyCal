@@ -160,7 +160,7 @@ func TestScreenDrawWrappedText(t *testing.T) {
 }
 
 func TestModalYearCalendarInput(t *testing.T) {
-	m := NewModalYearCalendar(2026)
+	m := NewModalYearCalendar(2026, 10, 15, nil)
 	if m.year != 2026 {
 		t.Fatalf("expected year 2026, got %d", m.year)
 	}
@@ -187,6 +187,133 @@ func TestModalYearCalendarInput(t *testing.T) {
 	}
 	if m.year != 2030 {
 		t.Fatalf("expected year 2030, got %d", m.year)
+	}
+}
+
+func TestModalYearCalendarNavigationAndSessions(t *testing.T) {
+	app := newTestApp(t)
+
+	// Add a session on Oct 15, 2026
+	_ = app.svc.Add(models.Session{ID: "20261015100000", Name: "Тест", Type: "Работа", Time: "10:00"})
+	app.allSessions = app.svc.All()
+
+	m := NewModalYearCalendar(2026, 10, 15, app.allSessions)
+	app.activeModal = m
+
+	// Verify Oct 15 has session marked
+	if !m.daysWithSessions[1015] {
+		t.Fatalf("expected Oct 15 (1015) to be marked in daysWithSessions")
+	}
+	if m.daysWithSessions[1014] {
+		t.Fatalf("Oct 14 should not have sessions")
+	}
+
+	// Navigate Left (to Oct 14)
+	m.HandleKey(Key{Type: KeyLeft}, app)
+	if m.selMonth != 10 || m.selDay != 14 {
+		t.Fatalf("expected Oct 14, got %02d.%02d", m.selDay, m.selMonth)
+	}
+
+	// Navigate Right (to Oct 15)
+	m.HandleKey(Key{Type: KeyRight}, app)
+	if m.selMonth != 10 || m.selDay != 15 {
+		t.Fatalf("expected Oct 15, got %02d.%02d", m.selDay, m.selMonth)
+	}
+
+	// Space to anchor range
+	m.HandleKey(Key{Type: KeySpace}, app)
+	if m.rangeAnchor == nil || m.rangeAnchor.Day() != 15 {
+		t.Fatalf("expected anchor at day 15")
+	}
+
+	// Navigate 3 days Right (to Oct 18)
+	for i := 0; i < 3; i++ {
+		m.HandleKey(Key{Type: KeyRight}, app)
+	}
+	if m.selDay != 18 {
+		t.Fatalf("expected day 18, got %d", m.selDay)
+	}
+	if !m.isDayInRange(2026, 10, 15) || !m.isDayInRange(2026, 10, 18) {
+		t.Fatalf("days 15..18 should be in range")
+	}
+
+	// Enter to apply period and close modal!
+	m.HandleKey(Key{Type: KeyEnter}, app)
+	if app.activeModal != nil {
+		t.Fatalf("expected modal to be closed after Enter")
+	}
+	if app.periodMode != "custom" {
+		t.Fatalf("expected periodMode custom, got %q", app.periodMode)
+	}
+	if app.startDate.Day() != 15 || app.endDate.Day() != 18 {
+		t.Fatalf("expected applied range 15..18, got %d..%d", app.startDate.Day(), app.endDate.Day())
+	}
+}
+
+func TestModalYearCalendarDrawAndLayout(t *testing.T) {
+	app := newTestApp(t)
+	// Add session on Oct 16, 2026 (while cursor is on Oct 15)
+	_ = app.svc.Add(models.Session{ID: "20261016100000", Name: "Тест", Type: "Работа", Time: "10:00"})
+	app.allSessions = app.svc.All()
+
+	m := NewModalYearCalendar(2026, 10, 15, app.allSessions)
+	screen := NewScreen(100, 32)
+	screen.Clear(BgPrimary)
+	m.Draw(screen)
+
+	// Check that hint is centered and not at x=2
+	hintFound := false
+	for y := 20; y < 31; y++ {
+		rowStr := ""
+		for x := 0; x < 100; x++ {
+			if screen.Cells[y][x].Ch != 0 {
+				rowStr += string(screen.Cells[y][x].Ch)
+			} else {
+				rowStr += " "
+			}
+		}
+		if strings.Contains(rowStr, "Выбор дня") {
+			hintFound = true
+			idx := strings.Index(rowStr, "[↑↓←→]")
+			if idx < 6 {
+				t.Fatalf("expected centered hint, but started at column %d", idx)
+			}
+			// Check line immediately above hint: inside box should be empty (breathing room!)
+			rowAbove := ""
+			// Box interior is from x+1 to x+w-2
+			boxLeft := (100 - 92) / 2
+			boxRight := boxLeft + 92 - 1
+			for col := boxLeft + 1; col < boxRight; col++ {
+				if screen.Cells[y-1][col].Ch != 0 && screen.Cells[y-1][col].Ch != ' ' {
+					rowAbove += string(screen.Cells[y-1][col].Ch)
+				}
+			}
+			if len(rowAbove) > 0 {
+				t.Fatalf("line above hint inside box should be blank separator, but contains: %q", rowAbove)
+			}
+			break
+		}
+	}
+	if !hintFound {
+		t.Fatalf("hint text not found on screen")
+	}
+
+	// Verify Oct 15 has green color
+	greenFound := false
+	for y := 0; y < 32; y++ {
+		for x := 0; x < 100; x++ {
+			cell := screen.Cells[y][x]
+			if cell.Fg == FgGreen && (cell.Ch == '1' || cell.Ch == '5') {
+				greenFound = true
+				break
+			}
+		}
+		if greenFound {
+			break
+		}
+	}
+	if !greenFound {
+		t.Fatalf("day with session (Oct 15) was not drawn with FgGreen")
 	}
 }
 

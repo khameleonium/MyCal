@@ -811,27 +811,100 @@ func (m *ModalConfirmDelete) HandleKey(k Key, app *App) bool {
 // ----------------- YEAR CALENDAR MODAL -----------------
 
 type ModalYearCalendar struct {
-	year      int
-	inputMode bool
-	inputYear string
+	year             int
+	selMonth         int
+	selDay           int
+	rangeAnchor      *time.Time
+	startDate        time.Time
+	endDate          time.Time
+	sessions         []models.Session
+	daysWithSessions map[int]bool
+	inputMode        bool
+	inputYear        string
 }
 
-func NewModalYearCalendar(year int) *ModalYearCalendar {
+func NewModalYearCalendar(year, selMonth, selDay int, sessions []models.Session) *ModalYearCalendar {
+	now := time.Now()
 	if year <= 0 {
-		year = time.Now().Year()
+		year = now.Year()
 	}
-	return &ModalYearCalendar{year: year}
+	if selMonth <= 0 || selMonth > 12 {
+		selMonth = int(now.Month())
+	}
+	if selDay <= 0 || selDay > 31 {
+		selDay = now.Day()
+	}
+	m := &ModalYearCalendar{
+		year:     year,
+		selMonth: selMonth,
+		selDay:   selDay,
+		sessions: sessions,
+	}
+	m.updateDaysWithSessions()
+	m.syncRange()
+	return m
+}
+
+func (m *ModalYearCalendar) updateDaysWithSessions() {
+	m.daysWithSessions = make(map[int]bool)
+	now := time.Now()
+	for _, sess := range m.sessions {
+		if d, err := parser.ParseDate(sess.Date(), now); err == nil {
+			if d.Year() == m.year {
+				key := int(d.Month())*100 + d.Day()
+				m.daysWithSessions[key] = true
+			}
+		}
+	}
+}
+
+func (m *ModalYearCalendar) syncRange() {
+	curDate := time.Date(m.year, time.Month(m.selMonth), m.selDay, 0, 0, 0, 0, time.Local)
+	if m.rangeAnchor != nil {
+		anchor := *m.rangeAnchor
+		if curDate.Before(anchor) {
+			m.startDate = curDate
+			m.endDate = anchor.Add(24*time.Hour - time.Nanosecond)
+		} else {
+			m.startDate = anchor
+			m.endDate = curDate.Add(24*time.Hour - time.Nanosecond)
+		}
+	} else {
+		m.startDate = curDate
+		m.endDate = curDate.Add(24*time.Hour - time.Nanosecond)
+	}
+}
+
+func (m *ModalYearCalendar) isDayInRange(year, month, day int) bool {
+	if m.startDate.IsZero() || m.endDate.IsZero() {
+		return false
+	}
+	if m.rangeAnchor == nil && m.startDate.Equal(m.endDate) {
+		return false
+	}
+	d := time.Date(year, time.Month(month), day, 12, 0, 0, 0, time.Local)
+	start := time.Date(m.startDate.Year(), m.startDate.Month(), m.startDate.Day(), 0, 0, 0, 0, time.Local)
+	end := time.Date(m.endDate.Year(), m.endDate.Month(), m.endDate.Day(), 23, 59, 59, 0, time.Local)
+	return (d.Equal(start) || d.After(start)) && (d.Equal(end) || d.Before(end))
 }
 
 func (m *ModalYearCalendar) Draw(s *Screen) {
-	w := 68
-	h := 22
+	w := 92
 	if w > s.Width-2 {
 		w = s.Width - 2
 	}
+	if w < 66 {
+		w = 66
+	}
+
+	h := 29
 	if h > s.Height-2 {
 		h = s.Height - 2
 	}
+	if h < 21 {
+		h = 21
+	}
+
 	x := (s.Width - w) / 2
 	y := (s.Height - h) / 2
 	if x < 1 {
@@ -841,7 +914,7 @@ func (m *ModalYearCalendar) Draw(s *Screen) {
 		y = 1
 	}
 
-	title := fmt.Sprintf("◄  Календарь на %d год  ►", m.year)
+	title := fmt.Sprintf("◄  Годовой календарь на %d год  ►", m.year)
 	s.DrawBox(x, y, w, h, title, FgCyan, BorderBright, BgModal, true)
 
 	months := []string{
@@ -850,40 +923,157 @@ func (m *ModalYearCalendar) Draw(s *Screen) {
 		"Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
 	}
 
-	for i := 0; i < 12; i++ {
-		col := i % 4
-		row := i / 4
-		bx := x + 2 + (col * 16)
-		by := y + 2 + (row * 6)
+	wide := (w >= 90)
+	now := time.Now()
 
-		mNum := i + 1
-		s.DrawText(bx, by, fmt.Sprintf("%02d. %s", mNum, months[i]), FgYellow, BgModal, 14, true, false, false)
-		s.DrawText(bx, by+1, "Пн Вт Ср Чт Пт Сб Вс", FgDim, BgModal, 14, false, false, false)
-
-		firstDay := time.Date(m.year, time.Month(mNum), 1, 0, 0, 0, 0, time.UTC)
-		weekday := int(firstDay.Weekday())
-		if weekday == 0 {
-			weekday = 7
+	startRow := 0
+	numRows := 3
+	if h < 28 {
+		numRows = 2
+		if m.selMonth > 8 {
+			startRow = 1
 		}
-		weekday-- // 0..6 (Mon..Sun)
+	}
 
-		daysInMonth := time.Date(m.year, time.Month(mNum+1), 0, 0, 0, 0, 0, time.UTC).Day()
+	tilesBottomY := y + 2
+	for r := 0; r < numRows; r++ {
+		rowIdx := startRow + r
+		by := y + 2 + (r * 8)
 
-		curX := bx + (weekday * 2)
-		curY := by + 2
+		for col := 0; col < 4; col++ {
+			monthIdx := rowIdx*4 + col
+			if monthIdx >= 12 {
+				break
+			}
+			mNum := monthIdx + 1
 
-		for d := 1; d <= daysInMonth; d++ {
-			s.DrawText(curX, curY, fmt.Sprintf("%2d", d), FgMuted, BgModal, 2, false, false, false)
-			curX += 2
-			weekday++
-			if weekday == 7 {
-				weekday = 0
-				curX = bx
-				curY++
+			var bx int
+			if wide {
+				bx = x + 3 + (col * 22)
+			} else {
+				bx = x + 2 + (col * 16)
+			}
+
+			// Month Title
+			mTitle := fmt.Sprintf("%02d. %s", mNum, months[monthIdx])
+			mTitleFg := FgYellow
+			if mNum == m.selMonth {
+				mTitleFg = FgCyan
+			}
+			s.DrawText(bx, by, mTitle, mTitleFg, BgModal, 16, mNum == m.selMonth, false, false)
+
+			// Weekdays Header
+			if wide {
+				s.DrawText(bx, by+1, "Пн Вт Ср Чт Пт Сб Вс", FgDim, BgModal, 20, false, false, false)
+			} else {
+				s.DrawText(bx, by+1, "Пн Вт Ср Чт Пт Сб Вс", FgDim, BgModal, 14, false, false, false)
+			}
+
+			firstDay := time.Date(m.year, time.Month(mNum), 1, 0, 0, 0, 0, time.UTC)
+			weekday := int(firstDay.Weekday())
+			if weekday == 0 {
+				weekday = 7
+			}
+			weekday-- // 0..6 (Mon..Sun)
+
+			daysInMonth := time.Date(m.year, time.Month(mNum+1), 0, 0, 0, 0, 0, time.UTC).Day()
+
+			var curX int
+			if wide {
+				curX = bx + (weekday * 3)
+			} else {
+				curX = bx + (weekday * 2)
+			}
+			curY := by + 2
+
+			for d := 1; d <= daysInMonth; d++ {
+				fg := FgMuted
+				bg := BgModal
+				bold := false
+				under := false
+
+				hasSess := m.daysWithSessions[mNum*100+d]
+				if hasSess {
+					fg = FgGreen
+					bold = true
+				}
+
+				inRange := m.isDayInRange(m.year, mNum, d)
+				if inRange {
+					bg = BgCard
+					if !hasSess {
+						fg = FgCyan
+					}
+				}
+
+				isAnchor := (m.rangeAnchor != nil && m.rangeAnchor.Year() == m.year && int(m.rangeAnchor.Month()) == mNum && m.rangeAnchor.Day() == d)
+				if isAnchor {
+					bg = BgHighlight
+					fg = FgYellow
+					bold = true
+				}
+
+				isCursor := (mNum == m.selMonth && d == m.selDay)
+				if isCursor {
+					bg = BgSelected
+					fg = FgWhite
+					bold = true
+				}
+
+				if m.year == now.Year() && mNum == int(now.Month()) && d == now.Day() {
+					under = true
+					if !isCursor && !isAnchor && !hasSess && !inRange {
+						fg = FgCyan
+						bold = true
+					}
+				}
+
+				cellW := 2
+				s.Fill(curX, curY, cellW, 1, ' ', fg, bg)
+				s.DrawText(curX, curY, fmt.Sprintf("%2d", d), fg, bg, 2, bold, false, under)
+
+				if wide {
+					curX += 3
+				} else {
+					curX += 2
+				}
+				weekday++
+				if weekday == 7 {
+					weekday = 0
+					if wide {
+						curX = bx
+					} else {
+						curX = bx
+					}
+					curY++
+				}
+				if curY > tilesBottomY {
+					tilesBottomY = curY
+				}
 			}
 		}
 	}
 
+	// Centered hint line located below the tiles
+	hintY := y + h - 2
+	if hintY <= tilesBottomY {
+		hintY = tilesBottomY + 1
+	}
+
+	var hintText string
+	if m.rangeAnchor != nil {
+		hintText = fmt.Sprintf("[Стрелки] Выбор диапазона  [Space] Зафиксировать  [Esc] Отмена  [От: %02d.%02d]", m.rangeAnchor.Day(), m.rangeAnchor.Month())
+	} else {
+		hintText = "[↑↓←→] Выбор дня  [Space] Период  [Enter] Применить  [t] Сегодня  [y] Год  [Esc] Закрыть"
+	}
+	hintW := StringVisualWidth(hintText)
+	hintX := x + (w-hintW)/2
+	if hintX < x+2 {
+		hintX = x + 2
+	}
+	s.DrawText(hintX, hintY, hintText, FgDim, BgModal, w-4, false, false, false)
+
+	// Year text input overlay (if active)
 	if m.inputMode {
 		boxW := 36
 		boxH := 7
@@ -895,10 +1085,7 @@ func (m *ModalYearCalendar) Draw(s *Screen) {
 		disp := m.inputYear + "█"
 		s.DrawText(bx+3, by+3, disp, FgWhite, BgInput, boxW-6, true, false, false)
 		s.DrawText(bx+3, by+5, "[Enter] Перейти  [Esc] Отмена", FgDim, BgInput, boxW-6, false, false, false)
-		return
 	}
-
-	s.DrawText(x+2, y+h-2, "[◄/►] Сменить год  [y] Ввести год  [Esc] Закрыть", FgDim, BgModal, w-4, false, false, false)
 }
 
 func (m *ModalYearCalendar) HandleKey(k Key, app *App) bool {
@@ -910,6 +1097,8 @@ func (m *ModalYearCalendar) HandleKey(k Key, app *App) bool {
 		case k.Type == KeyEnter:
 			if yr, err := strconv.Atoi(m.inputYear); err == nil && yr >= 1900 && yr <= 2100 {
 				m.year = yr
+				m.updateDaysWithSessions()
+				m.syncRange()
 			}
 			m.inputMode = false
 			return true
@@ -928,22 +1117,185 @@ func (m *ModalYearCalendar) HandleKey(k Key, app *App) bool {
 	}
 
 	switch {
-	case k.Type == KeyEsc || k.Type == KeyEnter || k.Matches('q', 'й'):
+	case k.Type == KeyEsc:
+		if m.rangeAnchor != nil {
+			m.rangeAnchor = nil
+			m.syncRange()
+			return true
+		}
 		app.activeModal = nil
 		return true
+
+	case k.Type == KeyEnter:
+		// Apply selection to app
+		app.calYear = m.year
+		app.calMonth = m.selMonth
+		app.calDay = m.selDay
+		if m.rangeAnchor != nil {
+			m.rangeAnchor = nil
+		}
+
+		if !m.startDate.IsZero() && !m.endDate.IsZero() && (m.endDate.Sub(m.startDate) > 24*time.Hour || m.startDate.Day() != m.endDate.Day()) {
+			app.startDate = m.startDate
+			app.endDate = m.endDate
+			app.periodMode = "custom"
+			app.reloadSessions()
+			app.setStatusMsg(fmt.Sprintf("Выбран период: %s - %s", app.startDate.Format("02.01.2006"), app.endDate.Format("02.01.2006")))
+		} else {
+			curDate := time.Date(m.year, time.Month(m.selMonth), m.selDay, 0, 0, 0, 0, time.Local)
+			app.startDate = curDate
+			app.endDate = curDate.Add(24*time.Hour - time.Nanosecond)
+			app.periodMode = "day"
+			app.reloadSessions()
+			app.setStatusMsg(fmt.Sprintf("Выбран день: %02d.%02d.%d", m.selDay, m.selMonth, m.year))
+		}
+
+		app.focusPanel = PanelFeed
+		if app.width < 115 {
+			app.activeTab = TabFeed
+		}
+		app.activeModal = nil
+		return true
+
+	case k.Matches('q', 'й'):
+		app.activeModal = nil
+		return true
+
+	case k.Type == KeySpace:
+		if m.rangeAnchor == nil {
+			anchor := time.Date(m.year, time.Month(m.selMonth), m.selDay, 0, 0, 0, 0, time.Local)
+			m.rangeAnchor = &anchor
+			m.syncRange()
+		} else {
+			m.rangeAnchor = nil
+		}
+		return true
+
+	case k.Type == KeyHome || k.Matches('t', 'е'):
+		now := time.Now()
+		oldYear := m.year
+		m.year = now.Year()
+		m.selMonth = int(now.Month())
+		m.selDay = now.Day()
+		m.rangeAnchor = nil
+		if m.year != oldYear {
+			m.updateDaysWithSessions()
+		}
+		m.syncRange()
+		return true
+
 	case k.Matches('y', 'н'):
 		m.inputMode = true
 		m.inputYear = ""
 		return true
+
 	case k.Type == KeyRune && k.Rune >= '0' && k.Rune <= '9':
 		m.inputMode = true
 		m.inputYear = string(k.Rune)
 		return true
-	case k.Type == KeyLeft || k.Matches('h', 'р') || k.Type == KeyDown || k.Matches('j', 'о'):
-		m.year--
+
+	case k.Type == KeyLeft || k.Matches('h', 'р'):
+		cur := time.Date(m.year, time.Month(m.selMonth), m.selDay, 12, 0, 0, 0, time.Local)
+		prev := cur.AddDate(0, 0, -1)
+		oldYear := m.year
+		m.year = prev.Year()
+		m.selMonth = int(prev.Month())
+		m.selDay = prev.Day()
+		if m.year != oldYear {
+			m.updateDaysWithSessions()
+		}
+		m.syncRange()
 		return true
-	case k.Type == KeyRight || k.Matches('l', 'д') || k.Type == KeyUp || k.Matches('k', 'л'):
+
+	case k.Type == KeyRight || k.Matches('l', 'д'):
+		cur := time.Date(m.year, time.Month(m.selMonth), m.selDay, 12, 0, 0, 0, time.Local)
+		next := cur.AddDate(0, 0, 1)
+		oldYear := m.year
+		m.year = next.Year()
+		m.selMonth = int(next.Month())
+		m.selDay = next.Day()
+		if m.year != oldYear {
+			m.updateDaysWithSessions()
+		}
+		m.syncRange()
+		return true
+
+	case k.Type == KeyUp || k.Matches('k', 'л'):
+		cur := time.Date(m.year, time.Month(m.selMonth), m.selDay, 12, 0, 0, 0, time.Local)
+		prevWeek := cur.AddDate(0, 0, -7)
+		oldYear := m.year
+		m.year = prevWeek.Year()
+		m.selMonth = int(prevWeek.Month())
+		m.selDay = prevWeek.Day()
+		if m.year != oldYear {
+			m.updateDaysWithSessions()
+		}
+		m.syncRange()
+		return true
+
+	case k.Type == KeyDown || k.Matches('j', 'о'):
+		cur := time.Date(m.year, time.Month(m.selMonth), m.selDay, 12, 0, 0, 0, time.Local)
+		nextWeek := cur.AddDate(0, 0, 7)
+		oldYear := m.year
+		m.year = nextWeek.Year()
+		m.selMonth = int(nextWeek.Month())
+		m.selDay = nextWeek.Day()
+		if m.year != oldYear {
+			m.updateDaysWithSessions()
+		}
+		m.syncRange()
+		return true
+
+	case k.Type == KeyTab:
+		m.selMonth++
+		if m.selMonth > 12 {
+			m.selMonth = 1
+			m.year++
+			m.updateDaysWithSessions()
+		}
+		daysInMonth := time.Date(m.year, time.Month(m.selMonth+1), 0, 0, 0, 0, 0, time.Local).Day()
+		if m.selDay > daysInMonth {
+			m.selDay = daysInMonth
+		}
+		m.syncRange()
+		return true
+
+	case k.Type == KeyBackTab:
+		m.selMonth--
+		if m.selMonth < 1 {
+			m.selMonth = 12
+			m.year--
+			m.updateDaysWithSessions()
+		}
+		daysInMonth := time.Date(m.year, time.Month(m.selMonth+1), 0, 0, 0, 0, 0, time.Local).Day()
+		if m.selDay > daysInMonth {
+			m.selDay = daysInMonth
+		}
+		m.syncRange()
+		return true
+
+	case k.Matches('<', 'б') || k.Rune == '<' || k.Rune == ',' || k.Rune == 'б' || k.Rune == 'Б':
+		m.year--
+		m.updateDaysWithSessions()
+		m.syncRange()
+		return true
+
+	case k.Matches('>', 'ю') || k.Rune == '>' || k.Rune == '.' || k.Rune == 'ю' || k.Rune == 'Ю':
 		m.year++
+		m.updateDaysWithSessions()
+		m.syncRange()
+		return true
+
+	case k.Type == KeyPgUp:
+		m.year--
+		m.updateDaysWithSessions()
+		m.syncRange()
+		return true
+
+	case k.Type == KeyPgDn:
+		m.year++
+		m.updateDaysWithSessions()
+		m.syncRange()
 		return true
 	}
 	return false
