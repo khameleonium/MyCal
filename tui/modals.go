@@ -470,7 +470,7 @@ func (m *ModalQuickEditField) applyValue(app *App) {
 	case 0: // Name
 		patch.Name = &val
 	case 1: // Cash
-		if c, err := strconv.ParseFloat(val, 64); err == nil && c >= 0 {
+		if c, err := strconv.ParseFloat(val, 64); err == nil {
 			patch.Cash = &c
 		} else {
 			zero := 0.0
@@ -837,11 +837,25 @@ func (m *ModalSessionForm) appendChar(r rune) {
 			m.durStr += string(r)
 		}
 	case 5:
-		if (r >= '0' && r <= '9') || r == '.' || r == ',' {
+		if (r >= '0' && r <= '9') || r == '.' || r == ',' || r == '-' {
 			if r == ',' {
 				r = '.'
 			}
-			m.cashStr += string(r)
+			if r == '-' {
+				if m.cashStr == "0.0" || m.cashStr == "0" {
+					m.cashStr = "-"
+				} else if strings.HasPrefix(m.cashStr, "-") {
+					m.cashStr = strings.TrimPrefix(m.cashStr, "-")
+				} else {
+					m.cashStr = "-" + m.cashStr
+				}
+			} else {
+				if (m.cashStr == "0.0" || m.cashStr == "0") && r >= '0' && r <= '9' {
+					m.cashStr = string(r)
+				} else {
+					m.cashStr += string(r)
+				}
+			}
 		}
 	case 6:
 		// Cycle status on key
@@ -920,9 +934,6 @@ func (m *ModalSessionForm) save(app *App) {
 	}
 
 	cashVal, _ := strconv.ParseFloat(strings.TrimSpace(m.cashStr), 64)
-	if cashVal < 0 {
-		cashVal = 0.0
-	}
 
 	nameVal := strings.TrimSpace(m.name)
 	if nameVal == "" {

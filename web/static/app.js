@@ -302,8 +302,9 @@ function renderFeed() {
       const statusClass = getStatusClass(s.status);
       const statusLabel = s.status ? s.status : "<пусто>";
       const repeatIcon = s.series_id ? '<span class="row-repeat-icon" title="Повторяющаяся серия">↻</span>' : '';
-      const cashBadge = s.cash > 0
-        ? `<span class="row-cash" title="Кэш: ${formatCash(s.cash)}">${formatCash(s.cash)}</span>`
+      const isNegative = s.cash < 0;
+      const cashBadge = (s.cash !== undefined && s.cash !== 0)
+        ? `<span class="row-cash ${isNegative ? 'cash-negative' : ''}" title="Кэш: ${formatCash(s.cash)}">${formatCash(s.cash)}</span>`
         : `<span class="row-cash row-cash-empty" aria-hidden="true"></span>`;
 
       html += `

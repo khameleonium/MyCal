@@ -951,3 +951,56 @@ func TestAddSessionUsesSelectedCalendarDay(t *testing.T) {
 		t.Fatalf("expected form dateStr from YearCalendar to be '15.08.2026', got %q", formModal.dateStr)
 	}
 }
+
+func TestNegativeCashHandlingAndTotalCalculation(t *testing.T) {
+	app := newTestApp(t)
+
+	// 1. Create a session with positive cash
+	_ = app.svc.Add(models.Session{
+		ID:   "20261104100000",
+		Name: "Доход",
+		Cash: 1000.0,
+		Time: "10:00",
+	})
+
+	// 2. Open form and enter negative cash -300
+	m := NewModalSessionForm(nil, "04.11.2026")
+	m.fieldIdx = 5 // Cash field
+	m.appendChar('-')
+	m.appendChar('3')
+	m.appendChar('0')
+	m.appendChar('0')
+	if m.cashStr != "-300" {
+		t.Fatalf("expected cashStr to be '-300', got %q", m.cashStr)
+	}
+	m.name = "Расход"
+	m.save(app)
+
+	// Check reload
+	app.periodMode = "all"
+	app.reloadSessions()
+
+	if len(app.sessions) != 2 {
+		t.Fatalf("expected 2 sessions, got %d", len(app.sessions))
+	}
+
+	var totalCash float64
+	for _, s := range app.sessions {
+		totalCash += s.Cash
+	}
+	if totalCash != 700.0 {
+		t.Fatalf("expected total cash to be 700.0 (1000 - 300), got %v", totalCash)
+	}
+
+	// 3. Quick field edit with negative value
+	editModal := NewModalQuickEditField(app.sessions[0].ID)
+	editModal.selected = 1 // Cash
+	editModal.stepInput = true
+	editModal.value = "-150.5"
+	editModal.applyValue(app)
+
+	updated, ok := app.svc.ByID(app.sessions[0].ID)
+	if !ok || updated.Cash != -150.5 {
+		t.Fatalf("expected updated cash to be -150.5, got %v", updated.Cash)
+	}
+}

@@ -1844,10 +1844,14 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 		// Cash (pure number!)
 		if showCash {
 			cashStr := ""
-			if sess.Cash > 0 {
+			cashFg := FgWhite
+			if sess.Cash != 0 {
 				cashStr = strconv.FormatFloat(sess.Cash, 'f', -1, 64)
+				if sess.Cash < 0 {
+					cashFg = FgRed
+				}
 			}
-			s.DrawText(colCash, rowY, cashStr, FgWhite, rowBg, 8, false, false, false)
+			s.DrawText(colCash, rowY, cashStr, cashFg, rowBg, 8, false, false, false)
 		}
 
 		// Status pill
@@ -2030,7 +2034,11 @@ func (a *App) renderStats(s *Screen, x, y, w, h int) {
 	s.DrawText(x+2, curY, fmt.Sprintf("Среднее на запись: %d мин (%02d:%02d)", avgMin, avgMin/60, avgMin%60), FgDim, BgSurface, w-4, false, false, false)
 	curY++
 	// Cash is strictly a pure number!
-	s.DrawText(x+2, curY, fmt.Sprintf("Суммарный кэш:     %s", strconv.FormatFloat(totalCash, 'f', -1, 64)), FgGreen, BgSurface, w-4, true, false, false)
+	cashFg := FgGreen
+	if totalCash < 0 {
+		cashFg = FgRed
+	}
+	s.DrawText(x+2, curY, fmt.Sprintf("Суммарный кэш:     %s", strconv.FormatFloat(totalCash, 'f', -1, 64)), cashFg, BgSurface, w-4, true, false, false)
 	curY += 2
 
 	// Status breakdown
