@@ -81,7 +81,7 @@ func NewApp(svc *calendar.Service, cfg *models.Config, cfgPath, version string) 
 		calYear:     now.Year(),
 		calMonth:    int(now.Month()),
 		calDay:      now.Day(),
-		sidebarIdx:  1, // "Все записи"
+		sidebarIdx:  0, // "Все записи" (0-indexed)
 		activeTab:   TabFeed,
 	}
 	return app
@@ -260,16 +260,28 @@ func (a *App) handleKey(k Key) bool {
 	case k.Type == KeyTab:
 		if a.width < 115 {
 			a.activeTab = (a.activeTab + 1) % 4
+			if a.activeTab == TabCalendar {
+				a.syncSidebarIdx()
+			}
 		} else {
 			a.focusPanel = (a.focusPanel + 1) % 3
+			if a.focusPanel == PanelSidebar {
+				a.syncSidebarIdx()
+			}
 		}
 		return false
 
 	case k.Type == KeyBackTab:
 		if a.width < 115 {
 			a.activeTab = (a.activeTab + 3) % 4
+			if a.activeTab == TabCalendar {
+				a.syncSidebarIdx()
+			}
 		} else {
 			a.focusPanel = (a.focusPanel + 2) % 3
+			if a.focusPanel == PanelSidebar {
+				a.syncSidebarIdx()
+			}
 		}
 		return false
 
@@ -278,7 +290,7 @@ func (a *App) handleKey(k Key) bool {
 			a.activeTab = TabFeed
 		} else {
 			a.periodMode = "all"
-			a.sidebarIdx = 1
+			a.sidebarIdx = 0
 			a.reloadSessions()
 			a.setStatusMsg("Выбран период: Все записи")
 		}
@@ -287,9 +299,10 @@ func (a *App) handleKey(k Key) bool {
 	case k.Matches('2', '2'):
 		if a.width < 115 {
 			a.activeTab = TabCalendar
+			a.syncSidebarIdx()
 		} else {
 			a.periodMode = "today"
-			a.sidebarIdx = 2
+			a.sidebarIdx = 1
 			a.reloadSessions()
 			a.setStatusMsg("Выбран период: Сегодня")
 		}
@@ -300,7 +313,7 @@ func (a *App) handleKey(k Key) bool {
 			a.activeTab = TabInspector
 		} else {
 			a.periodMode = "week"
-			a.sidebarIdx = 3
+			a.sidebarIdx = 2
 			a.reloadSessions()
 			a.setStatusMsg("Выбран период: Неделя")
 		}
@@ -311,7 +324,7 @@ func (a *App) handleKey(k Key) bool {
 			a.activeTab = TabStats
 		} else {
 			a.periodMode = "month"
-			a.sidebarIdx = 4
+			a.sidebarIdx = 3
 			a.reloadSessions()
 			a.setStatusMsg("Выбран период: Месяц")
 		}
@@ -328,8 +341,10 @@ func (a *App) handleKey(k Key) bool {
 	case k.Matches('c', 'к'):
 		if a.width < 115 {
 			a.activeTab = TabCalendar
+			a.syncSidebarIdx()
 		} else {
 			a.focusPanel = PanelSidebar
+			a.syncSidebarIdx()
 		}
 		return false
 
@@ -393,6 +408,17 @@ func (a *App) handleKey(k Key) bool {
 		return false
 
 	case k.Type == KeySpace:
+		if a.width < 115 {
+			if a.activeTab == TabCalendar {
+				a.handleSidebarKey(k)
+				return false
+			}
+		} else {
+			if a.focusPanel == PanelSidebar {
+				a.handleSidebarKey(k)
+				return false
+			}
+		}
 		// Toggle selection
 		if len(a.sessions) > 0 && a.cursorIdx < len(a.sessions) {
 			id := a.sessions[a.cursorIdx].ID
@@ -450,44 +476,51 @@ func (a *App) handleKey(k Key) bool {
 	return false
 }
 
+func (a *App) syncSidebarIdx() {
+	switch a.periodMode {
+	case "all":
+		a.sidebarIdx = 0
+	case "today":
+		a.sidebarIdx = 1
+	case "week":
+		a.sidebarIdx = 2
+	case "month":
+		a.sidebarIdx = 3
+	}
+}
+
 func (a *App) handleFeedKey(k Key) {
-	switch k.Type {
-	case KeyUp, KeyRune:
-		if k.Type == KeyUp || k.Matches('k', 'л') {
-			if a.cursorIdx > 0 {
-				a.cursorIdx--
-				if a.cursorIdx < a.scrollOffset {
-					a.scrollOffset = a.cursorIdx
-				}
-			}
-		} else if k.Type == KeyDown || k.Matches('j', 'о') {
-			if a.cursorIdx < len(a.sessions)-1 {
-				a.cursorIdx++
+	switch {
+	case k.Type == KeyUp || k.Matches('k', 'л'):
+		if a.cursorIdx > 0 {
+			a.cursorIdx--
+			if a.cursorIdx < a.scrollOffset {
+				a.scrollOffset = a.cursorIdx
 			}
 		}
-	case KeyDown:
+	case k.Type == KeyDown || k.Matches('j', 'о'):
 		if a.cursorIdx < len(a.sessions)-1 {
 			a.cursorIdx++
 		}
-	case KeyHome:
+	case k.Type == KeyHome:
 		a.cursorIdx = 0
 		a.scrollOffset = 0
-	case KeyEnd:
+	case k.Type == KeyEnd:
 		if len(a.sessions) > 0 {
 			a.cursorIdx = len(a.sessions) - 1
 		}
-	case KeyPgUp:
+	case k.Type == KeyPgUp:
 		a.cursorIdx -= 10
 		if a.cursorIdx < 0 {
 			a.cursorIdx = 0
 		}
 		a.scrollOffset = a.cursorIdx
-	case KeyPgDn:
+	case k.Type == KeyPgDn:
 		a.cursorIdx += 10
 		if a.cursorIdx >= len(a.sessions) {
 			a.cursorIdx = len(a.sessions) - 1
 		}
-	case KeyEnter:
+	case k.Type == KeyEnter:
 		if len(a.sessions) > 0 && a.cursorIdx < len(a.sessions) {
 			if a.width < 115 {
 				a.activeTab = TabInspector
@@ -500,39 +533,101 @@ func (a *App) handleFeedKey(k Key) {
 }
 
 func (a *App) handleSidebarKey(k Key) {
-	switch k.Type {
-	case KeyUp:
-		if a.sidebarIdx > 1 {
+	types := a.getAvailableTypes()
+	maxIdx := 3
+	if len(types) > 0 {
+		maxIdx = 3 + len(types)
+	}
+
+	switch {
+	case k.Type == KeyUp || k.Matches('k', 'л'):
+		if a.sidebarIdx > 0 {
 			a.sidebarIdx--
+			a.applySidebarNav(false)
 		}
-	case KeyDown:
-		if a.sidebarIdx < 5 {
+	case k.Type == KeyDown || k.Matches('j', 'о'):
+		if a.sidebarIdx < maxIdx {
 			a.sidebarIdx++
+			a.applySidebarNav(false)
 		}
-	case KeyLeft:
+	case k.Type == KeyLeft || k.Matches('h', 'р'):
 		a.changeMonth(-1)
-	case KeyRight:
-		a.changeMonth(1)
-	case KeyEnter:
-		switch a.sidebarIdx {
-		case 1:
-			a.periodMode = "all"
-			a.setStatusMsg("Выбран период: Все записи")
-		case 2:
-			a.periodMode = "today"
-			a.setStatusMsg("Выбран период: Сегодня")
-		case 3:
-			a.periodMode = "week"
-			a.setStatusMsg("Выбран период: Неделя")
-		case 4:
-			a.periodMode = "month"
-			a.setStatusMsg("Выбран период: Месяц")
-		default:
-			a.cycleTypeFilter()
+		if a.periodMode == "month" {
+			a.reloadSessions()
 		}
-		a.reloadSessions()
+	case k.Type == KeyRight:
+		a.changeMonth(1)
+		if a.periodMode == "month" {
+			a.reloadSessions()
+		}
+	case k.Type == KeyEnter:
+		a.applySidebarNav(true)
+	case k.Type == KeySpace:
+		catIdx := a.sidebarIdx - 4
+		if catIdx >= 0 && catIdx < len(types) {
+			t := types[catIdx]
+			if strings.EqualFold(a.typeFilter, t) {
+				a.typeFilter = ""
+				a.setStatusMsg("Фильтр категорий сброшен: Все категории")
+			} else {
+				a.typeFilter = t
+				a.setStatusMsg("Фильтр категорий: " + t)
+			}
+			a.reloadSessions()
+		}
+	case k.Type == KeyEsc:
 		if a.width < 115 {
 			a.activeTab = TabFeed
+		} else {
+			a.focusPanel = PanelFeed
+		}
+	}
+}
+
+func (a *App) applySidebarNav(enterPressed bool) {
+	presets := []struct {
+		id   string
+		name string
+	}{
+		{"all", "Все записи"},
+		{"today", "Сегодня"},
+		{"week", "Неделя"},
+		{"month", "Месяц"},
+	}
+
+	if a.sidebarIdx >= 0 && a.sidebarIdx < len(presets) {
+		p := presets[a.sidebarIdx]
+		a.periodMode = p.id
+		a.reloadSessions()
+		a.setStatusMsg("Выбран период: " + p.name)
+		if enterPressed {
+			if a.width < 115 {
+				a.activeTab = TabFeed
+			} else {
+				a.focusPanel = PanelFeed
+			}
+		}
+		return
+	}
+
+	types := a.getAvailableTypes()
+	catIdx := a.sidebarIdx - len(presets)
+	if catIdx >= 0 && catIdx < len(types) {
+		if enterPressed {
+			t := types[catIdx]
+			if strings.EqualFold(a.typeFilter, t) {
+				a.typeFilter = ""
+				a.setStatusMsg("Фильтр категорий сброшен: Все категории")
+			} else {
+				a.typeFilter = t
+				a.setStatusMsg("Фильтр категорий: " + t)
+			}
+			a.reloadSessions()
+			if a.width < 115 {
+				a.activeTab = TabFeed
+			} else {
+				a.focusPanel = PanelFeed
+			}
 		}
 	}
 }
@@ -869,18 +964,22 @@ func (a *App) renderSidebar(s *Screen, x, y, w, h int) {
 		s.DrawText(rightX, y+1, "┤ Периоды (фильтр) ├", FgDim, BgSurface, rightW, false, false, false)
 		for i, p := range presets {
 			rowY := y + 2 + i
-			isCur := a.periodMode == p.id
+			isCursor := isFocused && a.sidebarIdx == i
+			isActive := a.periodMode == p.id
 			fg := FgMuted
 			bg := BgSurface
 			prefix := "  "
-			if isCur {
+			if isCursor {
 				fg = FgWhite
 				bg = BgHighlight
 				prefix = "► "
+			} else if isActive {
+				fg = FgCyan
+				prefix = "• "
 			}
 			s.Fill(rightX, rowY, rightW, 1, ' ', fg, bg)
 			line := fmt.Sprintf("%s[%s] %s", prefix, p.num, p.name)
-			s.DrawText(rightX, rowY, line, fg, bg, rightW, isCur, false, false)
+			s.DrawText(rightX, rowY, line, fg, bg, rightW, isCursor || isActive, false, false)
 		}
 
 		typesSepY := y + 7
@@ -891,20 +990,28 @@ func (a *App) renderSidebar(s *Screen, x, y, w, h int) {
 				break
 			}
 			rowY := typesSepY + 1 + i
-			isCur := strings.EqualFold(a.typeFilter, t)
+			isCursor := isFocused && a.sidebarIdx == 4+i
+			isSelected := strings.EqualFold(a.typeFilter, t)
 			fg := FgMuted
 			bg := BgSurface
-			check := "[ ] "
-			if isCur {
-				fg = FgCyan
+			prefix := "  "
+			if isCursor {
+				fg = FgWhite
 				bg = BgHighlight
+				prefix = "► "
+			}
+			check := "[ ] "
+			if isSelected {
 				check = "[✓] "
+				if !isCursor {
+					fg = FgCyan
+				}
 			}
 			s.Fill(rightX, rowY, rightW, 1, ' ', fg, bg)
-			s.DrawText(rightX, rowY, check+t, fg, bg, rightW, isCur, false, false)
+			s.DrawText(rightX, rowY, prefix+check+t, fg, bg, rightW, isCursor || isSelected, false, false)
 		}
 
-		s.DrawText(x+2, y+h-2, "[Enter] Применить период    [1/Esc] К записям    [←/→] Месяц", FgDim, BgSurface, w-4, false, false, false)
+		s.DrawText(x+2, y+h-2, "[↑↓] Выбор периода/категории  [Enter] К записям  [←/→] Месяц", FgDim, BgSurface, w-4, false, false, false)
 	} else {
 		// Narrow mode (Stacked layout in 3-panel sidebar)
 		s.DrawText(x+2, y+1, CenterString(mTitle, w-4), FgYellow, BgSurface, w-4, true, false, false)
@@ -950,18 +1057,22 @@ func (a *App) renderSidebar(s *Screen, x, y, w, h int) {
 				if rowY >= y+h-5 {
 					break
 				}
-				isCur := a.periodMode == p.id
+				isCursor := isFocused && a.sidebarIdx == i
+				isActive := a.periodMode == p.id
 				fg := FgMuted
 				bg := BgSurface
 				prefix := "  "
-				if isCur {
+				if isCursor {
 					fg = FgWhite
 					bg = BgHighlight
 					prefix = "► "
+				} else if isActive {
+					fg = FgCyan
+					prefix = "• "
 				}
 				s.Fill(x+2, rowY, w-4, 1, ' ', fg, bg)
 				line := fmt.Sprintf("%s[%s] %s", prefix, p.num, p.name)
-				s.DrawText(x+2, rowY, line, fg, bg, w-4, isCur, false, false)
+				s.DrawText(x+2, rowY, line, fg, bg, w-4, isCursor || isActive, false, false)
 			}
 
 			typesSepY := sepY + 6
@@ -974,17 +1085,25 @@ func (a *App) renderSidebar(s *Screen, x, y, w, h int) {
 						break
 					}
 					rowY := typesSepY + 1 + i
-					isCur := strings.EqualFold(a.typeFilter, t)
+					isCursor := isFocused && a.sidebarIdx == 4+i
+					isSelected := strings.EqualFold(a.typeFilter, t)
 					fg := FgMuted
 					bg := BgSurface
-					check := "[ ] "
-					if isCur {
-						fg = FgCyan
+					prefix := "  "
+					if isCursor {
+						fg = FgWhite
 						bg = BgHighlight
+						prefix = "► "
+					}
+					check := "[ ] "
+					if isSelected {
 						check = "[✓] "
+						if !isCursor {
+							fg = FgCyan
+						}
 					}
 					s.Fill(x+2, rowY, w-4, 1, ' ', fg, bg)
-					s.DrawText(x+2, rowY, check+t, fg, bg, w-4, isCur, false, false)
+					s.DrawText(x+2, rowY, prefix+check+t, fg, bg, w-4, isCursor || isSelected, false, false)
 				}
 			}
 		}

@@ -106,12 +106,12 @@ func (m *ModalStatusPicker) Draw(s *Screen) {
 }
 
 func (m *ModalStatusPicker) HandleKey(k Key, app *App) bool {
-	switch k.Type {
-	case KeyEsc:
+	switch {
+	case k.Type == KeyEsc:
 		app.activeModal = nil
 		return true
 
-	case KeyUp:
+	case k.Type == KeyUp || k.Matches('k', 'л'):
 		if m.selected > 0 {
 			m.selected--
 		} else {
@@ -119,7 +119,7 @@ func (m *ModalStatusPicker) HandleKey(k Key, app *App) bool {
 		}
 		return true
 
-	case KeyDown:
+	case k.Type == KeyDown || k.Matches('j', 'о'):
 		if m.selected < len(m.statuses)-1 {
 			m.selected++
 		} else {
@@ -127,19 +127,17 @@ func (m *ModalStatusPicker) HandleKey(k Key, app *App) bool {
 		}
 		return true
 
-	case KeyEnter:
+	case k.Type == KeyEnter:
 		m.applyStatus(app, m.statuses[m.selected])
 		app.activeModal = nil
 		return true
 
-	case KeyRune:
-		if k.Rune >= '1' && k.Rune <= '9' {
-			idx := int(k.Rune - '1')
-			if idx < len(m.statuses) {
-				m.applyStatus(app, m.statuses[idx])
-				app.activeModal = nil
-				return true
-			}
+	case k.Type == KeyRune && k.Rune >= '1' && k.Rune <= '9':
+		idx := int(k.Rune - '1')
+		if idx < len(m.statuses) {
+			m.applyStatus(app, m.statuses[idx])
+			app.activeModal = nil
+			return true
 		}
 	}
 	return false
@@ -256,35 +254,33 @@ func (m *ModalQuickEditField) Draw(s *Screen) {
 
 func (m *ModalQuickEditField) HandleKey(k Key, app *App) bool {
 	if !m.stepInput {
-		switch k.Type {
-		case KeyEsc:
+		switch {
+		case k.Type == KeyEsc:
 			app.activeModal = nil
 			return true
-		case KeyUp:
+		case k.Type == KeyUp || k.Matches('k', 'л'):
 			if m.selected > 0 {
 				m.selected--
 			} else {
 				m.selected = len(m.fields) - 1
 			}
 			return true
-		case KeyDown:
+		case k.Type == KeyDown || k.Matches('j', 'о'):
 			if m.selected < len(m.fields)-1 {
 				m.selected++
 			} else {
 				m.selected = 0
 			}
 			return true
-		case KeyEnter:
+		case k.Type == KeyEnter:
 			m.initValue(app)
 			m.stepInput = true
 			return true
-		case KeyRune:
-			if k.Rune >= '1' && k.Rune <= rune('0'+len(m.fields)) {
-				m.selected = int(k.Rune - '1')
-				m.initValue(app)
-				m.stepInput = true
-				return true
-			}
+		case k.Type == KeyRune && k.Rune >= '1' && k.Rune <= rune('0'+len(m.fields)):
+			m.selected = int(k.Rune - '1')
+			m.initValue(app)
+			m.stepInput = true
+			return true
 		}
 	} else {
 		switch k.Type {
@@ -390,6 +386,7 @@ func (m *ModalQuickEditField) applyValue(app *App) {
 			}
 		}
 		_ = app.svc.Save(app.ctx)
+		app.selectedIDs = map[string]bool{}
 		app.setStatusMsg(fmt.Sprintf("Поле обновлено для %d записей", count))
 	}
 	app.reloadSessions()
@@ -814,7 +811,9 @@ func (m *ModalConfirmDelete) HandleKey(k Key, app *App) bool {
 // ----------------- YEAR CALENDAR MODAL -----------------
 
 type ModalYearCalendar struct {
-	year int
+	year      int
+	inputMode bool
+	inputYear string
 }
 
 func NewModalYearCalendar(year int) *ModalYearCalendar {
@@ -885,18 +884,65 @@ func (m *ModalYearCalendar) Draw(s *Screen) {
 		}
 	}
 
+	if m.inputMode {
+		boxW := 36
+		boxH := 7
+		bx := x + (w-boxW)/2
+		by := y + (h-boxH)/2
+		s.Fill(bx, by, boxW, boxH, ' ', FgWhite, BgInput)
+		s.DrawBox(bx, by, boxW, boxH, "Ввод года", FgCyan, BorderFocus, BgInput, true)
+		s.DrawText(bx+3, by+2, "Введите 4-значный год:", FgMuted, BgInput, boxW-6, false, false, false)
+		disp := m.inputYear + "█"
+		s.DrawText(bx+3, by+3, disp, FgWhite, BgInput, boxW-6, true, false, false)
+		s.DrawText(bx+3, by+5, "[Enter] Перейти  [Esc] Отмена", FgDim, BgInput, boxW-6, false, false, false)
+		return
+	}
+
 	s.DrawText(x+2, y+h-2, "[◄/►] Сменить год  [y] Ввести год  [Esc] Закрыть", FgDim, BgModal, w-4, false, false, false)
 }
 
 func (m *ModalYearCalendar) HandleKey(k Key, app *App) bool {
-	switch k.Type {
-	case KeyEsc, KeyEnter:
+	if m.inputMode {
+		switch {
+		case k.Type == KeyEsc:
+			m.inputMode = false
+			return true
+		case k.Type == KeyEnter:
+			if yr, err := strconv.Atoi(m.inputYear); err == nil && yr >= 1900 && yr <= 2100 {
+				m.year = yr
+			}
+			m.inputMode = false
+			return true
+		case k.Type == KeyBackspace:
+			if len(m.inputYear) > 0 {
+				m.inputYear = m.inputYear[:len(m.inputYear)-1]
+			}
+			return true
+		case k.Type == KeyRune && k.Rune >= '0' && k.Rune <= '9':
+			if len(m.inputYear) < 4 {
+				m.inputYear += string(k.Rune)
+			}
+			return true
+		}
+		return false
+	}
+
+	switch {
+	case k.Type == KeyEsc || k.Type == KeyEnter || k.Matches('q', 'й'):
 		app.activeModal = nil
 		return true
-	case KeyLeft:
+	case k.Matches('y', 'н'):
+		m.inputMode = true
+		m.inputYear = ""
+		return true
+	case k.Type == KeyRune && k.Rune >= '0' && k.Rune <= '9':
+		m.inputMode = true
+		m.inputYear = string(k.Rune)
+		return true
+	case k.Type == KeyLeft || k.Matches('h', 'р') || k.Type == KeyDown || k.Matches('j', 'о'):
 		m.year--
 		return true
-	case KeyRight:
+	case k.Type == KeyRight || k.Matches('l', 'д') || k.Type == KeyUp || k.Matches('k', 'л'):
 		m.year++
 		return true
 	}
@@ -977,10 +1023,14 @@ func (m *ModalSettings) Draw(s *Screen) {
 			valBg = BgSelected
 		}
 		s.Fill(x+28, rowY, w-30, 1, ' ', valFg, valBg)
-		s.DrawText(x+29, rowY, f.val, valFg, valBg, w-32, isCur, false, false)
+		disp := f.val
+		if isCur && (i == 1 || i == 2) {
+			disp += "█"
+		}
+		s.DrawText(x+29, rowY, disp, valFg, valBg, w-32, isCur, false, false)
 	}
 
-	s.DrawText(x+2, y+h-2, "[↑↓] Выбор  [Space] Изменить  [Enter] Сохранить  [Esc]", FgDim, BgModal, w-4, false, false, false)
+	s.DrawText(x+2, y+h-2, "[↑↓] Выбор  [Space/0-9] Изменить  [Enter] Сохранить  [Esc]", FgDim, BgModal, w-4, false, false, false)
 }
 
 func (m *ModalSettings) svcStatusText() string {
@@ -993,12 +1043,12 @@ func (m *ModalSettings) svcStatusText() string {
 }
 
 func (m *ModalSettings) HandleKey(k Key, app *App) bool {
-	switch k.Type {
-	case KeyEsc:
+	switch {
+	case k.Type == KeyEsc:
 		app.activeModal = nil
 		return true
 
-	case KeyUp:
+	case k.Type == KeyUp || k.Matches('k', 'л'):
 		if m.selectedIdx > 0 {
 			m.selectedIdx--
 		} else {
@@ -1006,7 +1056,7 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 		}
 		return true
 
-	case KeyDown:
+	case k.Type == KeyDown || k.Matches('j', 'о'):
 		if m.selectedIdx < 3 {
 			m.selectedIdx++
 		} else {
@@ -1014,7 +1064,25 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 		}
 		return true
 
-	case KeySpace:
+	case k.Type == KeyBackspace:
+		if m.selectedIdx == 1 && len(m.portStr) > 0 {
+			m.portStr = m.portStr[:len(m.portStr)-1]
+			return true
+		} else if m.selectedIdx == 2 && len(m.durationStr) > 0 {
+			m.durationStr = m.durationStr[:len(m.durationStr)-1]
+			return true
+		}
+
+	case k.Type == KeyRune && k.Rune >= '0' && k.Rune <= '9':
+		if m.selectedIdx == 1 && len(m.portStr) < 5 {
+			m.portStr += string(k.Rune)
+			return true
+		} else if m.selectedIdx == 2 && len(m.durationStr) < 4 {
+			m.durationStr += string(k.Rune)
+			return true
+		}
+
+	case k.Type == KeySpace || (k.Type == KeyEnter && (m.selectedIdx == 0 || m.selectedIdx == 3)):
 		switch m.selectedIdx {
 		case 0:
 			// Toggle default mode
@@ -1025,6 +1093,7 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 			} else {
 				m.defaultMode = models.ModeCLI
 			}
+			return true
 		case 3:
 			// Toggle service
 			mgr := service.NewManager()
@@ -1040,10 +1109,10 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 				_ = mgr.Install(app.ctx, p)
 			}
 			m.svcStatus, _ = mgr.Status(app.ctx)
+			return true
 		}
-		return true
 
-	case KeyEnter:
+	case k.Type == KeyEnter:
 		app.cfg.DefaultMode = m.defaultMode
 		if p, err := strconv.Atoi(m.portStr); err == nil && p > 0 {
 			app.cfg.WebPort = p
