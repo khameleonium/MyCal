@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>MyCal Web Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app-layout" id="appLayout">
+
+  <!-- TOP HEADER NAVBAR -->
+  <header class="top-nav">
+    <div class="nav-left">
+      <div class="app-brand" onclick="reloadAll()" title="Перезагрузить календарь">
+        <span class="brand-icon">📅</span>
+        <span class="brand-title">MyCal <span class="brand-badge">Web</span></span>
+      </div>
+      <div class="nav-clock" id="liveClock">--:--:--</div>
+    </div>
+
+    <!-- Period presets in top bar (visible on tablet/desktop) -->
+    <nav class="period-tabs" id="periodTabs" aria-label="Период выборки">
+      <button type="button" class="tab-btn" data-period="today" onclick="setPeriod('today')">Сегодня</button>
+      <button type="button" class="tab-btn" data-period="week" onclick="setPeriod('week')">Неделя</button>
+      <button type="button" class="tab-btn active" data-period="month" onclick="setPeriod('month')">Месяц</button>
+      <button type="button" class="tab-btn" data-period="all" onclick="setPeriod('all')">Все записи</button>
+      <button type="button" class="tab-btn" data-period="range" onclick="openRangeModal()" title="Выбор периода (От и До)">Период</button>
+    </nav>
+
+    <!-- Header Actions -->
+    <div class="nav-right">
+      <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input type="search" id="topSearchInput" placeholder="Поиск (нажмите /)..." oninput="onSearchInput(this.value)">
+        <span class="search-kbd">/</span>
+      </div>
+
+      <button type="button" class="btn btn-primary btn-add" onclick="openAddModal()">
+        <span>+ Добавить</span>
+        <span class="btn-kbd">a</span>
+      </button>
+
+      <div class="theme-select-wrap">
+        <select id="themeSelect" onchange="changeTheme(this.value)" title="Тема оформления">
+          <option value="tokyo">Tokyo Night</option>
+          <option value="catppuccin">Catppuccin</option>
+          <option value="matrix">Matrix Emerald</option>
+        </select>
+      </div>
+
+      <button type="button" class="btn btn-icon" onclick="openSettingsModal()" title="Настройки (s)">⚙️</button>
+    </div>
+  </header>
+
+  <!-- MAIN 3-COLUMN WORKSPACE -->
+  <div class="main-workspace" id="mainWorkspace">
+
+    <!-- LEFT SIDEBAR: Mini Calendar & Type Filters -->
+    <aside class="sidebar-panel" id="sidebarPanel">
+      <div class="sidebar-section">
+        <div class="sidebar-section-title">
+          <span>Календарь</span>
+          <div class="cal-title-actions">
+            <button type="button" class="btn-text btn-year-btn" onclick="openYearCalendar()" title="Годовой календарь (12 месяцев)">Год</button>
+            <button type="button" class="btn-text" onclick="goTodayMonth()">Сегодня</button>
+          </div>
+        </div>
+
+        <!-- Interactive Month Grid -->
+        <div class="mini-calendar" id="miniCalendar">
+          <div class="cal-nav">
+            <button type="button" class="cal-nav-btn" onclick="prevMonth()" title="Предыдущий месяц">◄</button>
+            <span class="cal-month-title" id="calMonthTitle" onclick="openYearCalendar()" title="Нажмите для открытия годового календаря" style="cursor: pointer;">Ноябрь 2026</span>
+            <button type="button" class="cal-nav-btn" onclick="nextMonth()" title="Следующий месяц">►</button>
+            <button type="button" class="cal-nav-btn cal-year-icon-btn" onclick="openYearCalendar()" title="Годовой календарь на 12 месяцев">📅</button>
+          </div>
+          <div class="cal-grid" id="calGrid">
+            <!-- Dynamically populated by app.js -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Category / Type Filter -->
+      <div class="sidebar-section types-section">
+        <div class="sidebar-section-title">
+          <span>Типы записей</span>
+          <div class="type-actions">
+            <button type="button" class="btn-text" onclick="toggleAllTypes(true)" title="Выбрать все">+</button>
+            <button type="button" class="btn-text" onclick="toggleAllTypes(false)" title="Снять все">−</button>
+          </div>
+        </div>
+
+        <div class="types-filter-list" id="typesFilterList">
+          <!-- Dynamically populated with checkboxes -->
+        </div>
+      </div>
+    </aside>
+
+    <!-- CENTER FEED: Sessions Timeline -->
+    <main class="feed-panel" id="feedPanel">
+      <div class="feed-header">
+        <div class="feed-title-wrap">
+          <h2 class="feed-title" id="feedTitle">Записи за этот месяц</h2>
+          <span class="feed-counter-badge" id="feedCounter">0 записей</span>
+        </div>
+
+        <div class="feed-controls">
+          <button type="button" class="btn btn-subtle" id="btnSelectAll" onclick="toggleSelectAllFiltered()" title="Выбрать все записи на странице">
+            <span id="btnSelectAllIcon">☑️</span> <span>Выбрать все</span>
+          </button>
+          <button type="button" class="btn btn-subtle" onclick="openTypeModal()" title="Фильтр по типам (t)">
+            <span>🏷️ Типы</span>
+          </button>
+          <button type="button" class="btn btn-subtle" onclick="refreshData()" title="Обновить">
+            <span>🔄</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- BATCH ACTION BAR (Appears when sessions are selected) -->
+      <div class="batch-action-bar" id="batchActionBar" style="display: none;">
+        <div class="batch-bar-left">
+          <span class="batch-count-badge" id="batchCountBadge">Выбрано: 0</span>
+          <button type="button" class="btn-text" onclick="clearSelection()" style="color: var(--text-dim); font-size: 0.76rem;">Снять выбор</button>
+        </div>
+        <div class="batch-bar-actions">
+          <button type="button" class="btn btn-subtle btn-sm" onclick="openBatchStatusPicker(event)">🏷️ Сменить статус...</button>
+          <button type="button" class="btn btn-subtle btn-sm" onclick="openBatchEditFieldModal()">✏️ Редактировать поле...</button>
+          <button type="button" class="btn btn-danger btn-sm" onclick="openBatchDeleteModal()">🗑️ Удалить</button>
+        </div>
+      </div>
+
+      <!-- Feed Sub-Toolbar: Page size selector & Pager -->
+      <div class="feed-sub-toolbar" id="feedSubToolbar">
+        <div class="page-size-selector">
+          <span class="page-size-label">На странице:</span>
+          <div class="size-pill-group" id="pageSizePills">
+            <button type="button" class="size-pill" data-size="10" onclick="setPageSize(10)">10</button>
+            <button type="button" class="size-pill" data-size="25" onclick="setPageSize(25)">25</button>
+            <button type="button" class="size-pill" data-size="50" onclick="setPageSize(50)">50</button>
+            <button type="button" class="size-pill" data-size="100" onclick="setPageSize(100)">100</button>
+            <button type="button" class="size-pill active" data-size="all" onclick="setPageSize('all')">Все</button>
+          </div>
+        </div>
+        <div class="feed-pager" id="feedPager" style="display: none;">
+          <button type="button" class="pager-nav-btn" id="pagerPrevBtn" onclick="changePage(-1)" title="Предыдущая страница">◄ Назад</button>
+          <span class="pager-info" id="pagerInfo">Стр. 1 из 1</span>
+          <button type="button" class="pager-nav-btn" id="pagerNextBtn" onclick="changePage(1)" title="Следующая страница">Вперёд ►</button>
+        </div>
+      </div>
+
+      <!-- Session List Container -->
+      <div class="session-feed-scroll" id="sessionFeed">
+        <div class="loading-state">Загрузка записей...</div>
+      </div>
+    </main>
+
+    <!-- RIGHT PANEL: Inspector Card & Statistics -->
+    <aside class="inspector-panel" id="inspectorPanel">
+      
+      <!-- Focused Session Details Card -->
+      <div class="panel-box inspector-card">
+        <div class="box-header">
+          <span class="box-title">Детали записи</span>
+          <div class="card-action-btns">
+            <button type="button" class="btn-icon-sm" onclick="editFocusedSession()" title="Редактировать (e)">✏️</button>
+            <button type="button" class="btn-icon-sm" onclick="duplicateFocusedSession()" title="Дублировать">📋</button>
+            <button type="button" class="btn-icon-sm btn-del" onclick="deleteFocusedSession()" title="Удалить (d)">🗑️</button>
+          </div>
+        </div>
+
+        <div class="inspector-content" id="inspectorContent">
+          <div class="empty-hint">Выберите запись в списке для просмотра деталей</div>
+        </div>
+      </div>
+
+      <!-- Live Statistics & Charts -->
+      <div class="panel-box stats-card">
+        <div class="box-header">
+          <span class="box-title">Статистика</span>
+          <span class="badge-pill" id="statsPeriodBadge">Выборка</span>
+        </div>
+
+        <div class="stats-hero stats-hero-3">
+          <div>
+            <div class="stat-lbl">ОБЩЕЕ ВРЕМЯ</div>
+            <div class="stat-val-big" id="statsTotalHours">0.0 ч</div>
+            <div class="stat-sub" id="statsTotalMin">0 минут</div>
+          </div>
+          <div style="text-align: center;">
+            <div class="stat-lbl">КЭШ</div>
+            <div class="stat-val-big stat-yellow" id="statsTotalCash">0.0 ₽</div>
+            <div class="stat-sub" id="statsAvgCash">0 ₽ / зап.</div>
+          </div>
+          <div style="text-align: right;">
+            <div class="stat-lbl">ЗАПИСЕЙ</div>
+            <div class="stat-val-big stat-green" id="statsTotalCount">0</div>
+            <div class="stat-sub" id="statsAvgDur">средн. 0 мин</div>
+          </div>
+        </div>
+
+        <div class="stats-breakdown-title">Время по типам:</div>
+        <div class="stats-bars" id="statsBars">
+          <!-- Dynamically populated progress bars -->
+        </div>
+      </div>
+
+    </aside>
+
+  </div>
+
+  <!-- MOBILE BOTTOM NAVIGATION (Visible on screens < 768px) -->
+  <nav class="mobile-bottom-nav" id="mobileNav">
+    <button type="button" class="mobile-nav-btn active" data-tab="feed" onclick="switchMobileTab('feed')">
+      <span class="m-icon">📋</span>
+      <span class="m-label">Записи</span>
+    </button>
+    <button type="button" class="mobile-nav-btn" data-tab="calendar" onclick="switchMobileTab('calendar')">
+      <span class="m-icon">📅</span>
+      <span class="m-label">Календарь</span>
+    </button>
+    <button type="button" class="mobile-nav-btn" data-tab="stats" onclick="switchMobileTab('stats')">
+      <span class="m-icon">📊</span>
+      <span class="m-label">Инфо</span>
+    </button>
+  </nav>
+
+  <!-- MOBILE FLOATING ACTION BUTTON -->
+  <button type="button" class="mobile-fab" onclick="openAddModal()" title="Добавить запись">
+    <span>+</span>
+  </button>
+
+</div>
+
+<!-- ======================= FLOATING ACTION OVERLAYS ======================= -->
+
+<!-- QUICK STATUS PICKER POPOVER -->
+<div id="statusPickerPopup" class="floating-popover status-picker-popover" style="display: none;">
+  <div class="popover-header">Изменить статус:</div>
+  <div class="status-options-list">
+    <button type="button" class="status-opt-btn status-opt-active" onclick="selectNewStatus('Активно')">
+      <span class="st-dot dot-green"></span>
+      <span>Активно</span>
+      <span class="st-icon">✓</span>
+    </button>
+    <button type="button" class="status-opt-btn status-opt-skip" onclick="selectNewStatus('Пропущено')">
+      <span class="st-dot dot-yellow"></span>
+      <span>Пропущено</span>
+      <span class="st-icon">⊘</span>
+    </button>
+    <button type="button" class="status-opt-btn status-opt-cancel" onclick="selectNewStatus('Отменено')">
+      <span class="st-dot dot-red"></span>
+      <span>Отменено</span>
+      <span class="st-icon">✕</span>
+    </button>
+    <button type="button" class="status-opt-btn status-opt-empty" onclick="selectNewStatus('')">
+      <span class="st-dot dot-gray"></span>
+      <span>&lt;Очистить статус&gt;</span>
+      <span class="st-icon">∅</span>
+    </button>
+    <button type="button" class="status-opt-btn status-opt-custom" onclick="promptCustomStatus()">
+      <span>✏️ Свой статус...</span>
+    </button>
+  </div>
+</div>
+
+<!-- CONTEXT MENU (Right-click or 3-dots trigger) -->
+<div id="rowContextMenu" class="floating-popover context-menu-popover" style="display: none;">
+  <button type="button" class="ctx-item" onclick="ctxEdit()">
+    <span>✏️ Редактировать запись</span>
+    <span class="ctx-shortcut">e</span>
+  </button>
+  <button type="button" class="ctx-item" onclick="ctxChangeStatus()">
+    <span>🏷️ Изменить статус...</span>
+  </button>
+  <button type="button" class="ctx-item" onclick="ctxDuplicate()">
+    <span>📋 Дублировать запись</span>
+  </button>
+  <div class="ctx-divider"></div>
+  <button type="button" class="ctx-item ctx-danger" onclick="ctxDelete()">
+    <span>🗑️ Удалить запись</span>
+    <span class="ctx-shortcut">d</span>
+  </button>
+</div>
+
+<!-- ======================= MODAL DIALOGS ======================= -->
+
+<!-- ADD / EDIT SESSION MODAL -->
+<dialog id="modalSession" aria-labelledby="modalSessionTitle">
+  <div class="modal-card">
+    <div class="modal-hdr">
+      <h3 id="modalSessionTitle">Новая запись</h3>
+      <button type="button" class="btn-close" onclick="closeModal('modalSession')">✕</button>
+    </div>
+
+    <form id="sessionForm" onsubmit="handleSessionFormSubmit(event)">
+      <input type="hidden" id="formSessionId" value="">
+
+      <div class="modal-body">
+        <div class="form-row form-row-2">
+          <div class="form-group">
+            <label for="formDate" class="form-label">Дата записи:</label>
+            <input type="date" id="formDate" class="form-input" required autofocus>
+          </div>
+          <div class="form-group">
+            <label for="formTime" class="form-label">Время (ЧЧ:ММ):</label>
+            <input type="time" id="formTime" class="form-input" required value="10:00">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="formName" class="form-label">Наименование записи:</label>
+          <input type="text" id="formName" class="form-input" placeholder="Название тренировки или дела" required autocomplete="off">
+        </div>
+
+        <div class="form-row form-row-2">
+          <div class="form-group">
+            <label for="formType" class="form-label">Тип записи:</label>
+            <input type="text" id="formType" class="form-input" list="typesDatalist" placeholder="Выберите или введите...">
+            <datalist id="typesDatalist"></datalist>
+          </div>
+          <div class="form-group">
+            <label for="formDuration" class="form-label">Продолжительность (мин):</label>
+            <input type="number" id="formDuration" class="form-input" min="1" max="1440" value="60" required>
+          </div>
+        </div>
+
+        <div class="form-row form-row-2">
+          <div class="form-group">
+            <label for="formStatus" class="form-label">Статус:</label>
+            <select id="formStatus" class="form-select">
+              <option value="">(без статуса)</option>
+              <option value="Активно" selected>Активно</option>
+              <option value="Пропущено">Пропущено</option>
+              <option value="Отменено">Отменено</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="formCash" class="form-label">Кэш / Оплата (руб):</label>
+            <input type="text" id="formCash" class="form-input" placeholder="0.0" value="0.0" autocomplete="off">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="formNotes" class="form-label">Комментарий / Заметки:</label>
+          <textarea id="formNotes" class="form-textarea" rows="2" placeholder="Дополнительные детали, мишени, контакты..."></textarea>
+        </div>
+
+        <!-- REPEAT SECTION (Only for New Sessions) -->
+        <div id="repeatSection" class="repeat-box">
+          <div class="form-group">
+            <label for="formRepeat" class="form-label">Повторять запись?</label>
+            <select id="formRepeat" class="form-select" onchange="onRepeatSelectChange(this.value)">
+              <option value="none">Одиночная запись (без повтора)</option>
+              <option value="d">Каждый день (d)</option>
+              <option value="w">Каждую неделю (w)</option>
+              <option value="m">Каждый месяц (m)</option>
+            </select>
+          </div>
+          <div class="form-group" id="repeatUntilGroup" style="display: none; margin-top: 8px;">
+            <label for="formRepeatUntil" class="form-label">Повторять до даты включительно:</label>
+            <input type="date" id="formRepeatUntil" class="form-input">
+          </div>
+        </div>
+
+        <!-- SERIES UPDATE OPTION (Only for Editing Recurring Sessions) -->
+        <div id="seriesEditSection" class="series-edit-box" style="display: none;">
+          <div class="series-badge-note">⚠️ Эта запись входит в регулярную серию повторов.</div>
+          <div class="radio-group">
+            <label class="radio-label">
+              <input type="radio" name="editSeriesMode" value="single" checked>
+              <span>Изменить только эту запись</span>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="editSeriesMode" value="series">
+              <span>Применить изменения ко всей серии</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('modalSession')">Отмена</button>
+        <button type="submit" class="btn btn-primary" id="btnSaveSession">Сохранить</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+
+<!-- DELETE CONFIRMATION MODAL -->
+<dialog id="modalDelete" aria-labelledby="modalDeleteTitle">
+  <div class="modal-card">
+    <div class="modal-hdr">
+      <h3 id="modalDeleteTitle" style="color: var(--accent-red);">Удаление записи</h3>
+      <button type="button" class="btn-close" onclick="closeModal('modalDelete')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p>Вы действительно хотите удалить запись?</p>
+      <div class="del-preview-box">
+        <strong id="delItemName">Запись</strong>
+        <div class="del-preview-meta" id="delItemMeta">04.11.2026 • 10:00 • 60 мин</div>
+      </div>
+
+      <div id="delSeriesOptions" class="series-edit-box" style="display: none; margin-top: 12px;">
+        <div class="series-badge-note">⚠️ Эта запись является частью серии повторов.</div>
+        <div class="radio-group" style="margin-top: 6px;">
+          <label class="radio-label">
+            <input type="radio" name="delSeriesChoice" value="single" checked>
+            <span>Удалить только эту запись</span>
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="delSeriesChoice" value="series">
+            <span>Удалить всю серию записей</span>
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" onclick="closeModal('modalDelete')" autofocus>Отмена [Esc]</button>
+      <button type="button" class="btn btn-danger" onclick="confirmDeleteSession()">Удалить</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- TYPE FILTER MODAL -->
+<dialog id="modalTypes" aria-labelledby="modalTypesTitle">
+  <div class="modal-card">
+    <div class="modal-hdr">
+      <h3 id="modalTypesTitle">Фильтрация по типам</h3>
+      <button type="button" class="btn-close" onclick="closeModal('modalTypes')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="search-box" style="width: 100%; margin-bottom: 8px;">
+        <span class="search-icon">🔍</span>
+        <input type="search" id="modalTypeSearch" placeholder="Поиск категории (напр. 'стрельб')..." oninput="filterModalTypeList(this.value)">
+      </div>
+      <div class="type-modal-actions">
+        <button type="button" class="btn btn-subtle" onclick="checkAllModalTypes(true)">[+] Выбрать все</button>
+        <button type="button" class="btn btn-subtle" onclick="checkAllModalTypes(false)">[-] Снять все</button>
+      </div>
+      <div class="modal-type-list" id="modalTypeList">
+        <!-- populated dynamically -->
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" onclick="closeModal('modalTypes')">Отмена</button>
+      <button type="button" class="btn btn-primary" onclick="applyModalTypes()">Применить фильтр</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- SETTINGS MODAL -->
+<dialog id="modalSettings" aria-labelledby="modalSettingsTitle">
+  <div class="modal-card">
+    <div class="modal-hdr">
+      <h3 id="modalSettingsTitle">Настройки MyCal</h3>
+      <button type="button" class="btn-close" onclick="closeModal('modalSettings')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="settings-highlight-card">
+        <label class="form-label" style="color: var(--accent-blue); font-weight: 700;">
+          <span>🖥️ TUI режим по умолчанию:</span>
+          <span class="badge-pill">Терминал</span>
+        </label>
+        <p class="settings-hint">
+          При включении запуск команды <code class="kbd-chip">mycal</code> сразу открывает полноэкранный интерфейс в терминале.
+        </p>
+        <select id="cfgTuiDefault" class="form-select" style="font-weight: 600;">
+          <option value="true">Включен (запускать TUI в консоли)</option>
+          <option value="false">Выключен (классическое меню CLI)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="cfgDefaultDuration" class="form-label">Длительность по умолчанию (мин):</label>
+        <input type="number" id="cfgDefaultDuration" class="form-input" min="5" max="720" value="60">
+      </div>
+
+      <div class="form-group">
+        <label for="cfgDateCheckMode" class="form-label">Реакция на опечатки в дате (32.01):</label>
+        <select id="cfgDateCheckMode" class="form-select">
+          <option value="">Выключена (автоматический сдвиг на след. месяц)</option>
+          <option value="ask">Спрашивать (подтверждение автосдвига)</option>
+          <option value="fix">Исправлять авто (сдвиг с предупреждением)</option>
+          <option value="reask">Переспрашивать (требовать повторный ввод)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="cfgAskConflict" class="form-label">Спрашивать при совпадении времени:</label>
+        <select id="cfgAskConflict" class="form-select">
+          <option value="false">Выкл (добавлять сразу без лишних вопросов)</option>
+          <option value="true">Вкл (предупреждать о пересечении времени)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Каталог хранения файлов записей:</label>
+        <input type="text" id="cfgDataPath" class="form-input" readonly style="opacity: 0.8; font-family: var(--font-mono);">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" onclick="closeModal('modalSettings')">Отмена</button>
+      <button type="button" class="btn btn-primary" onclick="saveSettings()">Сохранить настройки</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- CUSTOM RANGE PICKER MODAL (От и До + Два блока календаря) -->
+<dialog id="modalRangePicker" aria-labelledby="modalRangeTitle">
+  <div class="modal-card modal-card-range">
+    <div class="modal-hdr">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-size: 1.2rem;">📅</span>
+        <h3 id="modalRangeTitle">Выбор периода дат</h3>
+      </div>
+      <button type="button" class="btn-close" onclick="closeModal('modalRangePicker')">✕</button>
+    </div>
+
+    <div class="modal-body">
+      <!-- Quick Range Presets -->
+      <div class="range-presets-container">
+        <span class="range-preset-label">Быстрый выбор:</span>
+        <div class="range-preset-chips">
+          <button type="button" class="preset-chip" onclick="applyPresetRange('today')">Сегодня</button>
+          <button type="button" class="preset-chip" onclick="applyPresetRange('this_week')">Эта неделя</button>
+          <button type="button" class="preset-chip" onclick="applyPresetRange('last_week')">Прошлая неделя</button>
+          <button type="button" class="preset-chip" onclick="applyPresetRange('this_month')">Этот месяц</button>
+          <button type="button" class="preset-chip" onclick="applyPresetRange('last_month')">Прошлый месяц</button>
+          <button type="button" class="preset-chip" onclick="applyPresetRange('last_7_days')">7 дней</button>
+          <button type="button" class="preset-chip" onclick="applyPresetRange('last_30_days')">30 дней</button>
+          <button type="button" class="preset-chip" onclick="applyPresetRange('this_year')">Текущий год</button>
+        </div>
+      </div>
+
+      <!-- Date Inputs "От" and "До" -->
+      <div class="range-inputs-row">
+        <div class="form-group range-field">
+          <label for="rangeStartInput" class="form-label">
+            <span>Период От:</span>
+            <span class="label-hint" id="rangeStartWeekday"></span>
+          </label>
+          <input type="date" id="rangeStartInput" class="form-input" onchange="onRangeInputChange()">
+        </div>
+        <div class="range-arrow-icon">➔</div>
+        <div class="form-group range-field">
+          <label for="rangeEndInput" class="form-label">
+            <span>Период До:</span>
+            <span class="label-hint" id="rangeEndWeekday"></span>
+          </label>
+          <input type="date" id="rangeEndInput" class="form-input" onchange="onRangeInputChange()">
+        </div>
+      </div>
+
+      <!-- Two side-by-side calendar blocks -->
+      <div class="dual-calendar-wrap">
+        <div class="dual-cal-block" id="dualCalLeft">
+          <div class="dual-cal-hdr">
+            <button type="button" class="cal-nav-btn" onclick="shiftDualCalendars(-1)">◄</button>
+            <span class="dual-cal-title" id="dualCalTitleLeft">Ноябрь 2026</span>
+            <span></span>
+          </div>
+          <div class="dual-cal-grid" id="dualGridLeft"></div>
+        </div>
+
+        <div class="dual-cal-block" id="dualCalRight">
+          <div class="dual-cal-hdr">
+            <span></span>
+            <span class="dual-cal-title" id="dualCalTitleRight">Декабрь 2026</span>
+            <button type="button" class="cal-nav-btn" onclick="shiftDualCalendars(1)">►</button>
+          </div>
+          <div class="dual-cal-grid" id="dualGridRight"></div>
+        </div>
+      </div>
+
+      <div class="range-summary-box" id="rangeSummaryBox">
+        <span>Выбрано: <strong id="rangeSummaryText">--</strong></span>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" onclick="closeModal('modalRangePicker')">Отмена</button>
+      <button type="button" class="btn btn-primary" onclick="confirmCustomRange()">Применить период</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- YEARLY CALENDAR MODAL (12 месяцев) -->
+<dialog id="modalYearCalendar" aria-labelledby="modalYearTitle">
+  <div class="modal-card modal-card-fullscreen">
+    <div class="modal-hdr">
+      <div class="year-hdr-nav">
+        <button type="button" class="btn-icon-sm" onclick="changeYearView(-1)" title="Предыдущий год">◄</button>
+        <div class="year-input-wrap">
+          <input type="number" id="yearInputNumber" class="year-input-num" min="1970" max="2100" value="2026" onchange="onYearInputNumberChange(this.value)" onkeydown="if(event.key==='Enter')onYearInputNumberChange(this.value)">
+          <span class="year-input-suffix">год</span>
+        </div>
+        <button type="button" class="btn-icon-sm" onclick="changeYearView(1)" title="Следующий год">►</button>
+        <button type="button" class="btn btn-subtle btn-sm" onclick="goCurrentYear()" style="margin-left: 10px;">Текущий год</button>
+      </div>
+      <div class="year-hdr-stats" id="yearHdrStats">
+        <span class="badge-pill stat-green" id="yearTotalSessionsBadge">0 записей</span>
+        <span class="badge-pill" id="yearTotalHoursBadge">0.0 ч</span>
+      </div>
+      <button type="button" class="btn-close" onclick="closeModal('modalYearCalendar')">✕</button>
+    </div>
+
+    <div class="modal-body year-grid-body">
+      <div class="year-months-grid" id="yearMonthsGrid">
+        <!-- 12 mini month cards populated by app.js -->
+      </div>
+    </div>
+
+    <div class="modal-footer year-modal-footer">
+      <div class="year-legend">
+        <span class="legend-item"><span class="legend-dot dot-today"></span> Сегодня</span>
+        <span class="legend-item"><span class="legend-dot dot-events"></span> Есть события</span>
+        <span class="legend-hint">Клик по названию месяца открывает месяц; клик по дню — открывает день</span>
+      </div>
+      <button type="button" class="btn btn-secondary" onclick="closeModal('modalYearCalendar')">Закрыть [Esc]</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- BATCH EDIT FIELD MODAL (Групповое изменение любого поля) -->
+<dialog id="modalBatchEditField" aria-labelledby="modalBatchEditTitle">
+  <div class="modal-card">
+    <div class="modal-hdr">
+      <div>
+        <h3 id="modalBatchEditTitle">Групповое изменение поля</h3>
+        <div class="modal-hdr-sub" id="batchEditSub" style="font-size: 0.76rem; color: var(--accent-blue);">Будет изменено записей: 0</div>
+      </div>
+      <button type="button" class="btn-close" onclick="closeModal('modalBatchEditField')">✕</button>
+    </div>
+    <form id="batchEditForm" onsubmit="handleBatchEditSubmit(event)">
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="batchFieldSelect" class="form-label">Выберите поле для изменения:</label>
+          <select id="batchFieldSelect" class="form-select" onchange="onBatchFieldSelectChange(this.value)">
+            <option value="status">Статус записи</option>
+            <option value="cash">Кэш / Оплата (руб)</option>
+            <option value="name">Наименование</option>
+            <option value="type">Тип записи</option>
+            <option value="time">Время (ЧЧ:ММ)</option>
+            <option value="duration">Длительность (мин)</option>
+            <option value="date">Дата записи (перенос на день)</option>
+            <option value="notes">Комментарий / Заметки</option>
+          </select>
+        </div>
+
+        <!-- Dynamic value container -->
+        <div class="form-group" id="batchValueContainer">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('modalBatchEditField')">Отмена</button>
+        <button type="submit" class="btn btn-primary" id="btnBatchSave">Применить ко всем выбранным</button>
+      </div>
+    </form>
+  </div>
+</dialog>
+
+<!-- BATCH DELETE MODAL -->
+<dialog id="modalBatchDelete" aria-labelledby="modalBatchDelTitle">
+  <div class="modal-card">
+    <div class="modal-hdr">
+      <h3 id="modalBatchDelTitle" style="color: var(--accent-red);">Групповое удаление записей</h3>
+      <button type="button" class="btn-close" onclick="closeModal('modalBatchDelete')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p>Вы действительно хотите удалить выбранные записи (<strong id="batchDelCount" style="color: var(--accent-red);">0</strong> шт.)?</p>
+      <div class="batch-del-list" id="batchDelList">
+        <!-- populated dynamically -->
+      </div>
+      <p class="settings-hint" style="color: var(--accent-red); margin-top: 10px;">⚠️ Это действие необратимо и удалит выбранные записи с диска.</p>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-secondary" onclick="closeModal('modalBatchDelete')">Отмена</button>
+      <button type="button" class="btn btn-danger" onclick="confirmBatchDelete()">Удалить выбранные</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- SCRIPTS -->
+<script src="app.js"></script>
+</body>
+</html>

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"mycalendar/calendar"
 	"mycalendar/color"
 	"mycalendar/models"
 	"mycalendar/parser"
@@ -145,10 +146,10 @@ func (a *App) addOne(presetDate *time.Time) bool {
 
 	dates := []time.Time{date}
 	if mode != "" {
-		occurrences, truncated := repeatDates(date, until, mode)
+		occurrences, truncated := calendar.RepeatDates(date, until, mode)
 		if truncated {
 			fmt.Println(color.Yellow(fmt.Sprintf(
-				"%s Достигнут предел в %d повторов — серия обрезана.", warnMark, maxOccurrences)))
+				"%s Достигнут предел в %d повторов — серия обрезана.", warnMark, calendar.MaxOccurrences)))
 		}
 		dates = append(dates, occurrences...)
 	}
@@ -410,52 +411,4 @@ func (a *App) askRepeat(start time.Time) (string, time.Time, bool) {
 		}
 		return mode, until, true
 	}
-}
-
-// maxOccurrences caps one repeating series, so an accidental "every day until
-// 2099" cannot fill the calendar.
-const maxOccurrences = 5000
-
-// repeatDates returns the occurrence dates strictly after start, up to and
-// including until. Every date is computed from start rather than from the
-// previous occurrence, so a series never drifts. truncated reports whether the
-// cap cut the series short.
-func repeatDates(start, until time.Time, mode string) (dates []time.Time, truncated bool) {
-	for i := 1; ; i++ {
-		var cur time.Time
-		switch mode {
-		case "d":
-			cur = start.AddDate(0, 0, i)
-		case "w":
-			cur = start.AddDate(0, 0, 7*i)
-		case "m":
-			cur = addMonths(start, i)
-		default:
-			return nil, false
-		}
-		if cur.After(until) {
-			return dates, false
-		}
-		dates = append(dates, cur)
-		if len(dates) >= maxOccurrences {
-			return dates, true
-		}
-	}
-}
-
-// addMonths adds n months to t, clamping the day to the end of the target
-// month. Go's AddDate would roll 31 January into 3 March and shift every later
-// occurrence with it; clamping keeps a monthly series on its own day-of-month
-// and lands on the last day of shorter months.
-func addMonths(t time.Time, n int) time.Time {
-	first := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, t.Location()).AddDate(0, n, 0)
-	day := t.Day()
-	if last := daysInMonth(first.Year(), first.Month()); day > last {
-		day = last
-	}
-	return time.Date(first.Year(), first.Month(), day, 0, 0, 0, 0, t.Location())
-}
-
-func daysInMonth(year int, month time.Month) int {
-	return time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
 }

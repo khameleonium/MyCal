@@ -3,6 +3,8 @@ package app
 import (
 	"testing"
 	"time"
+
+	"mycalendar/calendar"
 )
 
 // Every key a main-menu entry declares must reach that entry. A Cyrillic
@@ -37,7 +39,7 @@ func TestRepeatDatesMonthlyClampsInsteadOfDrifting(t *testing.T) {
 	start := time.Date(2026, 1, 31, 0, 0, 0, 0, time.UTC)
 	until := time.Date(2026, 5, 31, 0, 0, 0, 0, time.UTC)
 
-	got, truncated := repeatDates(start, until, "m")
+	got, truncated := calendar.RepeatDates(start, until, "m")
 	if truncated {
 		t.Fatal("unexpected truncation")
 	}
@@ -55,17 +57,17 @@ func TestRepeatDatesMonthlyClampsInsteadOfDrifting(t *testing.T) {
 func TestRepeatDatesDailyAndCap(t *testing.T) {
 	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
-	got, truncated := repeatDates(start, start.AddDate(0, 0, 3), "d")
+	got, truncated := calendar.RepeatDates(start, start.AddDate(0, 0, 3), "d")
 	if truncated || len(got) != 3 {
 		t.Fatalf("daily: got %d dates (truncated=%v), want 3", len(got), truncated)
 	}
 
-	got, truncated = repeatDates(start, start.AddDate(100, 0, 0), "d")
+	got, truncated = calendar.RepeatDates(start, start.AddDate(100, 0, 0), "d")
 	if !truncated {
 		t.Error("a 100-year daily series should report truncation")
 	}
-	if len(got) != maxOccurrences {
-		t.Errorf("cap: got %d occurrences, want exactly %d", len(got), maxOccurrences)
+	if len(got) != calendar.MaxOccurrences {
+		t.Errorf("cap: got %d occurrences, want exactly %d", len(got), calendar.MaxOccurrences)
 	}
 }
 

@@ -7,12 +7,14 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"mycalendar/app"
 	"mycalendar/calendar"
 	"mycalendar/config"
 	"mycalendar/storage"
+	"mycalendar/web"
 )
 
 // version is set at build time via -ldflags "-X main.version=vX.Y.Z".
@@ -88,6 +90,17 @@ func run(ctx context.Context) error {
 	application := app.NewApp(ctx, svc, cfg, cfgPath)
 
 	if len(os.Args) > 1 {
+		cmd := strings.ToLower(os.Args[1])
+		if cmd == "web" || cmd == "-web" || cmd == "--web" {
+			port := 8080
+			if len(os.Args) > 2 {
+				if p, err := strconv.Atoi(os.Args[2]); err == nil && p > 0 {
+					port = p
+				}
+			}
+			webServer := web.NewServer(svc, cfg, cfgPath, version)
+			return webServer.Start(ctx, port, true)
+		}
 		if !application.RunCLI(os.Args[1], os.Args[2:]) {
 			os.Exit(1)
 		}

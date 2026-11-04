@@ -25,6 +25,7 @@ func PrintHelp() {
 	p(color.Green("  mycal delete [id|период]") + " удалить запись по ID или пачкой за период")
 	p(color.Green("  mycal export [период] [-t <тип>]") + " экспорт в CSV рядом с файлом данных")
 	p(color.Green("  mycal today | week | month") + "   быстрый просмотр (кратко: t | w | m)")
+	p(color.Green("  mycal web [порт]") + "           запуск веб-интерфейса в браузере (по умолч. 8080)")
 	p(color.Green("  mycal help") + "              эта справка (также -h, --help, /?)")
 	p(color.Green("  mycal version") + "           версия программы (-v, --version)")
 	p("")

@@ -89,14 +89,15 @@ type Calendar struct {
 // Session is one calendar entry. Every field is stored explicitly — occurrences
 // of a repeating series are ordinary sessions that happen to share a SeriesID.
 type Session struct {
-	ID       string `json:"id"`
-	Time     string `json:"time"` // "HH:MM"
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	Duration int    `json:"duration"` // minutes
-	Notes    string `json:"notes"`
-	Status   string `json:"status"`
-	SeriesID string `json:"series_id,omitempty"`
+	ID       string  `json:"id"`
+	Time     string  `json:"time"` // "HH:MM"
+	Name     string  `json:"name"`
+	Type     string  `json:"type"`
+	Duration int     `json:"duration"` // minutes
+	Notes    string  `json:"notes"`
+	Status   string  `json:"status"`
+	SeriesID string  `json:"series_id,omitempty"`
+	Cash     float64 `json:"cash"`
 }
 
 // Date returns the YYYY-MM-DD encoded in the ID, or "" if the ID is too short.
