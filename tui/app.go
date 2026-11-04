@@ -656,21 +656,6 @@ func (a *App) handleKey(k Key) bool {
 	return false
 }
 
-func (a *App) syncSidebarIdx() {
-	switch a.periodMode {
-	case "all":
-		a.sidebarIdx = 0
-	case "day", "today":
-		a.sidebarIdx = 1
-	case "week":
-		a.sidebarIdx = 2
-	case "month":
-		a.sidebarIdx = 3
-	case "custom":
-		a.sidebarIdx = 4
-	}
-}
-
 func (a *App) onMonthChanged() {
 	daysInMonth := time.Date(a.calYear, time.Month(a.calMonth+1), 0, 0, 0, 0, 0, time.Local).Day()
 	if a.calDay > daysInMonth {
