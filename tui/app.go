@@ -43,6 +43,7 @@ type App struct {
 	activeTab int // TabFeed, TabCalendar, TabInspector, TabStats (for compact mode)
 
 	focusPanel  int // PanelCalendar, PanelSidebar, PanelFeed, PanelInspector
+	lastLeftPanel int // PanelCalendar or PanelSidebar (for natural Left arrow restore)
 	periodMode  string
 	startDate   time.Time
 	endDate     time.Time
@@ -79,8 +80,9 @@ func NewApp(svc *calendar.Service, cfg *models.Config, cfgPath, version string) 
 		cfg:         cfg,
 		cfgPath:     cfgPath,
 		version:     version,
-		focusPanel:  PanelFeed,
-		periodMode:  "all",
+		focusPanel:    PanelFeed,
+		lastLeftPanel: PanelCalendar,
+		periodMode:    "all",
 		selectedIDs: make(map[string]bool),
 		typeFilters: make(map[string]bool),
 		calYear:     now.Year(),
@@ -361,13 +363,16 @@ func (a *App) handleKey(k Key) bool {
 			if a.activeTab == TabCalendar {
 				if a.focusPanel == PanelCalendar {
 					a.focusPanel = PanelSidebar
+					a.lastLeftPanel = PanelSidebar
 				} else {
 					a.focusPanel = PanelCalendar
+					a.lastLeftPanel = PanelCalendar
 				}
 			} else {
 				a.activeTab = (a.activeTab + 1) % 4
 				if a.activeTab == TabCalendar {
 					a.focusPanel = PanelCalendar
+					a.lastLeftPanel = PanelCalendar
 				} else if a.activeTab == TabFeed {
 					a.focusPanel = PanelFeed
 				} else if a.activeTab == TabInspector {
@@ -376,6 +381,11 @@ func (a *App) handleKey(k Key) bool {
 			}
 		} else {
 			a.focusPanel = (a.focusPanel + 1) % 4
+			if a.focusPanel == PanelCalendar {
+				a.lastLeftPanel = PanelCalendar
+			} else if a.focusPanel == PanelSidebar {
+				a.lastLeftPanel = PanelSidebar
+			}
 		}
 		return false
 
@@ -384,13 +394,16 @@ func (a *App) handleKey(k Key) bool {
 			if a.activeTab == TabCalendar {
 				if a.focusPanel == PanelCalendar {
 					a.focusPanel = PanelSidebar
+					a.lastLeftPanel = PanelSidebar
 				} else {
 					a.focusPanel = PanelCalendar
+					a.lastLeftPanel = PanelCalendar
 				}
 			} else {
 				a.activeTab = (a.activeTab + 3) % 4
 				if a.activeTab == TabCalendar {
 					a.focusPanel = PanelCalendar
+					a.lastLeftPanel = PanelCalendar
 				} else if a.activeTab == TabFeed {
 					a.focusPanel = PanelFeed
 				} else if a.activeTab == TabInspector {
@@ -399,6 +412,11 @@ func (a *App) handleKey(k Key) bool {
 			}
 		} else {
 			a.focusPanel = (a.focusPanel + 3) % 4
+			if a.focusPanel == PanelCalendar {
+				a.lastLeftPanel = PanelCalendar
+			} else if a.focusPanel == PanelSidebar {
+				a.lastLeftPanel = PanelSidebar
+			}
 		}
 		return false
 
@@ -418,6 +436,7 @@ func (a *App) handleKey(k Key) bool {
 		if a.width < 115 {
 			a.activeTab = TabCalendar
 			a.focusPanel = PanelCalendar
+			a.lastLeftPanel = PanelCalendar
 		} else {
 			a.periodMode = "day"
 			a.sidebarIdx = 1
@@ -462,11 +481,14 @@ func (a *App) handleKey(k Key) bool {
 		if a.width < 115 {
 			a.activeTab = TabCalendar
 			a.focusPanel = PanelCalendar
+			a.lastLeftPanel = PanelCalendar
 		} else {
 			if a.focusPanel == PanelCalendar {
 				a.focusPanel = PanelSidebar
+				a.lastLeftPanel = PanelSidebar
 			} else {
 				a.focusPanel = PanelCalendar
+				a.lastLeftPanel = PanelCalendar
 			}
 		}
 		return false
@@ -698,6 +720,24 @@ func (a *App) syncCalendarSelection() {
 
 func (a *App) handleFeedKey(k Key) {
 	switch {
+	case k.Type == KeyLeft || k.Matches('h', 'р'):
+		if a.width < 115 {
+			a.activeTab = TabCalendar
+			a.focusPanel = PanelCalendar
+		} else {
+			if a.lastLeftPanel == PanelSidebar {
+				a.focusPanel = PanelSidebar
+			} else {
+				a.focusPanel = PanelCalendar
+			}
+		}
+	case k.Type == KeyRight:
+		if a.width < 115 {
+			a.activeTab = TabInspector
+			a.focusPanel = PanelInspector
+		} else {
+			a.focusPanel = PanelInspector
+		}
 	case k.Type == KeyUp || k.Matches('k', 'л'):
 		if a.cursorIdx > 0 {
 			a.cursorIdx--
@@ -823,6 +863,7 @@ func (a *App) handleCalendarKey(k Key) {
 			if int(nextWeek.Month()) != a.calMonth {
 				// Switch focus to Presets list
 				a.focusPanel = PanelSidebar
+				a.lastLeftPanel = PanelSidebar
 				a.sidebarIdx = 0
 				a.applySidebarNav(false)
 			} else {
@@ -892,8 +933,15 @@ func (a *App) handleSidebarKey(k Key) {
 		} else {
 			// Move up into Calendar Grid!
 			a.focusPanel = PanelCalendar
+			a.lastLeftPanel = PanelCalendar
 			a.calHeaderFocus = false
 			a.setStatusMsg("Переход в сетку календаря")
+		}
+
+	case k.Type == KeyRight:
+		a.focusPanel = PanelFeed
+		if a.width < 115 {
+			a.activeTab = TabFeed
 		}
 
 	case k.Type == KeyDown || k.Matches('j', 'о'):
@@ -1007,7 +1055,8 @@ func (a *App) applySidebarNav(enterPressed bool) {
 }
 func (a *App) handleInspectorKey(k Key) {
 	switch {
-	case k.Type == KeyEsc || k.Type == KeyEnter || k.Matches('1', '1') || k.Matches('l', 'д'):
+	case k.Type == KeyEsc || k.Type == KeyEnter || k.Matches('1', '1') || k.Type == KeyLeft || k.Matches('h', 'р'):
+		a.focusPanel = PanelFeed
 		if a.width < 115 {
 			a.activeTab = TabFeed
 		}
@@ -1283,7 +1332,7 @@ func (a *App) renderCalendarBox(s *Screen, x, y, w, h int) {
 	if isCalFocused {
 		borderCol = BorderFocus
 	}
-	s.DrawBox(x, y, w, h, "Календарь", FgCyan, borderCol, BgSurface, isCalFocused)
+	s.DrawBox(x, y, w, h, "Календарь [Y]", FgCyan, borderCol, BgSurface, isCalFocused)
 
 	monthsRu := []string{
 		"", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
@@ -1328,7 +1377,13 @@ func (a *App) renderCalendarBox(s *Screen, x, y, w, h int) {
 		}
 	} else {
 		mTitle := fmt.Sprintf("◄  %s  ►", mName)
-		s.DrawText(x+2, y+1, CenterString(mTitle, w-4), FgYellow, BgSurface, w-4, true, false, false)
+		if w >= 24 {
+			availCenter := w - 8
+			s.DrawText(x+2, y+1, CenterString(mTitle, availCenter), FgYellow, BgSurface, availCenter, true, false, false)
+			s.DrawText(x+w-5, y+1, "[Y]", FgCyan, BgSurface, 3, false, false, false)
+		} else {
+			s.DrawText(x+2, y+1, CenterString(mTitle, w-4), FgYellow, BgSurface, w-4, true, false, false)
+		}
 	}
 
 	// Weekdays
@@ -1421,7 +1476,11 @@ func (a *App) renderCalendarBox(s *Screen, x, y, w, h int) {
 		if a.rangeAnchor != nil {
 			s.DrawText(x+2, hintY, "[Space] Закрепить", FgYellow, BgSurface, w-4, true, false, false)
 		} else {
-			s.DrawText(x+2, hintY, "[Space] Период", FgDim, BgSurface, w-4, false, false, false)
+			if w >= 24 {
+				s.DrawText(x+2, hintY, "[Space] Период  [y] Год", FgDim, BgSurface, w-4, false, false, false)
+			} else {
+				s.DrawText(x+2, hintY, "[Space] Период", FgDim, BgSurface, w-4, false, false, false)
+			}
 		}
 	}
 }
@@ -1959,6 +2018,7 @@ func (a *App) renderFooter(s *Screen) {
 			{"[↑↓←→]", "Навигация"},
 			{"[Space]", "Выбор/Период"},
 			{"[< >]", "Месяц"},
+			{"[y]", "Год"},
 			{"[p]", "Период"},
 			{"[t]", "Сегодня"},
 			{"[s]", "Статус"},
@@ -1977,6 +2037,7 @@ func (a *App) renderFooter(s *Screen) {
 			{"[↑↓←→]", "Навигация"},
 			{"[Space]", "Выбор/Период"},
 			{"[< >]", "Месяц"},
+			{"[y]", "Год"},
 			{"[p]", "Период"},
 			{"[t]", "Сегодня"},
 			{"[s]", "Статус"},
@@ -1993,12 +2054,14 @@ func (a *App) renderFooter(s *Screen) {
 
 	cx := 2
 	for _, h := range hints {
-		if cx+len(h.key)+len(h.desc)+2 >= a.width {
+		kW := StringVisualWidth(h.key)
+		dW := StringVisualWidth(h.desc)
+		if cx+kW+dW+2 >= a.width {
 			break
 		}
-		s.DrawText(cx, hotkeyY, h.key, FgCyan, BgPrimary, len(h.key), true, false, false)
-		cx += len(h.key) + 1
-		s.DrawText(cx, hotkeyY, h.desc, FgMuted, BgPrimary, len(h.desc), false, false, false)
-		cx += len(h.desc) + 2
+		s.DrawText(cx, hotkeyY, h.key, FgCyan, BgPrimary, kW, true, false, false)
+		cx += kW + 1
+		s.DrawText(cx, hotkeyY, h.desc, FgMuted, BgPrimary, dW, false, false, false)
+		cx += dW + 2
 	}
 }

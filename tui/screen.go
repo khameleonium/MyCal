@@ -3,6 +3,7 @@ package tui
 import (
 	"bytes"
 	"io"
+	"strings"
 )
 
 // Cell represents one terminal character cell.
@@ -254,6 +255,22 @@ func (s *Screen) DrawBox(x, y, w, h int, title, titleFg, borderFg, bg string, bo
 		cleanTitle := " " + TruncateString(title, w-6, "…") + " "
 		s.DrawText(x+2, y, cleanTitle, titleFg, bg, w-4, true, false, false)
 	}
+}
+
+// PlainString returns the screen buffer as plain text lines without ANSI sequences.
+func (s *Screen) PlainString() string {
+	var sb strings.Builder
+	for y := 0; y < s.Height; y++ {
+		for x := 0; x < s.Width; x++ {
+			ch := s.Cells[y][x].Ch
+			if ch == 0 {
+				ch = ' '
+			}
+			sb.WriteRune(ch)
+		}
+		sb.WriteRune('\n')
+	}
+	return sb.String()
 }
 
 // Render writes the full screen buffer to out in one single atomic write.
