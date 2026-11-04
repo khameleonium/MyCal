@@ -524,19 +524,18 @@ func (m *ModalQuickEditField) applyValue(app *App) {
 // ----------------- FULL SESSION FORM MODAL (Add / Edit) -----------------
 
 type ModalSessionForm struct {
-	isEdit     bool
-	targetID   string
-	dateStr    string
-	timeStr    string
-	name       string
-	typeStr    string
-	durStr     string
-	cashStr    string
-	status     string
-	notes      string
-	repeatStr  string // "none", "d", "w", "m"
-	repeatDate string // repeat until date
-	fieldIdx   int    // 0..8
+	isEdit    bool
+	targetID  string
+	dateStr   string
+	timeStr   string
+	name      string
+	typeStr   string
+	durStr    string
+	cashStr   string
+	status    string
+	notes     string
+	repeatStr string // "none", "d", "w", "m"
+	fieldIdx  int    // 0..8
 
 	catPickerOpen   bool
 	catPickerIdx    int
