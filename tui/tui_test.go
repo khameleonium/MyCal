@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"mycalendar/models"
 )
 
 func TestVisualWidth(t *testing.T) {
@@ -151,5 +153,62 @@ func TestScreenDrawWrappedText(t *testing.T) {
 	// Verify characters are placed in screen cells
 	if screen.Cells[2][2].Ch == 0 {
 		t.Errorf("expected cell (2,2) to have character")
+	}
+}
+
+func TestModalYearCalendarInput(t *testing.T) {
+	m := NewModalYearCalendar(2026)
+	if m.year != 2026 {
+		t.Fatalf("expected year 2026, got %d", m.year)
+	}
+
+	// Step 1: press 'y' to enter input mode
+	m.HandleKey(Key{Type: KeyRune, Rune: 'y'}, nil)
+	if !m.inputMode {
+		t.Fatalf("expected inputMode to be true after pressing 'y'")
+	}
+
+	// Step 2: enter '2', '0', '3', '0'
+	m.HandleKey(Key{Type: KeyRune, Rune: '2'}, nil)
+	m.HandleKey(Key{Type: KeyRune, Rune: '0'}, nil)
+	m.HandleKey(Key{Type: KeyRune, Rune: '3'}, nil)
+	m.HandleKey(Key{Type: KeyRune, Rune: '0'}, nil)
+	if m.inputYear != "2030" {
+		t.Fatalf("expected inputYear '2030', got %q", m.inputYear)
+	}
+
+	// Step 3: Enter confirms and updates year
+	m.HandleKey(Key{Type: KeyEnter}, nil)
+	if m.inputMode {
+		t.Fatalf("expected inputMode to be false after Enter")
+	}
+	if m.year != 2030 {
+		t.Fatalf("expected year 2030, got %d", m.year)
+	}
+}
+
+func TestModalSettingsEditNumber(t *testing.T) {
+	cfg := &models.Config{
+		DefaultMode:     "tui",
+		WebPort:         8080,
+		DefaultDuration: 60,
+	}
+	m := NewModalSettings(cfg)
+
+	// Move down to port (selectedIdx = 1)
+	m.HandleKey(Key{Type: KeyDown}, nil)
+	if m.selectedIdx != 1 {
+		t.Fatalf("expected selectedIdx 1, got %d", m.selectedIdx)
+	}
+
+	// Backspace and change port to 9090
+	for i := 0; i < 4; i++ {
+		m.HandleKey(Key{Type: KeyBackspace}, nil)
+	}
+	for _, r := range "9090" {
+		m.HandleKey(Key{Type: KeyRune, Rune: r}, nil)
+	}
+	if m.portStr != "9090" {
+		t.Fatalf("expected portStr '9090', got %q", m.portStr)
 	}
 }
