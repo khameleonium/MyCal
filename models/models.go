@@ -10,6 +10,13 @@ const (
 	SplitMonth = "month" // YYYY-MM_<base>.json
 )
 
+// Launch modes for mycal.
+const (
+	ModeCLI = "cli"
+	ModeTUI = "tui"
+	ModeWeb = "web"
+)
+
 // DateCheckMode selects what happens when a typed date had to be normalised
 // (e.g. "32-01-2026" -> "01-02-2026").
 const (
@@ -28,6 +35,8 @@ var DefaultConfig = Config{
 	UseSystemDate:   true,
 	AskOnConflict:   false,
 	ShowHints:       false,
+	DefaultMode:     ModeCLI,
+	WebPort:         8080,
 }
 
 // Config mirrors config_mycal.json.
@@ -45,6 +54,8 @@ type Config struct {
 	SilentAddNames  bool     `json:"silent_add_names"`
 	AskOnConflict   bool     `json:"ask_on_conflict"`
 	ShowHints       bool     `json:"show_hints"`
+	DefaultMode     string   `json:"default_mode"`
+	WebPort         int      `json:"web_port"`
 }
 
 // UnmarshalJSON overlays the JSON document onto a copy of DefaultConfig, so any
@@ -77,6 +88,14 @@ func (c *Config) Normalize() {
 	case DateCheckOff, DateCheckAsk, DateCheckFix, DateCheckReask:
 	default:
 		c.DateCheckMode = DateCheckOff
+	}
+	switch c.DefaultMode {
+	case ModeCLI, ModeTUI, ModeWeb:
+	default:
+		c.DefaultMode = ModeCLI
+	}
+	if c.WebPort <= 0 {
+		c.WebPort = 8080
 	}
 }
 

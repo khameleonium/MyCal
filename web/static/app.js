@@ -125,7 +125,13 @@ async function fetchConfig() {
   try {
     const data = await apiFetch("/api/config");
     state.config = data.config || {};
-    document.getElementById("cfgTuiDefault").value = state.config.show_hints ? "true" : (state.config.data_file_name ? "true" : "false");
+    const defaultMode = state.config.default_mode || "cli";
+    if (document.getElementById("cfgDefaultMode")) {
+      document.getElementById("cfgDefaultMode").value = defaultMode;
+    }
+    if (document.getElementById("cfgWebPort")) {
+      document.getElementById("cfgWebPort").value = state.config.web_port || 8080;
+    }
     document.getElementById("cfgDefaultDuration").value = state.config.default_duration || 60;
     document.getElementById("cfgDateCheckMode").value = state.config.date_check_mode || "";
     document.getElementById("cfgAskConflict").value = state.config.ask_on_conflict ? "true" : "false";
@@ -1921,22 +1927,25 @@ function applyModalTypes() {
   refreshData();
 }
 
-// ----------------- SETTINGS MODAL -----------------
+// ----------------- SETTINGS MODAL & SERVICE -----------------
 
 function openSettingsModal() {
+  fetchServiceStatus();
   openModal("modalSettings");
 }
 
 async function saveSettings() {
-  const show_hints = document.getElementById("cfgTuiDefault").value === "true";
-  const default_duration = parseInt(document.getElementById("cfgDefaultDuration").value, 10);
+  const default_mode = document.getElementById("cfgDefaultMode") ? document.getElementById("cfgDefaultMode").value : "cli";
+  const web_port = (document.getElementById("cfgWebPort") ? parseInt(document.getElementById("cfgWebPort").value, 10) : 8080) || 8080;
+  const default_duration = parseInt(document.getElementById("cfgDefaultDuration").value, 10) || 60;
   const date_check_mode = document.getElementById("cfgDateCheckMode").value;
   const ask_on_conflict = document.getElementById("cfgAskConflict").value === "true";
 
   try {
     const updated = {
       ...state.config,
-      show_hints,
+      default_mode,
+      web_port,
       default_duration,
       date_check_mode,
       ask_on_conflict,
@@ -1950,6 +1959,75 @@ async function saveSettings() {
     alert("Настройки успешно сохранены!");
   } catch (err) {
     alert("Ошибка сохранения настроек: " + err.message);
+  }
+}
+
+async function fetchServiceStatus() {
+  const badge = document.getElementById("serviceStatusBadge");
+  const btnInstall = document.getElementById("btnServiceInstall");
+  const btnRestart = document.getElementById("btnServiceRestart");
+  const btnStop = document.getElementById("btnServiceStop");
+  const btnUninstall = document.getElementById("btnServiceUninstall");
+  const detailsBox = document.getElementById("serviceDetailsBox");
+
+  if (!badge) return;
+  badge.textContent = "Проверка...";
+  badge.className = "badge-pill stat-blue";
+
+  try {
+    const info = await apiFetch("/api/service/status");
+    if (info.running) {
+      badge.textContent = "● Служба активна (работает)";
+      badge.className = "badge-pill stat-green";
+      btnInstall.style.display = "none";
+      btnRestart.style.display = "inline-block";
+      btnStop.style.display = "inline-block";
+      btnUninstall.style.display = "inline-block";
+    } else if (info.installed) {
+      badge.textContent = "○ Служба остановлена";
+      badge.className = "badge-pill stat-yellow";
+      btnInstall.textContent = "Запустить службу";
+      btnInstall.style.display = "inline-block";
+      btnRestart.style.display = "none";
+      btnStop.style.display = "none";
+      btnUninstall.style.display = "inline-block";
+    } else {
+      badge.textContent = "✕ Служба не установлена";
+      badge.className = "badge-pill";
+      btnInstall.textContent = "Установить и запустить службу";
+      btnInstall.style.display = "inline-block";
+      btnRestart.style.display = "none";
+      btnStop.style.display = "none";
+      btnUninstall.style.display = "none";
+    }
+
+    if (info.details) {
+      detailsBox.style.display = "block";
+      detailsBox.textContent = info.platform + (info.unit_path ? "\nЮнит: " + info.unit_path : "") + "\n\n" + info.details;
+    } else {
+      detailsBox.style.display = "none";
+    }
+  } catch (err) {
+    badge.textContent = "Ошибка получения статуса";
+    badge.className = "badge-pill stat-red";
+  }
+}
+
+async function serviceAction(action) {
+  const port = parseInt(document.getElementById("cfgWebPort").value, 10) || 8080;
+  try {
+    const res = await apiFetch("/api/service/action", {
+      method: "POST",
+      body: JSON.stringify({ action, port }),
+    });
+    if (res.ok) {
+      alert("Команда службы выполнена успешно!");
+      await fetchServiceStatus();
+    } else {
+      alert("Ошибка: " + (res.error || "Неизвестная ошибка"));
+    }
+  } catch (err) {
+    alert("Ошибка службы: " + err.message);
   }
 }
 

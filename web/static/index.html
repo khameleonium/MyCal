@@ -461,16 +461,39 @@
     <div class="modal-body">
       <div class="settings-highlight-card">
         <label class="form-label" style="color: var(--accent-blue); font-weight: 700;">
-          <span>🖥️ TUI режим по умолчанию:</span>
-          <span class="badge-pill">Терминал</span>
+          <span>🚀 Режим запуска по умолчанию:</span>
         </label>
         <p class="settings-hint">
-          При включении запуск команды <code class="kbd-chip">mycal</code> сразу открывает полноэкранный интерфейс в терминале.
+          Что открывать при запуске команды <code class="kbd-chip">mycal</code> без аргументов:
         </p>
-        <select id="cfgTuiDefault" class="form-select" style="font-weight: 600;">
-          <option value="true">Включен (запускать TUI в консоли)</option>
-          <option value="false">Выключен (классическое меню CLI)</option>
+        <select id="cfgDefaultMode" class="form-select" style="font-weight: 600;">
+          <option value="web">🌐 Веб-интерфейс (Web-сервер)</option>
+          <option value="tui">🖥️ Полноэкранный TUI в консоли (-tui)</option>
+          <option value="cli">⌨️ Классическое меню консоли (CLI)</option>
         </select>
+        <div style="margin-top: 10px; display: flex; align-items: center; gap: 10px;">
+          <label for="cfgWebPort" class="form-label" style="margin-bottom: 0; white-space: nowrap;">Порт веб-сервера:</label>
+          <input type="number" id="cfgWebPort" class="form-input" style="max-width: 120px;" min="1024" max="65535" value="8080">
+        </div>
+      </div>
+
+      <div class="settings-highlight-card" style="border-color: var(--border-bright);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <label class="form-label" style="color: var(--accent-green); font-weight: 700; margin-bottom: 0;">
+            <span>⚙️ Фоновая служба (Сервис):</span>
+          </label>
+          <span id="serviceStatusBadge" class="badge-pill stat-blue">Загрузка...</span>
+        </div>
+        <p class="settings-hint" id="serviceDescText">
+          Позволяет держать MyCal постоянно активным как системную фоновую службу (systemd на Linux), чтобы веб-интерфейс был доступен всегда.
+        </p>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px;" id="serviceActionButtons">
+          <button type="button" class="btn btn-sm btn-primary" onclick="serviceAction('install')" id="btnServiceInstall">Установить и запустить службу</button>
+          <button type="button" class="btn btn-sm btn-secondary" onclick="serviceAction('restart')" id="btnServiceRestart" style="display: none;">Перезапустить</button>
+          <button type="button" class="btn btn-sm btn-subtle" onclick="serviceAction('stop')" id="btnServiceStop" style="display: none;">Остановить</button>
+          <button type="button" class="btn btn-sm btn-danger" onclick="serviceAction('uninstall')" id="btnServiceUninstall" style="display: none;">Удалить службу</button>
+        </div>
+        <div id="serviceDetailsBox" style="display: none; margin-top: 8px; font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono); background: var(--bg-surface); padding: 8px; border-radius: 6px; max-height: 100px; overflow-y: auto;"></div>
       </div>
 
       <div class="form-group">

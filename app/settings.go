@@ -9,8 +9,16 @@ import (
 	"mycalendar/config"
 	"mycalendar/models"
 	"mycalendar/parser"
+	"mycalendar/service"
 	"mycalendar/storage"
 )
+
+var defaultModeLabels = map[string]string{
+	models.ModeCLI: "Классический (CLI)",
+	models.ModeTUI: "Интерактивный (TUI)",
+	models.ModeWeb: "Веб-интерфейс (Web)",
+}
+var defaultModeOrder = []string{models.ModeCLI, models.ModeTUI, models.ModeWeb}
 
 func (a *App) settingsMenu() {
 	startMode := a.cfg.SplitMode
@@ -42,6 +50,10 @@ func (a *App) settingsMenu() {
 		a.hint("Предупреждать ли, если на это же время уже есть запись")
 		fmt.Printf(" h | 11. Подсказки                   [%s]\n", onOff(a.cfg.ShowHints))
 		a.hint("Пояснения и примеры под каждым пунктом меню и действием")
+		fmt.Printf(" w | 12. Интерфейс по умолчанию      [%s]\n", defaultModeLabels[a.cfg.DefaultMode])
+		a.hint("Что открывать при запуске 'mycal' без параметров (CLI / TUI / Web)")
+		fmt.Println(" s | 13. Служба автозапуска (Сервис)")
+		a.hint("Управление работой MyCal как фоновой системной службы")
 		fmt.Println(" q | 0. Сохранить и выйти")
 		a.hint("Применить изменения и вернуться в главное меню")
 
@@ -96,11 +108,15 @@ func (a *App) settingsMenu() {
 			a.cfg.AskOnConflict = !a.cfg.AskOnConflict
 		case match(choice, "11", "h", "п"):
 			a.cfg.ShowHints = !a.cfg.ShowHints
+		case match(choice, "12", "w"):
+			a.cfg.DefaultMode = nextInCycle(defaultModeOrder, a.cfg.DefaultMode)
+		case match(choice, "13", "s"):
+			a.serviceSettings()
 		case match(choice, "0", "q"):
 			a.persistSettings(startMode, startName, startPath)
 			return
 		default:
-			fmt.Println(color.Red(errMark + " Некорректный выбор (0–11)"))
+			fmt.Println(color.Red(errMark + " Некорректный выбор (0–13)"))
 		}
 	}
 }
@@ -270,6 +286,74 @@ func (a *App) editStringList(title, noun string, list *[]string) {
 			return
 		default:
 			fmt.Println(color.Red(errMark + " Некорректный выбор"))
+		}
+	}
+}
+
+func (a *App) serviceSettings() {
+	mgr := service.NewManager()
+	info, err := mgr.Status(a.ctx)
+	if err != nil {
+		fmt.Println(color.Red(errMark + " Ошибка проверки службы: " + err.Error()))
+		return
+	}
+	fmt.Println()
+	fmt.Println(color.Yellow(hdrSep + " Фоновая служба MyCal " + hdrSep))
+	fmt.Printf("Платформа:   %s\n", info.Platform)
+	if info.UnitPath != "" {
+		fmt.Printf("Юнит-файл:   %s\n", info.UnitPath)
+	}
+	if info.Installed {
+		fmt.Printf("Установлена: %s\n", color.Green("Да"))
+	} else {
+		fmt.Printf("Установлена: %s\n", color.Yellow("Нет"))
+	}
+	if info.Running {
+		fmt.Printf("Статус:      %s\n", color.Green("Работает"))
+	} else {
+		fmt.Printf("Статус:      %s\n", color.Red("Остановлена / Неактивна"))
+	}
+	fmt.Println()
+	fmt.Println("1. Установить и запустить службу (порт " + strconv.Itoa(a.cfg.WebPort) + ")")
+	fmt.Println("2. Запустить службу")
+	fmt.Println("3. Остановить службу")
+	fmt.Println("4. Перезапустить службу")
+	fmt.Println("5. Удалить службу")
+	fmt.Println("0. Назад")
+	c, ok := a.menuChoice()
+	if !ok || c == "0" {
+		return
+	}
+	switch c {
+	case "1":
+		if err := mgr.Install(a.ctx, a.cfg.WebPort); err != nil {
+			fmt.Println(color.Red(errMark + " " + err.Error()))
+		} else {
+			fmt.Println(color.Green(okMark + " Служба успешно установлена и запущена!"))
+		}
+	case "2":
+		if err := mgr.Start(a.ctx); err != nil {
+			fmt.Println(color.Red(errMark + " " + err.Error()))
+		} else {
+			fmt.Println(color.Green(okMark + " Служба запущена."))
+		}
+	case "3":
+		if err := mgr.Stop(a.ctx); err != nil {
+			fmt.Println(color.Red(errMark + " " + err.Error()))
+		} else {
+			fmt.Println(color.Green(okMark + " Служба остановлена."))
+		}
+	case "4":
+		if err := mgr.Restart(a.ctx); err != nil {
+			fmt.Println(color.Red(errMark + " " + err.Error()))
+		} else {
+			fmt.Println(color.Green(okMark + " Служба перезапущена."))
+		}
+	case "5":
+		if err := mgr.Uninstall(a.ctx); err != nil {
+			fmt.Println(color.Red(errMark + " " + err.Error()))
+		} else {
+			fmt.Println(color.Green(okMark + " Служба удалена."))
 		}
 	}
 }
