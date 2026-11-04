@@ -519,10 +519,7 @@ func (a *App) handleKey(k Key) bool {
 
 	case k.Matches('a', 'ф'):
 		// Add new session
-		var curDate string
-		if len(a.sessions) > 0 && a.cursorIdx < len(a.sessions) {
-			curDate = a.sessions[a.cursorIdx].Date()
-		}
+		curDate := a.getAddSessionDate()
 		a.activeModal = NewModalSessionForm(nil, curDate)
 		return false
 
@@ -716,6 +713,44 @@ func (a *App) syncCalendarSelection() {
 		a.setStatusMsg(fmt.Sprintf("Выбран день: %02d.%02d.%d", a.calDay, a.calMonth, a.calYear))
 	}
 	a.reloadSessions()
+}
+
+// getAddSessionDate determines the pre-filled date (DD.MM.YYYY) for creating a new session.
+// If the user navigated or focused on a day in the calendar (or is filtering by day),
+// that day is used automatically, consistent with web-interface behavior.
+func (a *App) getAddSessionDate() string {
+	// 1. If currently interacting with the calendar panel or tab:
+	if a.focusPanel == PanelCalendar || (a.width < 115 && a.activeTab == TabCalendar) {
+		if a.calDay > 0 && a.calMonth > 0 && a.calYear > 0 {
+			return fmt.Sprintf("%02d.%02d.%04d", a.calDay, a.calMonth, a.calYear)
+		}
+	}
+
+	// 2. If filtering by day or today (including after calendar day navigation):
+	if a.periodMode == "day" || a.periodMode == "today" {
+		if a.calDay > 0 && a.calMonth > 0 && a.calYear > 0 {
+			return fmt.Sprintf("%02d.%02d.%04d", a.calDay, a.calMonth, a.calYear)
+		}
+	}
+
+	// 3. If in Feed or Inspector panel with a selected session, inherit that session's date:
+	if (a.focusPanel == PanelFeed || a.focusPanel == PanelInspector || (a.width < 115 && a.activeTab == TabInspector)) &&
+		len(a.sessions) > 0 && a.cursorIdx < len(a.sessions) {
+		sDate := a.sessions[a.cursorIdx].Date()
+		if parsed, err := parser.ParseDate(sDate, time.Now()); err == nil {
+			return fmt.Sprintf("%02d.%02d.%04d", parsed.Day(), parsed.Month(), parsed.Year())
+		}
+		return sDate
+	}
+
+	// 4. Default to current calendar position if valid:
+	if a.calDay > 0 && a.calMonth > 0 && a.calYear > 0 {
+		return fmt.Sprintf("%02d.%02d.%04d", a.calDay, a.calMonth, a.calYear)
+	}
+
+	// 5. Fallback to today:
+	now := time.Now()
+	return fmt.Sprintf("%02d.%02d.%04d", now.Day(), now.Month(), now.Year())
 }
 
 func (a *App) handleFeedKey(k Key) {

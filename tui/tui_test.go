@@ -884,3 +884,70 @@ func TestDrawBottomWrappedCenteredHint(t *testing.T) {
 		t.Fatalf("expected rows 7 and 8 to contain hint characters")
 	}
 }
+
+func TestAddSessionUsesSelectedCalendarDay(t *testing.T) {
+	app := newTestApp(t)
+
+	// 1. Focus on PanelCalendar and set cursor to 20.11.2026
+	app.focusPanel = PanelCalendar
+	app.calYear = 2026
+	app.calMonth = 11
+	app.calDay = 20
+	app.periodMode = "day"
+
+	// Press 'a' to add session
+	app.handleKey(Key{Type: KeyRune, Rune: 'a'})
+
+	formModal, ok := app.activeModal.(*ModalSessionForm)
+	if !ok {
+		t.Fatalf("expected activeModal to be *ModalSessionForm")
+	}
+	if formModal.dateStr != "20.11.2026" {
+		t.Fatalf("expected form dateStr to be '20.11.2026', got %q", formModal.dateStr)
+	}
+
+	// 2. Switch to PanelFeed with 0 sessions on that day
+	app.activeModal = nil
+	app.focusPanel = PanelFeed
+	app.reloadSessions()
+	if len(app.sessions) != 0 {
+		t.Fatalf("expected 0 sessions on 20.11.2026, got %d", len(app.sessions))
+	}
+
+	// Press 'a' while looking at the empty feed
+	app.handleKey(Key{Type: KeyRune, Rune: 'a'})
+	formModal, ok = app.activeModal.(*ModalSessionForm)
+	if !ok {
+		t.Fatalf("expected activeModal to be *ModalSessionForm")
+	}
+	if formModal.dateStr != "20.11.2026" {
+		t.Fatalf("expected form dateStr in empty feed to inherit calendar date '20.11.2026', got %q", formModal.dateStr)
+	}
+
+	// 3. Save the session
+	formModal.name = "Новое событие"
+	formModal.save(app)
+
+	if len(app.sessions) != 1 {
+		t.Fatalf("expected 1 session after save, got %d", len(app.sessions))
+	}
+	if app.sessions[0].Name != "Новое событие" {
+		t.Fatalf("expected session name 'Новое событие', got %q", app.sessions[0].Name)
+	}
+	if app.calDay != 20 || app.calMonth != 11 || app.calYear != 2026 {
+		t.Fatalf("expected calendar position 20.11.2026, got %02d.%02d.%d", app.calDay, app.calMonth, app.calYear)
+	}
+
+	// 4. ModalYearCalendar: navigate to a date and press 'a'
+	app.activeModal = nil
+	yearModal := NewModalYearCalendar(2026, 8, 15, app.svc.All())
+	yearModal.HandleKey(Key{Type: KeyRune, Rune: 'a'}, app)
+
+	formModal, ok = app.activeModal.(*ModalSessionForm)
+	if !ok {
+		t.Fatalf("expected activeModal from YearCalendar 'a' to be *ModalSessionForm")
+	}
+	if formModal.dateStr != "15.08.2026" {
+		t.Fatalf("expected form dateStr from YearCalendar to be '15.08.2026', got %q", formModal.dateStr)
+	}
+}
