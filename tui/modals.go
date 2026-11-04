@@ -546,10 +546,14 @@ type ModalSessionForm struct {
 
 func NewModalSessionForm(sess *models.Session, initialDate string) *ModalSessionForm {
 	if sess != nil {
+		dateStr := sess.Date()
+		if parsed, err := parser.ParseDate(sess.Date(), time.Now()); err == nil {
+			dateStr = fmt.Sprintf("%02d.%02d.%04d", parsed.Day(), parsed.Month(), parsed.Year())
+		}
 		return &ModalSessionForm{
 			isEdit:    true,
 			targetID:  sess.ID,
-			dateStr:   sess.Date(),
+			dateStr:   dateStr,
 			timeStr:   sess.Time,
 			name:      sess.Name,
 			typeStr:   sess.Type,
@@ -563,8 +567,13 @@ func NewModalSessionForm(sess *models.Session, initialDate string) *ModalSession
 	}
 
 	dStr := initialDate
-	if dStr == "" {
-		dStr = parser.FormatDate(time.Now())
+	if dStr != "" {
+		if parsed, err := parser.ParseDate(dStr, time.Now()); err == nil {
+			dStr = fmt.Sprintf("%02d.%02d.%04d", parsed.Day(), parsed.Month(), parsed.Year())
+		}
+	} else {
+		now := time.Now()
+		dStr = fmt.Sprintf("%02d.%02d.%04d", now.Day(), now.Month(), now.Year())
 	}
 
 	return &ModalSessionForm{
@@ -926,6 +935,7 @@ func (m *ModalSessionForm) save(app *App) {
 	}
 	notesVal := strings.TrimSpace(m.notes)
 
+	var savedID string
 	if m.isEdit {
 		sess, ok := app.svc.ByID(m.targetID)
 		if ok {
@@ -944,7 +954,8 @@ func (m *ModalSessionForm) save(app *App) {
 
 			if origDate != newDate {
 				_ = app.svc.Delete(sess.ID)
-				sess.ID = app.svc.GenerateID(d, tm)
+				savedID = app.svc.GenerateID(d, tm)
+				sess.ID = savedID
 				sess.Time = tStr
 				sess.Name = nameVal
 				sess.Type = typeVal
@@ -953,16 +964,20 @@ func (m *ModalSessionForm) save(app *App) {
 				sess.Status = statusVal
 				sess.Notes = notesVal
 				_ = app.svc.Add(sess)
+				app.calYear = d.Year()
+				app.calMonth = int(d.Month())
+				app.calDay = d.Day()
 			} else {
+				savedID = sess.ID
 				_ = app.svc.Update(sess.ID, patch)
 			}
 			_ = app.svc.Save(app.ctx)
 			app.setStatusMsg("Запись успешно сохранена")
 		}
 	} else {
-		newID := app.svc.GenerateID(d, tm)
+		savedID = app.svc.GenerateID(d, tm)
 		sess := models.Session{
-			ID:       newID,
+			ID:       savedID,
 			Time:     parser.FormatTime(tm),
 			Name:     nameVal,
 			Type:     typeVal,
@@ -973,9 +988,26 @@ func (m *ModalSessionForm) save(app *App) {
 		}
 		_ = app.svc.Add(sess)
 		_ = app.svc.Save(app.ctx)
-		app.setStatusMsg("Запись успешно создана: ID " + newID)
+		app.setStatusMsg("Запись успешно создана: ID " + savedID)
+
+		app.calYear = d.Year()
+		app.calMonth = int(d.Month())
+		app.calDay = d.Day()
+		if app.periodMode == "day" || app.periodMode == "today" {
+			app.startDate = d
+			app.endDate = d.Add(24*time.Hour - time.Nanosecond)
+			app.periodMode = "day"
+		}
 	}
 	app.reloadSessions()
+	if savedID != "" {
+		for idx, s := range app.sessions {
+			if s.ID == savedID {
+				app.cursorIdx = idx
+				break
+			}
+		}
+	}
 }
 
 func (m *ModalSessionForm) openCatPicker(app *App) {
@@ -1178,7 +1210,7 @@ func (m *ModalYearCalendar) Draw(s *Screen) {
 		w = s.Width
 	}
 
-	h := 29
+	h := 30
 	if h > s.Height-2 {
 		h = s.Height - 2
 	}
@@ -1362,7 +1394,7 @@ func (m *ModalYearCalendar) Draw(s *Screen) {
 
 	// Centered hint line located below the tiles
 	hintY := y + h - 2
-	if hintY <= tilesBottomY && tilesBottomY < y+h-2 {
+	if hintY <= tilesBottomY {
 		hintY = tilesBottomY + 1
 	}
 
@@ -1460,6 +1492,23 @@ func (m *ModalYearCalendar) HandleKey(k Key, app *App) bool {
 
 	case k.Matches('q', 'й'):
 		app.activeModal = nil
+		return true
+
+	case k.Matches('a', 'ф'):
+		app.calYear = m.year
+		app.calMonth = m.selMonth
+		app.calDay = m.selDay
+		curDate := time.Date(m.year, time.Month(m.selMonth), m.selDay, 0, 0, 0, 0, time.Local)
+		app.startDate = curDate
+		app.endDate = curDate.Add(24*time.Hour - time.Nanosecond)
+		app.periodMode = "day"
+		app.reloadSessions()
+		app.focusPanel = PanelFeed
+		if app.width < 115 {
+			app.activeTab = TabFeed
+		}
+		dateStr := fmt.Sprintf("%02d.%02d.%04d", m.selDay, m.selMonth, m.year)
+		app.activeModal = NewModalSessionForm(nil, dateStr)
 		return true
 
 	case k.Type == KeySpace:
