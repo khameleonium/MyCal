@@ -1,0 +1,2001 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Концепт MyCal TUI (Terminal User Interface)</title>
+  <style>
+    :root {
+      --bg-primary: #0f141c;
+      --bg-surface: #161d27;
+      --bg-panel: #1b2330;
+      --bg-panel-alt: #131923;
+      --bg-highlight: #283346;
+      --bg-selection: #2a3b5c;
+      --border-dim: #263345;
+      --border-bright: #3d5170;
+      --border-focus: #4f87e2;
+      --text-main: #e2e8f0;
+      --text-muted: #8295b0;
+      --text-dim: #546682;
+      --accent-blue: #60a5fa;
+      --accent-cyan: #38bdf8;
+      --accent-green: #4ade80;
+      --accent-yellow: #facc15;
+      --accent-orange: #fb923c;
+      --accent-magenta: #c084fc;
+      --accent-red: #f87171;
+      --font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", "SF Mono", Consolas, "Courier New", monospace;
+      --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    [data-theme="catppuccin"] {
+      --bg-primary: #181825;
+      --bg-surface: #1e1e2e;
+      --bg-panel: #24273a;
+      --bg-panel-alt: #181926;
+      --bg-highlight: #363a4f;
+      --bg-selection: #3e4466;
+      --border-dim: #363a4f;
+      --border-bright: #5b6078;
+      --border-focus: #cba6f7;
+      --text-main: #cdd6f4;
+      --text-muted: #a6adc8;
+      --text-dim: #6c7086;
+      --accent-blue: #89b4fa;
+      --accent-cyan: #89dceb;
+      --accent-green: #a6e3a1;
+      --accent-yellow: #f9e2af;
+      --accent-orange: #fab387;
+      --accent-magenta: #cba6f7;
+      --accent-red: #f38ba8;
+    }
+
+    [data-theme="matrix"] {
+      --bg-primary: #050d08;
+      --bg-surface: #0a170e;
+      --bg-panel: #0d2114;
+      --bg-panel-alt: #08140b;
+      --bg-highlight: #14361f;
+      --bg-selection: #1c4a2a;
+      --border-dim: #183e24;
+      --border-bright: #28663b;
+      --border-focus: #34d399;
+      --text-main: #d1fae5;
+      --text-muted: #6ee7b7;
+      --text-dim: #226e43;
+      --accent-blue: #34d399;
+      --accent-cyan: #6ee7b7;
+      --accent-green: #10b981;
+      --accent-yellow: #a7f3d0;
+      --accent-orange: #34d399;
+      --accent-magenta: #6ee7b7;
+      --accent-red: #f87171;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-primary);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      line-height: 1.5;
+      padding: 24px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 1360px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Top presentation banner */
+    .intro-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-dim);
+      border-radius: 12px;
+      padding: 20px 24px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    .intro-title h1 {
+      font-size: 1.45rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--text-main);
+    }
+
+    .badge {
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      background: rgba(96, 165, 250, 0.15);
+      color: var(--accent-blue);
+      border: 1px solid rgba(96, 165, 250, 0.3);
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-weight: 600;
+    }
+
+    .intro-desc {
+      color: var(--text-muted);
+      font-size: 0.92rem;
+      margin-top: 4px;
+    }
+
+    .theme-toolbar {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .theme-btn {
+      background: var(--bg-panel);
+      color: var(--text-main);
+      border: 1px solid var(--border-dim);
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .theme-btn:hover {
+      border-color: var(--accent-blue);
+      color: var(--accent-blue);
+    }
+    .theme-btn.active {
+      background: var(--bg-selection);
+      border-color: var(--border-focus);
+      color: #fff;
+    }
+
+    /* Terminal Window Frame */
+    .terminal-window {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-bright);
+      border-radius: 10px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.7);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      font-family: var(--font-mono);
+      font-size: 13.5px;
+      position: relative;
+    }
+
+    /* Terminal Titlebar */
+    .terminal-titlebar {
+      background: var(--bg-panel-alt);
+      border-bottom: 1px solid var(--border-dim);
+      padding: 8px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      user-select: none;
+    }
+
+    .window-controls {
+      display: flex;
+      gap: 7px;
+    }
+    .win-dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .dot-close { background-color: #ef4444; }
+    .dot-min { background-color: #f59e0b; }
+    .dot-max { background-color: #10b981; }
+
+    .window-title {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .window-hints {
+      color: var(--text-dim);
+      font-size: 0.75rem;
+    }
+
+    /* Terminal Main Layout (3-Column Grid) */
+    .tui-body {
+      display: grid;
+      grid-template-columns: 280px 1fr 340px;
+      min-height: 560px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-dim);
+    }
+
+    @media (max-width: 1100px) {
+      .tui-body {
+        grid-template-columns: 240px 1fr 300px;
+      }
+    }
+
+    .tui-panel {
+      border-right: 1px solid var(--border-dim);
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-panel);
+      position: relative;
+      transition: border-color 0.15s ease;
+    }
+    .tui-panel:last-child {
+      border-right: none;
+    }
+
+    .tui-panel.focused {
+      box-shadow: inset 0 0 0 1px var(--border-focus);
+    }
+
+    .panel-header {
+      background: var(--bg-panel-alt);
+      border-bottom: 1px solid var(--border-dim);
+      padding: 8px 12px;
+      font-weight: 700;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .tui-panel.focused .panel-header {
+      color: var(--accent-blue);
+      border-bottom-color: var(--border-focus);
+    }
+
+    .panel-tag {
+      font-size: 0.7rem;
+      background: var(--bg-highlight);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: var(--text-dim);
+      font-weight: normal;
+    }
+
+    /* Left Panel: Calendar & Filters */
+    .left-content {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow-y: auto;
+    }
+
+    .mini-cal {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-dim);
+      border-radius: 6px;
+      padding: 10px;
+    }
+
+    .cal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--accent-blue);
+      margin-bottom: 8px;
+    }
+
+    .cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 3px;
+      text-align: center;
+      font-size: 0.74rem;
+    }
+
+    .cal-day-name {
+      color: var(--text-dim);
+      font-weight: 600;
+      padding-bottom: 4px;
+    }
+
+    .cal-cell {
+      height: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border-radius: 4px;
+      cursor: pointer;
+      position: relative;
+      color: var(--text-muted);
+    }
+    .cal-cell:hover {
+      background: var(--bg-highlight);
+      color: var(--text-main);
+    }
+    .cal-cell.today {
+      border: 1px solid var(--accent-blue);
+      color: var(--accent-blue);
+      font-weight: bold;
+    }
+    .cal-cell.selected {
+      background: var(--accent-blue);
+      color: #0f141c;
+      font-weight: bold;
+    }
+    .cal-cell.has-events::after {
+      content: "";
+      position: absolute;
+      bottom: 2px;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: var(--accent-orange);
+    }
+    .cal-cell.selected.has-events::after {
+      background: #0f141c;
+    }
+    .cal-cell.muted {
+      color: var(--text-dim);
+      opacity: 0.4;
+    }
+
+    .section-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .filter-list {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .filter-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 5px 8px;
+      border-radius: 5px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.1s ease;
+    }
+    .filter-item:hover {
+      background: var(--bg-highlight);
+    }
+    .filter-item.active {
+      background: var(--bg-selection);
+      color: #fff;
+    }
+
+    .filter-left {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .checkbox {
+      color: var(--accent-green);
+      font-weight: bold;
+    }
+    .checkbox.unchecked {
+      color: var(--text-dim);
+    }
+    .filter-count {
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      background: rgba(255, 255, 255, 0.05);
+      padding: 1px 6px;
+      border-radius: 10px;
+    }
+    .filter-item.active .filter-count {
+      color: var(--accent-blue);
+      background: rgba(96, 165, 250, 0.15);
+    }
+
+    /* Center Panel: Session List */
+    .center-panel {
+      background: var(--bg-surface);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .list-search-bar {
+      padding: 8px 12px;
+      background: var(--bg-panel-alt);
+      border-bottom: 1px solid var(--border-dim);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.8rem;
+    }
+
+    .search-prompt {
+      color: var(--accent-blue);
+      font-weight: bold;
+    }
+
+    .search-input-mock {
+      background: transparent;
+      border: none;
+      color: var(--text-main);
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      outline: none;
+      width: 100%;
+    }
+    .search-input-mock::placeholder {
+      color: var(--text-dim);
+    }
+
+    .session-list-view {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px 0;
+    }
+
+    .date-group-header {
+      padding: 8px 14px 4px 14px;
+      color: var(--accent-magenta);
+      font-weight: 700;
+      font-size: 0.82rem;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .date-group-line {
+      flex: 1;
+      height: 1px;
+      background: var(--border-dim);
+    }
+    .date-group-stats {
+      font-size: 0.74rem;
+      color: var(--text-dim);
+      font-weight: normal;
+    }
+
+    .session-row {
+      display: grid;
+      grid-template-columns: 32px 55px 1fr 140px 75px 85px;
+      align-items: center;
+      padding: 6px 14px;
+      cursor: pointer;
+      font-size: 0.82rem;
+      border-left: 3px solid transparent;
+      transition: background 0.1s ease;
+      user-select: none;
+    }
+
+    .session-row:hover {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .session-row.selected {
+      background: var(--bg-selection);
+      border-left-color: var(--accent-blue);
+    }
+
+    .row-cursor {
+      color: var(--accent-blue);
+      font-weight: bold;
+    }
+
+    .row-time {
+      color: var(--text-main);
+      font-weight: 600;
+    }
+
+    .row-name {
+      color: var(--accent-green);
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      padding-right: 8px;
+    }
+
+    .row-type {
+      color: var(--text-muted);
+      font-size: 0.78rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .row-duration {
+      color: var(--accent-orange);
+      font-weight: 500;
+    }
+
+    .row-status {
+      font-size: 0.74rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-align: center;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      justify-content: center;
+    }
+    .status-active {
+      background: rgba(74, 222, 128, 0.12);
+      color: var(--accent-green);
+      border: 1px solid rgba(74, 222, 128, 0.25);
+    }
+    .status-skip {
+      background: rgba(245, 158, 11, 0.12);
+      color: var(--accent-yellow);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+    }
+    .status-cancel {
+      background: rgba(248, 113, 113, 0.12);
+      color: var(--accent-red);
+      border: 1px solid rgba(248, 113, 113, 0.25);
+    }
+
+    .repeat-icon {
+      color: var(--accent-magenta);
+      margin-left: 4px;
+      font-size: 0.85rem;
+    }
+
+    /* Right Panel: Detail Card & Summary */
+    .right-panel {
+      background: var(--bg-panel);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow-y: auto;
+    }
+
+    .card-box {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-dim);
+      border-radius: 6px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .card-title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border-dim);
+      font-size: 0.8rem;
+    }
+
+    .card-id {
+      color: var(--accent-yellow);
+      font-weight: 600;
+    }
+
+    .field-row {
+      display: flex;
+      font-size: 0.78rem;
+      line-height: 1.4;
+    }
+    .field-lbl {
+      width: 120px;
+      color: var(--text-dim);
+      flex-shrink: 0;
+    }
+    .field-val {
+      color: var(--text-main);
+      font-weight: 500;
+      word-break: break-word;
+    }
+
+    .notes-box {
+      margin-top: 4px;
+      padding: 6px 8px;
+      background: var(--bg-panel-alt);
+      border-radius: 4px;
+      color: var(--text-muted);
+      font-size: 0.76rem;
+      border-left: 2px solid var(--accent-blue);
+    }
+
+    .stats-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-dim);
+      border-radius: 6px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .stat-hero {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border-dim);
+    }
+    .stat-hero-big {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: var(--accent-orange);
+    }
+    .stat-hero-lbl {
+      font-size: 0.74rem;
+      color: var(--text-dim);
+    }
+
+    .progress-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .progress-item {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      font-size: 0.74rem;
+    }
+    .progress-labels {
+      display: flex;
+      justify-content: space-between;
+      color: var(--text-muted);
+    }
+    .progress-bar {
+      height: 6px;
+      background: var(--bg-highlight);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      height: 100%;
+      border-radius: 3px;
+    }
+
+    /* Terminal Footer / Shortcuts Bar */
+    .terminal-footer {
+      background: var(--bg-panel-alt);
+      padding: 8px 14px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.76rem;
+      border-top: 1px solid var(--border-dim);
+    }
+
+    .shortcuts-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .key-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 2px 5px;
+      border-radius: 4px;
+      transition: background 0.1s ease;
+    }
+    .key-badge:hover {
+      background: var(--bg-highlight);
+      color: var(--text-main);
+    }
+    .key-cap {
+      background: var(--bg-highlight);
+      color: var(--accent-cyan);
+      border: 1px solid var(--border-bright);
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-weight: 700;
+      font-size: 0.72rem;
+    }
+
+    .footer-status {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      color: var(--text-dim);
+      font-size: 0.72rem;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      background: var(--accent-green);
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    /* Interactive Modal Dialogs (Native <dialog>) */
+    dialog {
+      position: fixed;
+      inset: 0;
+      margin: auto;
+      background: var(--bg-surface);
+      color: var(--text-main);
+      border: 1px solid var(--border-focus);
+      border-radius: 8px;
+      padding: 0;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+      font-family: var(--font-mono);
+      width: 90%;
+      max-width: 540px;
+      overscroll-behavior: contain;
+    }
+
+    dialog::backdrop {
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(2px);
+      overscroll-behavior: contain;
+      overflow: hidden;
+    }
+
+    .modal-hdr {
+      background: var(--bg-panel-alt);
+      border-bottom: 1px solid var(--border-dim);
+      padding: 10px 14px;
+      font-weight: 700;
+      font-size: 0.88rem;
+      color: var(--accent-blue);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-body {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      font-size: 0.82rem;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .form-label {
+      color: var(--text-muted);
+      font-size: 0.76rem;
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+    }
+    .form-label .hint {
+      color: var(--text-dim);
+      font-weight: normal;
+    }
+    .form-input, .form-select {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-dim);
+      border-radius: 4px;
+      color: var(--text-main);
+      padding: 6px 10px;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      outline: none;
+    }
+    .form-input:focus, .form-select:focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 1px var(--border-focus);
+    }
+
+    .modal-footer {
+      background: var(--bg-panel-alt);
+      border-top: 1px solid var(--border-dim);
+      padding: 10px 14px;
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+
+    .btn {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-bright);
+      color: var(--text-main);
+      padding: 6px 14px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .btn:hover {
+      border-color: var(--text-main);
+    }
+    .btn-primary {
+      background: var(--accent-blue);
+      border-color: var(--accent-blue);
+      color: #0f141c;
+      font-weight: 700;
+    }
+    .btn-primary:hover {
+      background: #3b82f6;
+      border-color: #3b82f6;
+      color: #fff;
+    }
+    .btn-danger {
+      background: rgba(248, 113, 113, 0.15);
+      border-color: var(--accent-red);
+      color: var(--accent-red);
+    }
+    .btn-danger:hover {
+      background: var(--accent-red);
+      color: #0f141c;
+    }
+
+    /* Explanation & Specs Section */
+    .specs-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 18px;
+      margin-top: 6px;
+    }
+
+    .spec-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-dim);
+      border-radius: 10px;
+      padding: 18px 20px;
+    }
+
+    .spec-card h2 {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: var(--accent-cyan);
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .spec-card p {
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+      line-height: 1.5;
+    }
+
+    .spec-card ul {
+      list-style-type: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 0.84rem;
+    }
+
+    .spec-card li {
+      color: var(--text-main);
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    .spec-card li::before {
+      content: "▸";
+      color: var(--accent-blue);
+      font-weight: bold;
+    }
+
+    .code-chip {
+      background: var(--bg-highlight);
+      color: var(--accent-yellow);
+      font-family: var(--font-mono);
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 0.8em;
+    }
+
+    /* Live instruction banner */
+    .live-tip {
+      background: rgba(56, 189, 248, 0.08);
+      border: 1px dashed rgba(56, 189, 248, 0.35);
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 0.84rem;
+      color: var(--accent-cyan);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- Header Banner -->
+  <header class="intro-card">
+    <div class="intro-title">
+      <h1>
+        <span>📅 Проект TUI для MyCal</span>
+        <span class="badge">Ветка: TUItest</span>
+        <span class="badge" style="color: var(--accent-green); border-color: rgba(74,222,128,0.3); background: rgba(74,222,128,0.1);">Флаг: -tui</span>
+      </h1>
+      <p class="intro-desc">
+        Интерактивный макет полноэкранного терминального интерфейса. Попробуйте нажимать стрелки <span class="code-chip">↑/↓</span>, клавишу <span class="code-chip">Tab</span>, кнопки действий или горячие клавиши прямо на этой странице!
+      </p>
+    </div>
+
+    <div class="theme-toolbar">
+      <span>Тема оформления:</span>
+      <button class="theme-btn active" onclick="setTheme('tokyo')">Tokyo Night</button>
+      <button class="theme-btn" onclick="setTheme('catppuccin')">Catppuccin</button>
+      <button class="theme-btn" onclick="setTheme('matrix')">Matrix Emerald</button>
+    </div>
+  </header>
+
+  <!-- Interactive Hint -->
+  <div class="live-tip">
+    <span>💡 <strong>Живой интерактивный прототип:</strong> Вы можете кликать по панелям, записям и кнопкам внизу терминала (например, «a — Добавить», «t — Типы», «s — Настройки»), чтобы увидеть всплывающие окна и логику работы.</span>
+  </div>
+
+  <!-- Terminal Window Viewport -->
+  <main class="terminal-window" id="terminal">
+
+    <!-- Terminal Titlebar -->
+    <div class="terminal-titlebar">
+      <div class="window-controls">
+        <span class="win-dot dot-close" title="Закрыть (q)"></span>
+        <span class="win-dot dot-min"></span>
+        <span class="win-dot dot-max"></span>
+      </div>
+      <div class="window-title">
+        <span>● mycal v2.5.0-tui</span>
+        <span style="color: var(--border-bright);">│</span>
+        <span style="color: var(--accent-blue);">Вторник, 4 ноября 2026</span>
+        <span style="color: var(--border-bright);">│</span>
+        <span style="color: var(--text-dim);">~/.mycal/mycal.json</span>
+      </div>
+      <div class="window-hints">
+        <span>F1 — Справка │ q — Выход</span>
+      </div>
+    </div>
+
+    <!-- 3-Panel Main Layout -->
+    <div class="tui-body">
+
+      <!-- LEFT PANEL: Mini Calendar & View/Type Filters -->
+      <aside class="tui-panel" id="panel-left" onclick="focusPanel('panel-left')">
+        <div class="panel-header">
+          <span>Календарь & Фильтры</span>
+          <span class="panel-tag">[1]</span>
+        </div>
+
+        <div class="left-content">
+          <!-- Month Mini-Grid -->
+          <div class="mini-cal">
+            <div class="cal-header">
+              <span>◄</span>
+              <span>Ноябрь 2026</span>
+              <span>►</span>
+            </div>
+            <div class="cal-grid">
+              <span class="cal-day-name">Пн</span>
+              <span class="cal-day-name">Вт</span>
+              <span class="cal-day-name">Ср</span>
+              <span class="cal-day-name">Чт</span>
+              <span class="cal-day-name">Пт</span>
+              <span class="cal-day-name">Сб</span>
+              <span class="cal-day-name">Вс</span>
+
+              <span class="cal-cell muted">27</span>
+              <span class="cal-cell muted">28</span>
+              <span class="cal-cell muted">29</span>
+              <span class="cal-cell muted">30</span>
+              <span class="cal-cell muted">31</span>
+              <span class="cal-cell has-events" onclick="selectDate('01.11.2026')">1</span>
+              <span class="cal-cell has-events" onclick="selectDate('02.11.2026')">2</span>
+
+              <span class="cal-cell has-events" onclick="selectDate('03.11.2026')">3</span>
+              <span class="cal-cell today selected has-events" onclick="selectDate('04.11.2026')">4</span>
+              <span class="cal-cell" onclick="selectDate('05.11.2026')">5</span>
+              <span class="cal-cell" onclick="selectDate('06.11.2026')">6</span>
+              <span class="cal-cell has-events" onclick="selectDate('07.11.2026')">7</span>
+              <span class="cal-cell" onclick="selectDate('08.11.2026')">8</span>
+              <span class="cal-cell has-events" onclick="selectDate('09.11.2026')">9</span>
+
+              <span class="cal-cell" onclick="selectDate('10.11.2026')">10</span>
+              <span class="cal-cell" onclick="selectDate('11.11.2026')">11</span>
+              <span class="cal-cell" onclick="selectDate('12.11.2026')">12</span>
+              <span class="cal-cell" onclick="selectDate('13.11.2026')">13</span>
+              <span class="cal-cell" onclick="selectDate('14.11.2026')">14</span>
+              <span class="cal-cell has-events" onclick="selectDate('15.11.2026')">15</span>
+              <span class="cal-cell" onclick="selectDate('16.11.2026')">16</span>
+
+              <span class="cal-cell" onclick="selectDate('17.11.2026')">17</span>
+              <span class="cal-cell" onclick="selectDate('18.11.2026')">18</span>
+              <span class="cal-cell" onclick="selectDate('19.11.2026')">19</span>
+              <span class="cal-cell" onclick="selectDate('20.11.2026')">20</span>
+              <span class="cal-cell" onclick="selectDate('21.11.2026')">21</span>
+              <span class="cal-cell" onclick="selectDate('22.11.2026')">22</span>
+              <span class="cal-cell" onclick="selectDate('23.11.2026')">23</span>
+
+              <span class="cal-cell" onclick="selectDate('24.11.2026')">24</span>
+              <span class="cal-cell" onclick="selectDate('25.11.2026')">25</span>
+              <span class="cal-cell" onclick="selectDate('26.11.2026')">26</span>
+              <span class="cal-cell" onclick="selectDate('27.11.2026')">27</span>
+              <span class="cal-cell" onclick="selectDate('28.11.2026')">28</span>
+              <span class="cal-cell" onclick="selectDate('29.11.2026')">29</span>
+              <span class="cal-cell" onclick="selectDate('30.11.2026')">30</span>
+            </div>
+          </div>
+
+          <!-- Quick Period Presets -->
+          <div>
+            <div class="section-title">
+              <span>Период</span>
+              <span style="font-weight: normal; color: var(--text-dim);">[1-5]</span>
+            </div>
+            <div class="filter-list">
+              <div class="filter-item" onclick="setPeriod(this, 'Сегодня')">
+                <span class="filter-left"><span>•</span> Сегодня</span>
+                <span class="filter-count">2</span>
+              </div>
+              <div class="filter-item" onclick="setPeriod(this, 'Неделя')">
+                <span class="filter-left"><span>•</span> Текущая неделя</span>
+                <span class="filter-count">6</span>
+              </div>
+              <div class="filter-item active" onclick="setPeriod(this, 'Месяц')">
+                <span class="filter-left"><span style="color: var(--accent-blue);">▶</span> Этот месяц</span>
+                <span class="filter-count">14</span>
+              </div>
+              <div class="filter-item" onclick="setPeriod(this, 'Все')">
+                <span class="filter-left"><span>•</span> Все записи</span>
+                <span class="filter-count">48</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Type Filters -->
+          <div>
+            <div class="section-title">
+              <span>Фильтр по типам</span>
+              <span style="font-weight: normal; color: var(--accent-cyan); cursor: pointer;" onclick="openTypeModal()">[t Настроить]</span>
+            </div>
+            <div class="filter-list" id="type-filter-list">
+              <div class="filter-item active" onclick="toggleFilter(this)">
+                <span class="filter-left"><span class="checkbox">[✓]</span> Стрельба из лука</span>
+                <span class="filter-count">8</span>
+              </div>
+              <div class="filter-item active" onclick="toggleFilter(this)">
+                <span class="filter-left"><span class="checkbox">[✓]</span> Метание ножей</span>
+                <span class="filter-count">4</span>
+              </div>
+              <div class="filter-item" onclick="toggleFilter(this)">
+                <span class="filter-left"><span class="checkbox unchecked">[ ]</span> Плавание</span>
+                <span class="filter-count">2</span>
+              </div>
+              <div class="filter-item" onclick="toggleFilter(this)">
+                <span class="filter-left"><span class="checkbox unchecked">[ ]</span> Разработка</span>
+                <span class="filter-count">0</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- CENTER PANEL: Sessions List -->
+      <section class="tui-panel focused center-panel" id="panel-center" onclick="focusPanel('panel-center')">
+        <div class="panel-header">
+          <span>Список записей <span style="color: var(--accent-blue);">(Ноябрь 2026, 12 записей)</span></span>
+          <span class="panel-tag">[2]</span>
+        </div>
+
+        <!-- Inline search bar -->
+        <div class="list-search-bar">
+          <span class="search-prompt">/ Поиск:</span>
+          <input type="text" class="search-input-mock" id="searchInput" placeholder="Введите текст для быстрой фильтрации (Esc — сброс)..." oninput="filterRows(this.value)">
+          <span style="color: var(--text-dim); font-size: 0.72rem;">[Enter]</span>
+        </div>
+
+        <!-- List View -->
+        <div class="session-list-view" id="sessionList">
+
+          <!-- Date Group 1 -->
+          <div class="date-group-header">
+            <span>04-11-2026, Среда (Сегодня)</span>
+            <div class="date-group-line"></div>
+            <span class="date-group-stats">2 записи • 2.0 ч</span>
+          </div>
+
+          <div class="session-row selected" data-id="20261104100000" onclick="selectRow(this)">
+            <span class="row-cursor">▶ 1</span>
+            <span class="row-time">10:00</span>
+            <span class="row-name">Утренняя стрельба на 30м <span class="repeat-icon" title="Повторяющаяся серия">↻</span></span>
+            <span class="row-type">Стрельба из лука</span>
+            <span class="row-duration">60 мин</span>
+            <span class="row-status status-active">✓ Активно</span>
+          </div>
+
+          <div class="session-row" data-id="20261104183000" onclick="selectRow(this)">
+            <span class="row-cursor">&nbsp;&nbsp;2</span>
+            <span class="row-time">18:30</span>
+            <span class="row-name">Метание с 5 метров (серия)</span>
+            <span class="row-type">Метание ножей</span>
+            <span class="row-duration">60 мин</span>
+            <span class="row-status status-active">✓ Активно</span>
+          </div>
+
+          <!-- Date Group 2 -->
+          <div class="date-group-header">
+            <span>03-11-2026, Вторник</span>
+            <div class="date-group-line"></div>
+            <span class="date-group-stats">2 записи • 2.2 ч</span>
+          </div>
+
+          <div class="session-row" data-id="20261103140000" onclick="selectRow(this)">
+            <span class="row-cursor">&nbsp;&nbsp;3</span>
+            <span class="row-time">14:00</span>
+            <span class="row-name">Тренировка блочного лука</span>
+            <span class="row-type">Стрельба из лука</span>
+            <span class="row-duration">90 мин</span>
+            <span class="row-status status-active">✓ Активно</span>
+          </div>
+
+          <div class="session-row" data-id="20261103190000" onclick="selectRow(this)">
+            <span class="row-cursor">&nbsp;&nbsp;4</span>
+            <span class="row-time">19:00</span>
+            <span class="row-name">Отработка хвата ножа</span>
+            <span class="row-type">Метание ножей</span>
+            <span class="row-duration">45 мин</span>
+            <span class="row-status status-skip">⊘ Пропущено</span>
+          </div>
+
+          <!-- Date Group 3 -->
+          <div class="date-group-header">
+            <span>02-11-2026, Понедельник</span>
+            <div class="date-group-line"></div>
+            <span class="date-group-stats">1 запись • 1.5 ч</span>
+          </div>
+
+          <div class="session-row" data-id="20261102110000" onclick="selectRow(this)">
+            <span class="row-cursor">&nbsp;&nbsp;5</span>
+            <span class="row-time">11:00</span>
+            <span class="row-name">Стрельба в тире (разминка)</span>
+            <span class="row-type">Стрельба из лука</span>
+            <span class="row-duration">90 мин</span>
+            <span class="row-status status-active">✓ Активно</span>
+          </div>
+
+          <!-- Date Group 4 -->
+          <div class="date-group-header">
+            <span>01-11-2026, Воскресенье</span>
+            <div class="date-group-line"></div>
+            <span class="date-group-stats">2 записи • 2.5 ч</span>
+          </div>
+
+          <div class="session-row" data-id="20261101120000" onclick="selectRow(this)">
+            <span class="row-cursor">&nbsp;&nbsp;6</span>
+            <span class="row-time">12:00</span>
+            <span class="row-name">Турнир клуба по стрельбе</span>
+            <span class="row-type">Стрельба из лука</span>
+            <span class="row-duration">120 мин</span>
+            <span class="row-status status-active">✓ Активно</span>
+          </div>
+
+          <div class="session-row" data-id="20261101160000" onclick="selectRow(this)">
+            <span class="row-cursor">&nbsp;&nbsp;7</span>
+            <span class="row-time">16:00</span>
+            <span class="row-name">Тестирование новых мишеней</span>
+            <span class="row-type">Метание ножей</span>
+            <span class="row-duration">30 мин</span>
+            <span class="row-status status-cancel">✕ Отменено</span>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- RIGHT PANEL: Detailed Inspector Card & Statistics -->
+      <aside class="tui-panel" id="panel-right" onclick="focusPanel('panel-right')">
+        <div class="panel-header">
+          <span>Карточка & Статистика</span>
+          <span class="panel-tag">[3]</span>
+        </div>
+
+        <div class="right-panel">
+
+          <!-- Detail Card for Focused Record -->
+          <div class="card-box" id="detailCard">
+            <div class="card-title-row">
+              <span style="color: var(--text-dim);">ИД ЗАПИСИ:</span>
+              <span class="card-id" id="detailId">20261104100000</span>
+            </div>
+
+            <div class="field-row">
+              <span class="field-lbl">Дата:</span>
+              <span class="field-val" id="detailDate" style="color: var(--accent-magenta);">04-11-2026 (Среда)</span>
+            </div>
+            <div class="field-row">
+              <span class="field-lbl">Время:</span>
+              <span class="field-val" id="detailTime">10:00</span>
+            </div>
+            <div class="field-row">
+              <span class="field-lbl">Название:</span>
+              <span class="field-val" id="detailName" style="color: var(--accent-green); font-weight: 700;">Утренняя стрельба на 30м</span>
+            </div>
+            <div class="field-row">
+              <span class="field-lbl">Тип:</span>
+              <span class="field-val" id="detailType">Стрельба из лука</span>
+            </div>
+            <div class="field-row">
+              <span class="field-lbl">Длительность:</span>
+              <span class="field-val" id="detailDuration" style="color: var(--accent-orange);">60 мин (1.0 ч)</span>
+            </div>
+            <div class="field-row">
+              <span class="field-lbl">Статус:</span>
+              <span class="field-val" id="detailStatus" style="color: var(--accent-green);">Активно</span>
+            </div>
+            <div class="field-row">
+              <span class="field-lbl">Серия:</span>
+              <span class="field-val" id="detailRepeat" style="color: var(--accent-magenta);">Ежедневно (записей: 7)</span>
+            </div>
+
+            <div class="form-group" style="margin-top: 4px;">
+              <span class="field-lbl">Комментарий:</span>
+              <div class="notes-box" id="detailNotes">
+                Проверить натяжение тетивы, 50 стрел по 5 подходов. Ветреная погода.
+              </div>
+            </div>
+          </div>
+
+          <!-- Overall Summary Statistics -->
+          <div class="stats-card">
+            <div class="stat-hero">
+              <div>
+                <div class="stat-hero-lbl">ОБЩЕЕ ВРЕМЯ (ВЫБОРКА)</div>
+                <div class="stat-hero-big">8.2 ч</div>
+              </div>
+              <div style="text-align: right;">
+                <div class="stat-hero-lbl">ВСЕГО ЗАПИСЕЙ</div>
+                <div style="font-size: 1.1rem; font-weight: 700; color: var(--accent-green);">7</div>
+              </div>
+            </div>
+
+            <div style="font-size: 0.74rem; color: var(--text-dim); display: flex; justify-content: space-between;">
+              <span>Средняя длительность:</span>
+              <span style="color: var(--accent-orange); font-weight: 600;">70.3 мин</span>
+            </div>
+
+            <div class="section-title" style="margin-top: 6px;">
+              <span>Время по типам</span>
+            </div>
+
+            <div class="progress-group">
+              <div class="progress-item">
+                <div class="progress-labels">
+                  <span>Стрельба из лука</span>
+                  <span>5.0 ч (61%)</span>
+                </div>
+                <div class="progress-bar">
+                  <div class="progress-fill" style="width: 61%; background: var(--accent-blue);"></div>
+                </div>
+              </div>
+
+              <div class="progress-item">
+                <div class="progress-labels">
+                  <span>Метание ножей</span>
+                  <span>3.2 ч (39%)</span>
+                </div>
+                <div class="progress-bar">
+                  <div class="progress-fill" style="width: 39%; background: var(--accent-orange);"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </aside>
+
+    </div>
+
+    <!-- Bottom Status & Keybindings Bar -->
+    <footer class="terminal-footer">
+      <div class="shortcuts-row">
+        <span class="key-badge" onclick="moveSelection(-1)"><span class="key-cap">↑/↓</span> Выбор</span>
+        <span class="key-badge" onclick="cyclePanel()"><span class="key-cap">Tab</span> Панель</span>
+        <span class="key-badge" onclick="openAddModal()"><span class="key-cap">a</span> Добавить</span>
+        <span class="key-badge" onclick="openEditModal()"><span class="key-cap">e / \</span> Правка</span>
+        <span class="key-badge" onclick="openDeleteModal()"><span class="key-cap">d</span> Удалить</span>
+        <span class="key-badge" onclick="openTypeModal()"><span class="key-cap">t</span> Фильтр типов</span>
+        <span class="key-badge" onclick="focusSearch()"><span class="key-cap">/</span> Поиск</span>
+        <span class="key-badge" onclick="openSettingsModal()"><span class="key-cap">s</span> Настройки</span>
+        <span class="key-badge" onclick="alert('Выход из MyCal (Ctrl+C или q)')"><span class="key-cap">q</span> Выход</span>
+      </div>
+
+      <div class="footer-status">
+        <span><span class="status-dot"></span> Синхронизировано</span>
+        <span style="color: var(--border-bright);">│</span>
+        <span>Режим: <strong style="color: var(--text-main);">TUI</strong></span>
+      </div>
+    </footer>
+
+  </main>
+
+  <!-- Spec & Implementation Architecture Plan -->
+  <div class="specs-grid">
+
+    <div class="spec-card">
+      <h2>🚀 Архитектура и запуск TUI</h2>
+      <p>Как будет включаться и настраиваться новый режим:</p>
+      <ul>
+        <li>
+          <strong>Запуск через аргумент:</strong> Команда <span class="code-chip">mycal -tui</span> или <span class="code-chip">mycal --tui</span> мгновенно запускает графический полноэкранный интерфейс вместо классического меню.
+        </li>
+        <li>
+          <strong>Пункт в настройках:</strong> В меню настроек программы добавляется опция <span class="code-chip">TUI по умолчанию: [Вкл / Выкл]</span>. Если включено — обычный запуск <span class="code-chip">mycal</span> открывает TUI сразу, а классический CLI доступен через <span class="code-chip">mycal --no-tui</span> или прямые подкоманды (<span class="code-chip">view</span>, <span class="code-chip">add</span>, <span class="code-chip">export</span>).
+        </li>
+        <li>
+          <strong>Совместимость с CLI:</strong> Все существующие строчные команды скриптов продолжают работать без изменений.
+        </li>
+      </ul>
+    </div>
+
+    <div class="spec-card">
+      <h2>⌨️ Управление клавиатурой</h2>
+      <p>Интуитивная эргономика без необходимости учить сложные комбинации:</p>
+      <ul>
+        <li>
+          <strong>Стрелки <span class="code-chip">↑</span> / <span class="code-chip">↓</span>:</strong> плавное перемещение курсора по списку записей с мгновенным обновлением правой карточки.
+        </li>
+        <li>
+          <strong>Клавиша <span class="code-chip">Tab</span> / <span class="code-chip">1, 2, 3</span>:</strong> быстрое переключение активного фокуса между колонками (Календарь → Список → Детали).
+        </li>
+        <li>
+          <strong>Клавиша <span class="code-chip">Enter</span>:</strong> открыть полную карточку / перейти внутрь.
+        </li>
+        <li>
+          <strong>Быстрые буквы:</strong> <span class="code-chip">a</span> — добавить запись, <span class="code-chip">e</span> или <span class="code-chip">\</span> — редактировать текущую, <span class="code-chip">d</span> — удалить с подтверждением, <span class="code-chip">t</span> — настроить фильтр типов, <span class="code-chip">/</span> — живой поиск, <span class="code-chip">s</span> — экран настроек.
+        </li>
+        <li>
+          <strong><span class="code-chip">Esc</span> / <span class="code-chip">q</span>:</strong> закрыть всплывающее окно, очистить строку поиска или выйти.
+        </li>
+      </ul>
+    </div>
+
+    <div class="spec-card">
+      <h2>🎨 Визуальное оформление и технологии</h2>
+      <p>Надёжность, красота и скорость без тормозов:</p>
+      <ul>
+        <li>
+          <strong>Библиотека реализации в Go:</strong> Использование экосистемы <em>Bubble Tea</em> + <em>Lip Gloss</em> (от Charm.sh) — признанный стандарт современных красивых TUI для Go, обеспечивающий чистую компоновку, цветовую палитру ANSI/256/TrueColor и поддержку Windows Terminal, macOS и Linux.
+        </li>
+        <li>
+          <strong>Автоадаптация к размеру окна:</strong> При изменении размера терминала сетка динамически подстраивается; на небольших экранах правая панель деталей автоматически прячется или переключается по <span class="code-chip">Enter</span> в полноэкранный диалог.
+        </li>
+        <li>
+          <strong>Псевдографика Unicode:</strong> Аккуратные тонкие рамки (<span class="code-chip">│</span>, <span class="code-chip">─</span>, <span class="code-chip">╭</span>, <span class="code-chip">╮</span>), иконки статусов и аккуратные бейджи длительности.
+        </li>
+      </ul>
+    </div>
+
+  </div>
+
+</div>
+
+<!-- MODAL: ADD / EDIT SESSION -->
+<dialog id="modal-session">
+  <div class="modal-hdr">
+    <span id="modal-session-title">Добавить новую запись</span>
+    <button type="button" class="btn" style="padding: 2px 8px;" onclick="closeModal('modal-session')">✕</button>
+  </div>
+  <form method="dialog" onsubmit="saveSession(event)">
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">
+          <span>Дата:</span>
+          <span class="hint">Enter — сегодня (04.11.2026)</span>
+        </label>
+        <input type="text" class="form-input" id="form-date" value="04.11.2026" autofocus>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">
+          <span>Время записи:</span>
+          <span class="hint">ЧЧ:ММ (напр. 15:30 или 15)</span>
+        </label>
+        <input type="text" class="form-input" id="form-time" value="16:00" placeholder="10:00">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">
+          <span>Наименование:</span>
+          <span class="hint">Обязательное поле</span>
+        </label>
+        <input type="text" class="form-input" id="form-name" value="Стрельба на открытом воздухе" placeholder="Название тренировки или дела">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">
+          <span>Тип записи:</span>
+          <span class="hint">Выберите из списка или введите свой</span>
+        </label>
+        <select class="form-select" id="form-type">
+          <option selected>Стрельба из лука</option>
+          <option>Метание ножей</option>
+          <option>Плавание</option>
+          <option>Фитнес</option>
+          <option>+ Добавить новый тип...</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">
+          <span>Продолжительность:</span>
+          <span class="hint">в минутах [60]</span>
+        </label>
+        <input type="number" class="form-input" id="form-dur" value="60">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">
+          <span>Комментарий:</span>
+          <span class="hint">Необязательно</span>
+        </label>
+        <input type="text" class="form-input" id="form-notes" placeholder="Заметки, дистанция, погода...">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">
+          <span>Повторять запись?</span>
+        </label>
+        <select class="form-select" id="form-repeat">
+          <option value="none" selected>Нет (одиночная запись)</option>
+          <option value="d">Каждый день (d)</option>
+          <option value="w">Каждую неделю (w)</option>
+          <option value="m">Каждый месяц (m)</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn" onclick="closeModal('modal-session')">Отмена [Esc]</button>
+      <button type="submit" class="btn btn-primary">Сохранить запись [Enter]</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- MODAL: TYPE FILTER PICKER -->
+<dialog id="modal-types">
+  <div class="modal-hdr">
+    <span>Выбор типов записей</span>
+    <button type="button" class="btn" style="padding: 2px 8px;" onclick="closeModal('modal-types')">✕</button>
+  </div>
+  <div class="modal-body">
+    <div class="form-group">
+      <input type="text" class="form-input" placeholder="Поиск типа (напр. 'стрельб')..." autofocus oninput="filterModalTypes(this.value)">
+    </div>
+    <div style="display: flex; gap: 8px; font-size: 0.74rem;">
+      <button type="button" class="btn" style="padding: 3px 8px;" onclick="checkAllModalTypes(true)">[+] Выбрать все</button>
+      <button type="button" class="btn" style="padding: 3px 8px;" onclick="checkAllModalTypes(false)">[-] Снять все</button>
+    </div>
+    <div class="filter-list" id="modal-type-list" style="max-height: 200px; overflow-y: auto;">
+      <div class="filter-item active" onclick="toggleModalCheck(this)">
+        <span class="filter-left"><span class="checkbox">[✓]</span> Стрельба из лука</span>
+        <span class="filter-count">8 записей</span>
+      </div>
+      <div class="filter-item active" onclick="toggleModalCheck(this)">
+        <span class="filter-left"><span class="checkbox">[✓]</span> Метание ножей</span>
+        <span class="filter-count">4 записи</span>
+      </div>
+      <div class="filter-item" onclick="toggleModalCheck(this)">
+        <span class="filter-left"><span class="checkbox unchecked">[ ]</span> Плавание</span>
+        <span class="filter-count">2 записи</span>
+      </div>
+      <div class="filter-item" onclick="toggleModalCheck(this)">
+        <span class="filter-left"><span class="checkbox unchecked">[ ]</span> Разработка</span>
+        <span class="filter-count">0 записей</span>
+      </div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn" onclick="closeModal('modal-types')">Отмена</button>
+    <button type="button" class="btn btn-primary" onclick="closeModal('modal-types')">Применить фильтр [Enter]</button>
+  </div>
+</dialog>
+
+<!-- MODAL: SETTINGS -->
+<dialog id="modal-settings">
+  <div class="modal-hdr">
+    <span>Настройки MyCal</span>
+    <button type="button" class="btn" style="padding: 2px 8px;" onclick="closeModal('modal-settings')">✕</button>
+  </div>
+  <div class="modal-body">
+    <div class="form-group" style="background: rgba(96, 165, 250, 0.08); padding: 10px; border-radius: 6px; border: 1px solid rgba(96, 165, 250, 0.2);">
+      <label class="form-label" style="color: var(--accent-blue); font-weight: 700;">
+        <span>★ TUI режим по умолчанию:</span>
+        <span class="hint" style="color: var(--accent-cyan);">Новая опция!</span>
+      </label>
+      <p style="font-size: 0.76rem; color: var(--text-muted); margin-bottom: 6px;">
+        Если включено — запуск <code class="code-chip">mycal</code> сразу открывает этот полноэкранный интерфейс.
+      </p>
+      <select class="form-select" id="setting-tui-default" style="font-weight: 600;">
+        <option value="true" selected>Включен (запускать TUI по умолчанию)</option>
+        <option value="false">Выключен (запускать классическое меню)</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">
+        <span>Проверка некорректных дат:</span>
+      </label>
+      <select class="form-select">
+        <option>Спрашивать (подтверждать автоперенос 32.01 → 01.02)</option>
+        <option>Исправлять авто (сдвигать автоматически)</option>
+        <option>Переспрашивать (отклонять опечатки и просить ввод)</option>
+        <option>Выключена (молча переносить)</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">
+        <span>Спрашивать при совпадении времени:</span>
+      </label>
+      <select class="form-select">
+        <option selected>Выкл (добавлять сразу без предупреждения)</option>
+        <option>Вкл (предупреждать о пересечении времени)</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">
+        <span>Каталог данных (Data Path):</span>
+      </label>
+      <input type="text" class="form-input" value="~/.mycal" readonly style="opacity: 0.7;">
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn" onclick="closeModal('modal-settings')">Отмена</button>
+    <button type="button" class="btn btn-primary" onclick="alert('Настройки сохранены в ~/.mycal/config_mycal.json'); closeModal('modal-settings');">Сохранить [Enter]</button>
+  </div>
+</dialog>
+
+<!-- MODAL: DELETE CONFIRMATION -->
+<dialog id="modal-delete">
+  <div class="modal-hdr">
+    <span style="color: var(--accent-red);">Удаление записи</span>
+    <button type="button" class="btn" style="padding: 2px 8px;" onclick="closeModal('modal-delete')">✕</button>
+  </div>
+  <div class="modal-body">
+    <p>Вы действительно хотите удалить выбранную запись?</p>
+    <div style="background: var(--bg-panel); padding: 8px 12px; border-radius: 4px; margin-top: 6px; font-size: 0.8rem; border-left: 3px solid var(--accent-red);">
+      <strong id="del-name">Утренняя стрельба на 30м</strong><br>
+      <span style="color: var(--text-muted);" id="del-meta">04-11-2026 10:00 • 60 мин • Стрельба из лука</span>
+    </div>
+    <div id="del-repeat-box" style="margin-top: 8px; font-size: 0.78rem; color: var(--accent-yellow);">
+      ⚠️ Эта запись входит в регулярную серию повторов.
+      <div style="margin-top: 6px;">
+        <label><input type="radio" name="del-mode" value="single" checked> Удалить только эту запись</label><br>
+        <label><input type="radio" name="del-mode" value="all"> Удалить всю серию (все 7 записей)</label>
+      </div>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn" onclick="closeModal('modal-delete')" autofocus>Отмена [Esc]</button>
+    <button type="button" class="btn btn-danger" onclick="confirmDelete()">Удалить [d]</button>
+  </div>
+</dialog>
+
+<script>
+  // Sample Data for live interactive inspector
+  const sessionData = {
+    "20261104100000": {
+      id: "20261104100000",
+      date: "04-11-2026 (Среда)",
+      time: "10:00",
+      name: "Утренняя стрельба на 30м",
+      type: "Стрельба из лука",
+      dur: "60 мин (1.0 ч)",
+      status: "Активно",
+      statusClass: "accent-green",
+      repeat: "Ежедневно (записей: 7)",
+      notes: "Проверить натяжение тетивы, 50 стрел по 5 подходов. Ветреная погода."
+    },
+    "20261104183000": {
+      id: "20261104183000",
+      date: "04-11-2026 (Среда)",
+      time: "18:30",
+      name: "Метание с 5 метров (серия)",
+      type: "Метание ножей",
+      dur: "60 мин (1.0 ч)",
+      status: "Активно",
+      statusClass: "accent-green",
+      repeat: "Одиночная",
+      notes: "Контроль вращения и точки схода с пальцев. Новые ножи 280 грамм."
+    },
+    "20261103140000": {
+      id: "20261103140000",
+      date: "03-11-2026 (Вторник)",
+      time: "14:00",
+      name: "Тренировка блочного лука",
+      type: "Стрельба из лука",
+      dur: "90 мин (1.5 ч)",
+      status: "Активно",
+      statusClass: "accent-green",
+      repeat: "Каждую неделю",
+      notes: "Работа с релизом и прицелом на 50 метров."
+    },
+    "20261103190000": {
+      id: "20261103190000",
+      date: "03-11-2026 (Вторник)",
+      time: "19:00",
+      name: "Отработка хвата ножа",
+      type: "Метание ножей",
+      dur: "45 мин (0.8 ч)",
+      status: "Пропущено",
+      statusClass: "accent-yellow",
+      repeat: "Одиночная",
+      notes: "Перенесено из-за совещания."
+    },
+    "20261102110000": {
+      id: "20261102110000",
+      date: "02-11-2026 (Понедельник)",
+      time: "11:00",
+      name: "Стрельба в тире (разминка)",
+      type: "Стрельба из лука",
+      dur: "90 мин (1.5 ч)",
+      status: "Активно",
+      statusClass: "accent-green",
+      repeat: "Одиночная",
+      notes: "Разминка плечевого пояса, стабильность стойки."
+    },
+    "20261101120000": {
+      id: "20261101120000",
+      date: "01-11-2026 (Воскресенье)",
+      time: "12:00",
+      name: "Турнир клуба по стрельбе",
+      type: "Стрельба из лука",
+      dur: "120 мин (2.0 ч)",
+      status: "Активно",
+      statusClass: "accent-green",
+      repeat: "Одиночная",
+      notes: "Личный зачёт, 2-е место! Результат 284/300 очков."
+    },
+    "20261101160000": {
+      id: "20261101160000",
+      date: "01-11-2026 (Воскресенье)",
+      time: "16:00",
+      name: "Тестирование новых мишеней",
+      type: "Метание ножей",
+      dur: "30 мин (0.5 ч)",
+      status: "Отменено",
+      statusClass: "accent-red",
+      repeat: "Одиночная",
+      notes: "Отмена из-за сильного дождя."
+    }
+  };
+
+  const panels = ["panel-left", "panel-center", "panel-right"];
+  let focusedPanelIdx = 1; // start on center
+
+  function focusPanel(id) {
+    panels.forEach((p, idx) => {
+      const el = document.getElementById(p);
+      if (p === id) {
+        el.classList.add("focused");
+        focusedPanelIdx = idx;
+      } else {
+        el.classList.remove("focused");
+      }
+    });
+  }
+
+  function cyclePanel() {
+    focusedPanelIdx = (focusedPanelIdx + 1) % panels.length;
+    focusPanel(panels[focusedPanelIdx]);
+  }
+
+  function selectRow(rowEl) {
+    document.querySelectorAll(".session-row").forEach(r => {
+      r.classList.remove("selected");
+      const cursor = r.querySelector(".row-cursor");
+      if (cursor) cursor.innerHTML = cursor.innerHTML.replace("▶", "&nbsp;&nbsp;");
+    });
+
+    rowEl.classList.add("selected");
+    const cursor = rowEl.querySelector(".row-cursor");
+    if (cursor) cursor.innerHTML = cursor.innerHTML.replace("&nbsp;&nbsp;", "▶");
+
+    const id = rowEl.dataset.id;
+    if (sessionData[id]) {
+      const d = sessionData[id];
+      document.getElementById("detailId").textContent = d.id;
+      document.getElementById("detailDate").textContent = d.date;
+      document.getElementById("detailTime").textContent = d.time;
+      document.getElementById("detailName").textContent = d.name;
+      document.getElementById("detailType").textContent = d.type;
+      document.getElementById("detailDuration").textContent = d.dur;
+      document.getElementById("detailStatus").textContent = d.status;
+      document.getElementById("detailStatus").style.color = `var(--${d.statusClass})`;
+      document.getElementById("detailRepeat").textContent = d.repeat;
+      document.getElementById("detailNotes").textContent = d.notes;
+    }
+  }
+
+  function moveSelection(direction) {
+    const rows = Array.from(document.querySelectorAll(".session-row:not([style*='display: none'])"));
+    if (rows.length === 0) return;
+    const currentIdx = rows.findIndex(r => r.classList.contains("selected"));
+    let nextIdx = currentIdx + direction;
+    if (nextIdx < 0) nextIdx = 0;
+    if (nextIdx >= rows.length) nextIdx = rows.length - 1;
+    selectRow(rows[nextIdx]);
+    rows[nextIdx].scrollIntoView({ block: "nearest" });
+  }
+
+  function toggleFilter(el) {
+    el.classList.toggle("active");
+    const cb = el.querySelector(".checkbox");
+    if (el.classList.contains("active")) {
+      cb.textContent = "[✓]";
+      cb.classList.remove("unchecked");
+    } else {
+      cb.textContent = "[ ]";
+      cb.classList.add("unchecked");
+    }
+  }
+
+  function toggleModalCheck(el) {
+    el.classList.toggle("active");
+    const cb = el.querySelector(".checkbox");
+    if (el.classList.contains("active")) {
+      cb.textContent = "[✓]";
+      cb.classList.remove("unchecked");
+    } else {
+      cb.textContent = "[ ]";
+      cb.classList.add("unchecked");
+    }
+  }
+
+  function checkAllModalTypes(check) {
+    document.querySelectorAll("#modal-type-list .filter-item").forEach(item => {
+      const cb = item.querySelector(".checkbox");
+      if (check) {
+        item.classList.add("active");
+        cb.textContent = "[✓]";
+        cb.classList.remove("unchecked");
+      } else {
+        item.classList.remove("active");
+        cb.textContent = "[ ]";
+        cb.classList.add("unchecked");
+      }
+    });
+  }
+
+  function filterModalTypes(query) {
+    query = query.toLowerCase().trim();
+    document.querySelectorAll("#modal-type-list .filter-item").forEach(item => {
+      const text = item.textContent.toLowerCase();
+      item.style.display = text.includes(query) ? "flex" : "none";
+    });
+  }
+
+  function filterRows(query) {
+    query = query.toLowerCase().trim();
+    document.querySelectorAll(".session-row").forEach(row => {
+      const text = row.textContent.toLowerCase();
+      row.style.display = text.includes(query) ? "grid" : "none";
+    });
+  }
+
+  function selectDate(date) {
+    alert("Выбрана дата календаря: " + date + "\nСписок отфильтрован на этот день.");
+  }
+
+  function setPeriod(el, period) {
+    document.querySelectorAll(".filter-list .filter-item").forEach(item => {
+      if (item.onclick && item.onclick.toString().includes("setPeriod")) {
+        item.classList.remove("active");
+        const leftSpan = item.querySelector(".filter-left span");
+        if (leftSpan) {
+          leftSpan.textContent = "•";
+          leftSpan.style.color = "";
+        }
+      }
+    });
+    el.classList.add("active");
+    const leftSpan = el.querySelector(".filter-left span");
+    if (leftSpan) {
+      leftSpan.textContent = "▶";
+      leftSpan.style.color = "var(--accent-blue)";
+    }
+  }
+
+  function openModal(id) {
+    const d = document.getElementById(id);
+    if (d && typeof d.showModal === "function") {
+      d.showModal();
+    }
+  }
+
+  function closeModal(id) {
+    const d = document.getElementById(id);
+    if (d && typeof d.close === "function") {
+      d.close();
+    }
+  }
+
+  function openAddModal() {
+    document.getElementById("modal-session-title").textContent = "Добавить новую запись";
+    openModal("modal-session");
+  }
+
+  function openEditModal() {
+    const selected = document.querySelector(".session-row.selected");
+    const id = selected ? selected.dataset.id : "20261104100000";
+    const d = sessionData[id];
+    document.getElementById("modal-session-title").textContent = "Редактировать запись (" + id + ")";
+    if (d) {
+      document.getElementById("form-name").value = d.name;
+      document.getElementById("form-time").value = d.time;
+      document.getElementById("form-type").value = d.type;
+      document.getElementById("form-notes").value = d.notes;
+    }
+    openModal("modal-session");
+  }
+
+  function openDeleteModal() {
+    const selected = document.querySelector(".session-row.selected");
+    const id = selected ? selected.dataset.id : "20261104100000";
+    const d = sessionData[id];
+    if (d) {
+      document.getElementById("del-name").textContent = d.name;
+      document.getElementById("del-meta").textContent = `${d.date} ${d.time} • ${d.dur} • ${d.type}`;
+    }
+    openModal("modal-delete");
+  }
+
+  function confirmDelete() {
+    alert("Запись успешно удалена!");
+    closeModal("modal-delete");
+  }
+
+  function saveSession(e) {
+    e.preventDefault();
+    alert("Запись сохранена!");
+    closeModal("modal-session");
+  }
+
+  function openTypeModal() {
+    openModal("modal-types");
+  }
+
+  function openSettingsModal() {
+    openModal("modal-settings");
+  }
+
+  function focusSearch() {
+    focusPanel("panel-center");
+    const inp = document.getElementById("searchInput");
+    inp.focus();
+    inp.select();
+  }
+
+  function setTheme(theme) {
+    document.querySelectorAll(".theme-btn").forEach(b => b.classList.remove("active"));
+    event.target.classList.add("active");
+    if (theme === "tokyo") {
+      document.documentElement.removeAttribute("data-theme");
+    } else {
+      document.documentElement.setAttribute("data-theme", theme);
+    }
+  }
+
+  // Keyboard Navigation Handling
+  window.addEventListener("keydown", (e) => {
+    // If a modal is open, let native dialog Esc close it
+    const openDialog = document.querySelector("dialog[open]");
+    if (openDialog) {
+      if (e.key === "Escape") {
+        openDialog.close();
+      }
+      return;
+    }
+
+    // Ignore single key shortcuts if typing in search input
+    if (document.activeElement === document.getElementById("searchInput")) {
+      if (e.key === "Escape") {
+        document.getElementById("searchInput").value = "";
+        filterRows("");
+        document.getElementById("searchInput").blur();
+      }
+      return;
+    }
+
+    switch (e.key) {
+      case "ArrowUp":
+      case "k":
+        e.preventDefault();
+        moveSelection(-1);
+        break;
+      case "ArrowDown":
+      case "j":
+        e.preventDefault();
+        moveSelection(1);
+        break;
+      case "Tab":
+        e.preventDefault();
+        cyclePanel();
+        break;
+      case "1":
+        focusPanel("panel-left");
+        break;
+      case "2":
+        focusPanel("panel-center");
+        break;
+      case "3":
+        focusPanel("panel-right");
+        break;
+      case "a":
+      case "а":
+        openAddModal();
+        break;
+      case "e":
+      case "е":
+      case "\\":
+        openEditModal();
+        break;
+      case "d":
+      case "в":
+        openDeleteModal();
+        break;
+      case "t":
+      case "т":
+        openTypeModal();
+        break;
+      case "s":
+      case "ы":
+        openSettingsModal();
+        break;
+      case "/":
+        e.preventDefault();
+        focusSearch();
+        break;
+      case "q":
+      case "й":
+        if (confirm("Выйти из MyCal TUI?")) {
+          window.close();
+        }
+        break;
+    }
+  });
+</script>
+
+</body>
+</html>

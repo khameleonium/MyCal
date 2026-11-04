@@ -243,6 +243,15 @@ func TotalMinutes(sessions []models.Session) int {
 	return total
 }
 
+// TotalCash sums session cash amounts.
+func TotalCash(sessions []models.Session) float64 {
+	var total float64
+	for _, x := range sessions {
+		total += x.Cash
+	}
+	return total
+}
+
 // -------------------------------------------------------------- mutations ----
 
 // GenerateID returns a unique 14-char ID: YYYYMMDDHHMM + a two-digit counter
@@ -302,12 +311,13 @@ type Patch struct {
 	Duration *int
 	Notes    *string
 	Status   *string
+	Cash     *float64
 }
 
 // Empty reports whether the patch would change nothing.
 func (p Patch) Empty() bool {
 	return p.Time == nil && p.Name == nil && p.Type == nil &&
-		p.Duration == nil && p.Notes == nil && p.Status == nil
+		p.Duration == nil && p.Notes == nil && p.Status == nil && p.Cash == nil
 }
 
 func (p Patch) applyTo(x *models.Session) {
@@ -328,6 +338,9 @@ func (p Patch) applyTo(x *models.Session) {
 	}
 	if p.Status != nil {
 		x.Status = *p.Status
+	}
+	if p.Cash != nil {
+		x.Cash = *p.Cash
 	}
 }
 
