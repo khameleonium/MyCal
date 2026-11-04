@@ -668,7 +668,11 @@ func (s *Server) handleTypes(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	types := s.svc.Types(s.cfg.CustomStatuses...)
+	var seed []string
+	if s.cfg.DefaultType != "" {
+		seed = append(seed, s.cfg.DefaultType)
+	}
+	types := s.svc.Types(seed...)
 	respondJSON(w, http.StatusOK, map[string]interface{}{"types": types})
 }
 

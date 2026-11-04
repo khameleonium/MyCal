@@ -115,6 +115,7 @@ async function fetchStatuses() {
     const data = await apiFetch("/api/statuses");
     if (data.statuses && data.statuses.length > 0) {
       state.statuses = data.statuses;
+      updateStatusSelect();
     }
   } catch (e) {
     console.warn("Could not load statuses:", e);
@@ -125,6 +126,7 @@ async function fetchConfig() {
   try {
     const data = await apiFetch("/api/config");
     state.config = data.config || {};
+    updateNamesDatalist();
     const defaultMode = state.config.default_mode || "cli";
     if (document.getElementById("cfgDefaultMode")) {
       document.getElementById("cfgDefaultMode").value = defaultMode;
@@ -178,6 +180,7 @@ async function refreshData() {
 
     const data = await apiFetch(`/api/sessions?${params.toString()}`);
     state.sessions = data.sessions || [];
+    updateNamesDatalist();
 
     renderFeed();
     renderMiniCalendar();
@@ -376,6 +379,45 @@ function updateTypeDatalist() {
   const datalist = document.getElementById("typesDatalist");
   if (!datalist) return;
   datalist.innerHTML = state.types.map(t => `<option value="${escapeHtml(t)}">`).join("");
+}
+
+function updateStatusSelect() {
+  const sel = document.getElementById("formStatus");
+  if (!sel || !state.statuses || state.statuses.length === 0) return;
+  const curVal = sel.value;
+  sel.innerHTML = state.statuses.map(st => `<option value="${escapeHtml(st)}">${escapeHtml(st)}</option>`).join("");
+  if (curVal) {
+    sel.value = curVal;
+  }
+}
+
+function updateNamesDatalist() {
+  const datalist = document.getElementById("namesDatalist");
+  if (!datalist) return;
+  const seen = new Set();
+  const names = [];
+  if (state.config && Array.isArray(state.config.custom_names)) {
+    for (const n of state.config.custom_names) {
+      const s = (n || "").trim();
+      if (s && !seen.has(s)) {
+        seen.add(s);
+        names.push(s);
+      }
+    }
+  }
+  const sessionLists = [state.sessions, state.allSessions];
+  for (const list of sessionLists) {
+    if (Array.isArray(list)) {
+      for (const sess of list) {
+        const s = (sess.name || "").trim();
+        if (s && !seen.has(s)) {
+          seen.add(s);
+          names.push(s);
+        }
+      }
+    }
+  }
+  datalist.innerHTML = names.map(n => `<option value="${escapeHtml(n)}">`).join("");
 }
 
 function renderMiniCalendar() {

@@ -1004,3 +1004,208 @@ func TestNegativeCashHandlingAndTotalCalculation(t *testing.T) {
 		t.Fatalf("expected updated cash to be -150.5, got %v", updated.Cash)
 	}
 }
+
+func TestStatusPickerDropdownInSessionForm(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg.CustomStatuses = []string{"В ожидании"}
+
+	sess := models.Session{
+		ID:       "20261015100000",
+		Time:     "10:00",
+		Name:     "Тест",
+		Type:     "Работа",
+		Duration: 60,
+		Status:   "Архив",
+	}
+	_ = app.svc.Add(sess)
+	app.reloadSessions()
+
+	m := NewModalSessionForm(nil, "15.10.2026")
+	m.fieldIdx = 6 // status field
+
+	// 1. Pressing KeyRight opens status picker
+	m.HandleKey(Key{Type: KeyRight}, app)
+	if !m.pickerOpen {
+		t.Fatalf("expected pickerOpen == true on KeyRight on status field")
+	}
+	if m.pickerField != 6 {
+		t.Fatalf("expected pickerField == 6, got %d", m.pickerField)
+	}
+
+	// Verify statuses contain defaults + custom + session
+	expectedStatuses := []string{"Активно", "Завершено", "Запланировано", "В процессе", "Отменено", "В ожидании", "Архив"}
+	for _, exp := range expectedStatuses {
+		found := false
+		for _, item := range m.pickerList {
+			if item == exp {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected status %q in pickerList: %v", exp, m.pickerList)
+		}
+	}
+
+	// 2. Select second item (Завершено)
+	m.pickerIdx = 1
+	expectedStatus := m.pickerList[1]
+	m.HandleKey(Key{Type: KeyEnter}, app)
+
+	if m.pickerOpen {
+		t.Fatalf("expected pickerOpen == false after Enter")
+	}
+	if m.status != expectedStatus {
+		t.Fatalf("expected status == %q, got %q", expectedStatus, m.status)
+	}
+
+	// 3. Test Esc closes picker without modifying
+	m.HandleKey(Key{Type: KeyRight}, app)
+	if !m.pickerOpen {
+		t.Fatalf("expected pickerOpen == true")
+	}
+	m.pickerIdx = 3
+	m.HandleKey(Key{Type: KeyEsc}, app)
+	if m.pickerOpen {
+		t.Fatalf("expected pickerOpen == false after Esc")
+	}
+	if m.status != expectedStatus {
+		t.Fatalf("status should remain %q on Esc, got %q", expectedStatus, m.status)
+	}
+
+	// 4. Test Draw with open picker
+	m.HandleKey(Key{Type: KeyRight}, app)
+	s := NewScreen(80, 25)
+	m.Draw(s)
+}
+
+func TestNamesPickerDropdownInSessionForm(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg.CustomNames = []string{"Тренировка", "Созвон"}
+
+	sess := models.Session{
+		ID:       "20261015110000",
+		Time:     "11:00",
+		Name:     "Чтение книги",
+		Type:     "Отдых",
+		Duration: 30,
+	}
+	_ = app.svc.Add(sess)
+	app.reloadSessions()
+
+	m := NewModalSessionForm(nil, "15.10.2026")
+	m.fieldIdx = 2 // name field
+
+	// Pressing KeyRight opens names picker
+	m.HandleKey(Key{Type: KeyRight}, app)
+	if !m.pickerOpen {
+		t.Fatalf("expected pickerOpen == true on KeyRight on name field")
+	}
+	if m.pickerField != 2 {
+		t.Fatalf("expected pickerField == 2, got %d", m.pickerField)
+	}
+
+	expectedNames := []string{"Тренировка", "Созвон", "Чтение книги"}
+	for _, exp := range expectedNames {
+		found := false
+		for _, item := range m.pickerList {
+			if item == exp {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected name %q in pickerList: %v", exp, m.pickerList)
+		}
+	}
+
+	// Select second item
+	m.pickerIdx = 1
+	expectedName := m.pickerList[1]
+	m.HandleKey(Key{Type: KeyEnter}, app)
+
+	if m.pickerOpen {
+		t.Fatalf("expected pickerOpen == false after Enter")
+	}
+	if m.name != expectedName {
+		t.Fatalf("expected name == %q, got %q", expectedName, m.name)
+	}
+
+	s := NewScreen(80, 25)
+	m.Draw(s)
+}
+
+func TestStatusPickerDropdownInQuickEditField(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg.CustomStatuses = []string{"Отложено"}
+
+	sess := models.Session{
+		ID:       "20261015120000",
+		Time:     "12:00",
+		Name:     "План",
+		Type:     "Работа",
+		Duration: 45,
+		Status:   "Активно",
+	}
+	_ = app.svc.Add(sess)
+	app.reloadSessions()
+
+	m := NewModalQuickEditField(sess.ID)
+	m.selected = 3 // "Статус"
+	m.stepInput = true
+
+	// Pressing KeyRight opens status picker
+	m.HandleKey(Key{Type: KeyRight}, app)
+	if !m.pickerOpen {
+		t.Fatalf("expected pickerOpen == true")
+	}
+	if m.pickerField != 3 {
+		t.Fatalf("expected pickerField == 3, got %d", m.pickerField)
+	}
+
+	// Navigate and select
+	m.HandleKey(Key{Type: KeyDown}, app)
+	expectedVal := m.pickerList[m.pickerIdx]
+	m.HandleKey(Key{Type: KeyEnter}, app)
+
+	if m.pickerOpen {
+		t.Fatalf("expected pickerOpen == false after Enter")
+	}
+	if m.value != expectedVal {
+		t.Fatalf("expected value == %q, got %q", expectedVal, m.value)
+	}
+
+	// Apply value to session
+	m.applyValue(app)
+	updated, ok := app.svc.ByID(sess.ID)
+	if !ok || updated.Status != expectedVal {
+		t.Fatalf("expected updated status == %q, got %q", expectedVal, updated.Status)
+	}
+
+	s := NewScreen(80, 25)
+	m.Draw(s)
+}
+
+func TestRepeatPickerDropdownInSessionForm(t *testing.T) {
+	app := newTestApp(t)
+	m := NewModalSessionForm(nil, "15.10.2026")
+	m.fieldIdx = 8 // repeat field
+
+	m.HandleKey(Key{Type: KeyRight}, app)
+	if !m.pickerOpen {
+		t.Fatalf("expected pickerOpen == true on repeat field")
+	}
+	if m.pickerField != 8 {
+		t.Fatalf("expected pickerField == 8, got %d", m.pickerField)
+	}
+
+	// Select weekly ("w") - index 2
+	m.pickerIdx = 2
+	m.HandleKey(Key{Type: KeyEnter}, app)
+	if m.repeatStr != "w" {
+		t.Fatalf("expected repeatStr == 'w', got %q", m.repeatStr)
+	}
+
+	s := NewScreen(80, 25)
+	m.Draw(s)
+}
