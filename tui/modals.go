@@ -1128,6 +1128,179 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 	return false
 }
 
+// ----------------- DATE RANGE MODAL -----------------
+
+type ModalDateRange struct {
+	fromStr string
+	toStr   string
+	focused int // 0: From, 1: To, 2: Apply, 3: Cancel
+	errMsg  string
+}
+
+func NewModalDateRange(initFrom, initTo string) *ModalDateRange {
+	if strings.TrimSpace(initFrom) == "" {
+		initFrom = time.Now().Format("02.01.2006")
+	}
+	if strings.TrimSpace(initTo) == "" {
+		initTo = time.Now().Format("02.01.2006")
+	}
+	return &ModalDateRange{
+		fromStr: initFrom,
+		toStr:   initTo,
+		focused: 0,
+	}
+}
+
+func (m *ModalDateRange) Draw(s *Screen) {
+	w := 48
+	h := 13
+	if w > s.Width-2 {
+		w = s.Width - 2
+	}
+	if h > s.Height-2 {
+		h = s.Height - 2
+	}
+	x := (s.Width - w) / 2
+	y := (s.Height - h) / 2
+	if x < 1 {
+		x = 1
+	}
+	if y < 1 {
+		y = 1
+	}
+
+	s.DrawBox(x, y, w, h, "Выбор периода дат", FgCyan, BorderBright, BgModal, true)
+
+	s.DrawText(x+2, y+1, "Укажите диапазон дат для фильтрации записей:", FgMuted, BgModal, w-4, false, false, false)
+
+	// Field 0: From
+	f0Bg := BgCard
+	f0Fg := FgMain
+	if m.focused == 0 {
+		f0Bg = BgSelected
+		f0Fg = FgWhite
+	}
+	s.DrawText(x+2, y+3, "Дата начала (От):", FgDim, BgModal, 18, false, false, false)
+	s.Fill(x+20, y+3, 16, 1, ' ', f0Fg, f0Bg)
+	s.DrawText(x+21, y+3, m.fromStr, f0Fg, f0Bg, 14, m.focused == 0, false, false)
+
+	// Field 1: To
+	f1Bg := BgCard
+	f1Fg := FgMain
+	if m.focused == 1 {
+		f1Bg = BgSelected
+		f1Fg = FgWhite
+	}
+	s.DrawText(x+2, y+5, "Дата конца (До):", FgDim, BgModal, 18, false, false, false)
+	s.Fill(x+20, y+5, 16, 1, ' ', f1Fg, f1Bg)
+	s.DrawText(x+21, y+5, m.toStr, f1Fg, f1Bg, 14, m.focused == 1, false, false)
+
+	// Error message
+	if m.errMsg != "" {
+		s.DrawText(x+2, y+7, m.errMsg, FgRed, BgModal, w-4, true, false, false)
+	}
+
+	// Buttons
+	btnY := y + 8
+	btnApplyBg := BgPanelAlt
+	btnApplyFg := FgMain
+	if m.focused == 2 {
+		btnApplyBg = BgHighlight
+		btnApplyFg = FgWhite
+	}
+	applyLbl := "  Применить (Enter)  "
+	s.Fill(x+4, btnY, len(applyLbl), 1, ' ', btnApplyFg, btnApplyBg)
+	s.DrawText(x+4, btnY, applyLbl, btnApplyFg, btnApplyBg, len(applyLbl), m.focused == 2, false, false)
+
+	btnCancelBg := BgPanelAlt
+	btnCancelFg := FgMain
+	if m.focused == 3 {
+		btnCancelBg = BgHighlight
+		btnCancelFg = FgWhite
+	}
+	cancelLbl := "  Отмена (Esc)  "
+	s.Fill(x+26, btnY, len(cancelLbl), 1, ' ', btnCancelFg, btnCancelBg)
+	s.DrawText(x+26, btnY, cancelLbl, btnCancelFg, btnCancelBg, len(cancelLbl), m.focused == 3, false, false)
+
+	s.DrawText(x+2, y+h-2, "[Tab / ↑↓] Переход  [Enter] Применить  [Esc] Отмена", FgDim, BgModal, w-4, false, false, false)
+}
+
+func (m *ModalDateRange) HandleKey(k Key, app *App) bool {
+	switch {
+	case k.Type == KeyEsc:
+		app.activeModal = nil
+		return true
+
+	case k.Type == KeyTab || (k.Type == KeyDown && m.focused < 3):
+		m.focused = (m.focused + 1) % 4
+		return true
+
+	case k.Type == KeyBackTab || (k.Type == KeyUp && m.focused > 0):
+		m.focused = (m.focused + 3) % 4
+		return true
+
+	case k.Type == KeyLeft && m.focused == 3:
+		m.focused = 2
+		return true
+
+	case k.Type == KeyRight && m.focused == 2:
+		m.focused = 3
+		return true
+
+	case k.Type == KeyEnter:
+		if m.focused == 3 {
+			app.activeModal = nil
+			return true
+		}
+		if m.focused == 0 {
+			m.focused = 1
+			return true
+		}
+		// Apply
+		dFrom, err1 := parser.ParseDate(m.fromStr, time.Now())
+		dTo, err2 := parser.ParseDate(m.toStr, time.Now())
+		if err1 != nil || err2 != nil {
+			m.errMsg = "Неверная дата! Пример: 01.10.2026"
+			return true
+		}
+		if dFrom.After(dTo) {
+			dFrom, dTo = dTo, dFrom
+		}
+		app.startDate = time.Date(dFrom.Year(), dFrom.Month(), dFrom.Day(), 0, 0, 0, 0, time.Local)
+		app.endDate = time.Date(dTo.Year(), dTo.Month(), dTo.Day(), 23, 59, 59, 999999999, time.Local)
+		app.periodMode = "custom"
+		app.calYear = dFrom.Year()
+		app.calMonth = int(dFrom.Month())
+		app.calDay = dFrom.Day()
+		app.rangeAnchor = nil
+		app.reloadSessions()
+		app.setStatusMsg(fmt.Sprintf("Выбран период: %s - %s", app.startDate.Format("02.01.2006"), app.endDate.Format("02.01.2006")))
+		app.activeModal = nil
+		return true
+
+	case k.Type == KeyBackspace:
+		m.errMsg = ""
+		if m.focused == 0 && len(m.fromStr) > 0 {
+			m.fromStr = m.fromStr[:len(m.fromStr)-1]
+		} else if m.focused == 1 && len(m.toStr) > 0 {
+			m.toStr = m.toStr[:len(m.toStr)-1]
+		}
+		return true
+
+	default:
+		if k.Rune != 0 && ((k.Rune >= '0' && k.Rune <= '9') || k.Rune == '.' || k.Rune == '-' || k.Rune == '/' || k.Rune == ' ') {
+			m.errMsg = ""
+			if m.focused == 0 && len(m.fromStr) < 12 {
+				m.fromStr += string(k.Rune)
+			} else if m.focused == 1 && len(m.toStr) < 12 {
+				m.toStr += string(k.Rune)
+			}
+			return true
+		}
+	}
+	return false
+}
+
 // ----------------- HELP MODAL -----------------
 
 type ModalHelp struct{}
@@ -1160,17 +1333,19 @@ func (m *ModalHelp) Draw(s *Screen) {
 		key  string
 		desc string
 	}{
-		{"↑ / ↓, j / k", "Перемещение по списку записей / календаря"},
-		{"Space (Пробел)", "Выбор / мультивыделение [✓] для массовых действий"},
-		{"Enter", "Открыть карточку записи / применить выбор"},
-		{"s / ы", "Быстрая сменя статуса (Активно/Завершено/...) [1-5]"},
+		{"↑ / ↓ / ← / →", "Навигация по записям и дням календаря"},
+		{"Space (Пробел)", "Выбор записи [✓] / фиксация периода в календаре"},
+		{"Enter", "Карточка записи / применить выбор дня"},
+		{"s / ы", "Быстрая смена статуса (Активно/Завершено/...) [1-5]"},
 		{"a / ф", "Создать новую запись"},
 		{"e / у", "Редактировать выбранную запись"},
 		{"f / а", "Быстрая правка любого поля (одиночно или пачкой)"},
 		{"d / в", "Удалить выбранную запись (или все отмеченные)"},
-		{"Tab / Shift+Tab", "Переключение между панелями (Боковая/Список/Инфо)"},
-		{"1 .. 5", "Быстрый выбор периода: Все / Сегодня / Неделя / Месяц"},
-		{"t / е", "Фильтр текущего списка по типам / категориям"},
+		{"Tab / Shift+Tab", "Переключение блоков: Календарь / Периоды / Записи / Карточка"},
+		{"< / >, б / ю", "Листание месяцев календаря назад/вперёд"},
+		{"p / з", "Ввод периода дат (От и До)"},
+		{"Home, t / е", "Возврат календаря на Сегодня"},
+		{"1 .. 4", "Быстрый выбор периода: Все / День / Неделя / Месяц"},
 		{"y / н", "Годовой календарь со всеми месяцами"},
 		{"o / щ", "Настройки (режим по умолчанию, служба, порт)"},
 		{"q / й, Ctrl+C", "Выход из полноэкранного режима TUI"},
