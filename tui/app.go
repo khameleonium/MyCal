@@ -534,10 +534,10 @@ func (a *App) handleKey(k Key) bool {
 	case k.Matches('s', 'ы'):
 		// Change status popup
 		if len(a.selectedIDs) > 0 {
-			a.activeModal = NewModalStatusPicker(a.cfg.CustomStatuses, "Активно", "")
+			a.activeModal = NewModalStatusPicker(a.getAvailableStatuses(), "Активно", "")
 		} else if len(a.sessions) > 0 && a.cursorIdx < len(a.sessions) {
 			sess := a.sessions[a.cursorIdx]
-			a.activeModal = NewModalStatusPicker(a.cfg.CustomStatuses, sess.Status, sess.ID)
+			a.activeModal = NewModalStatusPicker(a.getAvailableStatuses(), sess.Status, sess.ID)
 		}
 		return false
 
@@ -1088,7 +1088,7 @@ func (a *App) handleInspectorKey(k Key) {
 	case k.Matches('s', 'ы'):
 		if len(a.sessions) > 0 && a.cursorIdx < len(a.sessions) {
 			sess := a.sessions[a.cursorIdx]
-			a.activeModal = NewModalStatusPicker(a.cfg.CustomStatuses, sess.Status, sess.ID)
+			a.activeModal = NewModalStatusPicker(a.getAvailableStatuses(), sess.Status, sess.ID)
 		}
 	case k.Matches('f', 'а'):
 		if len(a.sessions) > 0 && a.cursorIdx < len(a.sessions) {
@@ -1153,15 +1153,75 @@ func (a *App) cycleTypeFilter() {
 func (a *App) getAvailableTypes() []string {
 	seen := map[string]bool{}
 	var res []string
-	for _, s := range a.allSessions {
-		t := strings.TrimSpace(s.Type)
-		if t != "" && !seen[t] {
-			seen[t] = true
-			res = append(res, t)
+	if a != nil {
+		if a.cfg.DefaultType != "" {
+			t := strings.TrimSpace(a.cfg.DefaultType)
+			if t != "" && !seen[t] {
+				seen[t] = true
+				res = append(res, t)
+			}
+		}
+		for _, s := range a.allSessions {
+			t := strings.TrimSpace(s.Type)
+			if t != "" && !seen[t] {
+				seen[t] = true
+				res = append(res, t)
+			}
 		}
 	}
 	sort.Strings(res)
 	return res
+}
+
+func (a *App) getAvailableStatuses() []string {
+	defaults := []string{"Активно", "Завершено", "Запланировано", "В процессе", "Отменено"}
+	seen := map[string]bool{}
+	var list []string
+	for _, st := range defaults {
+		if !seen[st] {
+			seen[st] = true
+			list = append(list, st)
+		}
+	}
+	if a != nil {
+		for _, st := range a.cfg.CustomStatuses {
+			st = strings.TrimSpace(st)
+			if st != "" && !seen[st] {
+				seen[st] = true
+				list = append(list, st)
+			}
+		}
+		for _, s := range a.allSessions {
+			st := strings.TrimSpace(s.Status)
+			if st != "" && !seen[st] {
+				seen[st] = true
+				list = append(list, st)
+			}
+		}
+	}
+	return list
+}
+
+func (a *App) getAvailableNames() []string {
+	seen := map[string]bool{}
+	var list []string
+	if a != nil {
+		for _, n := range a.cfg.CustomNames {
+			n = strings.TrimSpace(n)
+			if n != "" && !seen[n] {
+				seen[n] = true
+				list = append(list, n)
+			}
+		}
+		for _, s := range a.allSessions {
+			n := strings.TrimSpace(s.Name)
+			if n != "" && !seen[n] {
+				seen[n] = true
+				list = append(list, n)
+			}
+		}
+	}
+	return list
 }
 
 // ----------------- RENDERING -----------------

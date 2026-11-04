@@ -178,6 +178,14 @@ type ModalQuickEditField struct {
 	value     string
 	targetID  string
 
+	pickerOpen   bool
+	pickerField  int // 0: Name, 2: Type, 3: Status
+	pickerIdx    int
+	pickerScroll int
+	pickerList   []string
+	pickerTitle  string
+
+	// Legacy aliases for test compatibility
 	catPickerOpen   bool
 	catPickerIdx    int
 	catPickerScroll int
@@ -190,6 +198,7 @@ func NewModalQuickEditField(targetID string) *ModalQuickEditField {
 			"Наименование",
 			"Кэш",
 			"Категория / Тип",
+			"Статус",
 			"Время (ЧЧ:ММ)",
 			"Длительность (мин)",
 			"Дата (ДД-ММ-ГГГГ)",
@@ -203,7 +212,7 @@ func NewModalQuickEditField(targetID string) *ModalQuickEditField {
 
 func (m *ModalQuickEditField) Draw(s *Screen) {
 	w := 50
-	h := 14
+	h := len(m.fields) + 7
 	if w > s.Width-2 {
 		w = s.Width - 2
 	}
@@ -241,7 +250,7 @@ func (m *ModalQuickEditField) Draw(s *Screen) {
 			s.Fill(x+2, rowY, w-4, 1, ' ', fg, bg)
 			s.DrawText(x+2, rowY, fmt.Sprintf("%s[%d] %s", prefix, i+1, f), fg, bg, w-4, isCur, false, false)
 		}
-		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓/1-7] Выбор  [Enter] Далее  [Esc Отмена]", FgDim, BgModal)
+		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, fmt.Sprintf("[↑↓/1-%d] Выбор  [Enter] Далее  [Esc Отмена]", len(m.fields)), FgDim, BgModal)
 	} else {
 		fieldName := m.fields[m.selected]
 		s.DrawText(x+2, y+2, "Поле: "+fieldName, FgCyan, BgModal, w-4, true, false, false)
@@ -252,17 +261,18 @@ func (m *ModalQuickEditField) Draw(s *Screen) {
 		s.DrawBox(x+1, y+5, w-2, 3, "", FgDim, BorderFocus, BgInput, false)
 		inputDisplay := m.value + "█"
 		s.DrawText(x+3, y+6, inputDisplay, FgWhite, BgInput, w-6, true, false, false)
-		if m.selected == 2 && !m.catPickerOpen && w > 20 {
+		canHaveDropdown := m.selected == 0 || m.selected == 2 || m.selected == 3
+		if canHaveDropdown && !m.pickerOpen && w > 20 {
 			s.DrawText(x+w-12, y+6, "[→ список]", FgCyan, BgInput, 10, true, false, false)
 		}
 
-		if m.catPickerOpen && len(m.catPickerList) > 0 {
+		if m.pickerOpen && len(m.pickerList) > 0 {
 			popX := x + 2
 			popY := y + 8
 			popW := w - 4
 			visibleRows := 5
-			if len(m.catPickerList) < visibleRows {
-				visibleRows = len(m.catPickerList)
+			if len(m.pickerList) < visibleRows {
+				visibleRows = len(m.pickerList)
 			}
 			popH := visibleRows + 2
 			if popY+popH > s.Height-1 {
@@ -272,15 +282,15 @@ func (m *ModalQuickEditField) Draw(s *Screen) {
 				}
 			}
 
-			s.DrawBox(popX, popY, popW, popH, " Категории [Enter] ", FgCyan, BorderFocus, BgCard, true)
+			s.DrawBox(popX, popY, popW, popH, m.pickerTitle, FgCyan, BorderFocus, BgCard, true)
 			for i := 0; i < visibleRows; i++ {
-				itemIdx := m.catPickerScroll + i
-				if itemIdx >= len(m.catPickerList) {
+				itemIdx := m.pickerScroll + i
+				if itemIdx >= len(m.pickerList) {
 					break
 				}
-				item := m.catPickerList[itemIdx]
+				item := m.pickerList[itemIdx]
 				itemY := popY + 1 + i
-				isSel := itemIdx == m.catPickerIdx
+				isSel := itemIdx == m.pickerIdx
 
 				bg := BgCard
 				fg := FgWhite
@@ -291,13 +301,18 @@ func (m *ModalQuickEditField) Draw(s *Screen) {
 					prefix = "► "
 				}
 				s.Fill(popX+1, itemY, popW-2, 1, ' ', fg, bg)
-				s.DrawText(popX+1, itemY, prefix+item, fg, bg, popW-2, isSel, false, false)
+				if m.pickerField == 3 { // Status
+					badgeText, bFg, _ := StatusBadge(item)
+					s.DrawText(popX+1, itemY, prefix+badgeText, bFg, bg, popW-2, isSel, false, false)
+				} else {
+					s.DrawText(popX+1, itemY, prefix+item, fg, bg, popW-2, isSel, false, false)
+				}
 			}
 		}
 
-		if m.catPickerOpen {
-			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор категории  [Enter] Применить  [Esc/←] Закрыть", FgDim, BgModal)
-		} else if m.selected == 2 {
+		if m.pickerOpen {
+			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор из списка  [Enter] Применить  [Esc/←] Закрыть", FgDim, BgModal)
+		} else if canHaveDropdown {
 			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Enter] Сохранить  [→] Выбрать из списка  [Esc] Назад", FgDim, BgModal)
 		} else {
 			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Enter] Сохранить  [Esc] Назад", FgDim, BgModal)
@@ -336,32 +351,38 @@ func (m *ModalQuickEditField) HandleKey(k Key, app *App) bool {
 			return true
 		}
 	} else {
-		if m.catPickerOpen {
+		if m.pickerOpen {
 			switch {
 			case k.Type == KeyEsc || k.Type == KeyLeft:
+				m.pickerOpen = false
 				m.catPickerOpen = false
 				return true
 			case k.Type == KeyUp || k.Matches('k', 'л'):
-				if m.catPickerIdx > 0 {
-					m.catPickerIdx--
-					if m.catPickerIdx < m.catPickerScroll {
-						m.catPickerScroll = m.catPickerIdx
+				if m.pickerIdx > 0 {
+					m.pickerIdx--
+					if m.pickerIdx < m.pickerScroll {
+						m.pickerScroll = m.pickerIdx
 					}
+					m.catPickerIdx = m.pickerIdx
+					m.catPickerScroll = m.pickerScroll
 				}
 				return true
 			case k.Type == KeyDown || k.Matches('j', 'о'):
-				if m.catPickerIdx < len(m.catPickerList)-1 {
-					m.catPickerIdx++
+				if m.pickerIdx < len(m.pickerList)-1 {
+					m.pickerIdx++
 					visibleRows := 5
-					if m.catPickerIdx >= m.catPickerScroll+visibleRows {
-						m.catPickerScroll = m.catPickerIdx - visibleRows + 1
+					if m.pickerIdx >= m.pickerScroll+visibleRows {
+						m.pickerScroll = m.pickerIdx - visibleRows + 1
 					}
+					m.catPickerIdx = m.pickerIdx
+					m.catPickerScroll = m.pickerScroll
 				}
 				return true
 			case k.Type == KeyEnter || k.Type == KeySpace:
-				if m.catPickerIdx >= 0 && m.catPickerIdx < len(m.catPickerList) {
-					m.value = m.catPickerList[m.catPickerIdx]
+				if m.pickerIdx >= 0 && m.pickerIdx < len(m.pickerList) {
+					m.value = m.pickerList[m.pickerIdx]
 				}
+				m.pickerOpen = false
 				m.catPickerOpen = false
 				return true
 			}
@@ -373,8 +394,14 @@ func (m *ModalQuickEditField) HandleKey(k Key, app *App) bool {
 			m.stepInput = false
 			return true
 		case KeyRight, KeyF2:
-			if m.selected == 2 {
+			if m.selected == 0 {
+				m.openNamePicker(app)
+				return true
+			} else if m.selected == 2 {
 				m.openCatPicker(app)
+				return true
+			} else if m.selected == 3 {
+				m.openStatusPicker(app)
 				return true
 			}
 		case KeyEnter:
@@ -413,6 +440,9 @@ func (m *ModalQuickEditField) openCatPicker(app *App) {
 	}
 
 	defaults := []string{"Работа", "Личное", "Спорт", "Отдых", "Здоровье", "Обучение", "Хобби"}
+	if app != nil && app.cfg.DefaultType != "" {
+		defaults = append([]string{app.cfg.DefaultType}, defaults...)
+	}
 	for _, d := range defaults {
 		if !seen[d] {
 			seen[d] = true
@@ -420,17 +450,79 @@ func (m *ModalQuickEditField) openCatPicker(app *App) {
 		}
 	}
 
+	m.pickerList = list
+	m.pickerTitle = " Категории [Enter] "
+	m.pickerField = 2
+	m.pickerOpen = true
+	m.pickerScroll = 0
+	m.pickerIdx = 0
+
 	m.catPickerList = list
 	m.catPickerOpen = true
 	m.catPickerScroll = 0
 	m.catPickerIdx = 0
 
 	cur := strings.TrimSpace(m.value)
-	for i, item := range m.catPickerList {
+	for i, item := range m.pickerList {
 		if strings.EqualFold(item, cur) {
+			m.pickerIdx = i
 			m.catPickerIdx = i
-			if m.catPickerIdx >= 5 {
-				m.catPickerScroll = m.catPickerIdx - 4
+			if m.pickerIdx >= 5 {
+				m.pickerScroll = m.pickerIdx - 4
+				m.catPickerScroll = m.pickerScroll
+			}
+			break
+		}
+	}
+}
+
+func (m *ModalQuickEditField) openStatusPicker(app *App) {
+	var list []string
+	if app != nil {
+		list = app.getAvailableStatuses()
+	} else {
+		list = []string{"Активно", "Завершено", "Запланировано", "В процессе", "Отменено"}
+	}
+	m.pickerList = list
+	m.pickerTitle = " Статусы [Enter] "
+	m.pickerField = 3
+	m.pickerOpen = true
+	m.pickerScroll = 0
+	m.pickerIdx = 0
+
+	cur := strings.TrimSpace(m.value)
+	for i, item := range m.pickerList {
+		if strings.EqualFold(item, cur) {
+			m.pickerIdx = i
+			if m.pickerIdx >= 5 {
+				m.pickerScroll = m.pickerIdx - 4
+			}
+			break
+		}
+	}
+}
+
+func (m *ModalQuickEditField) openNamePicker(app *App) {
+	var list []string
+	if app != nil {
+		list = app.getAvailableNames()
+	}
+	if len(list) == 0 {
+		return
+	}
+	m.pickerList = list
+	m.pickerTitle = " Частые имена [Enter] "
+	m.pickerField = 0
+	m.pickerOpen = true
+	m.pickerScroll = 0
+	m.pickerIdx = 0
+
+	cur := strings.TrimSpace(m.value)
+	for i, item := range m.pickerList {
+		if strings.EqualFold(item, cur) {
+			m.pickerIdx = i
+			if m.pickerIdx >= 5 {
+				m.pickerScroll = m.pickerIdx - 4
 			}
 			break
 		}
@@ -447,13 +539,15 @@ func (m *ModalQuickEditField) initValue(app *App) {
 				m.value = strconv.FormatFloat(sess.Cash, 'f', -1, 64)
 			case 2: // Тип
 				m.value = sess.Type
-			case 3: // Время
+			case 3: // Статус
+				m.value = sess.Status
+			case 4: // Время
 				m.value = sess.Time
-			case 4: // Длительность
+			case 5: // Длительность
 				m.value = strconv.Itoa(sess.Duration)
-			case 5: // Дата
+			case 6: // Дата
 				m.value = sess.Date()
-			case 6: // Заметки
+			case 7: // Заметки
 				m.value = sess.Notes
 			}
 			return
@@ -478,21 +572,23 @@ func (m *ModalQuickEditField) applyValue(app *App) {
 		}
 	case 2: // Type
 		patch.Type = &val
-	case 3: // Time
+	case 3: // Status
+		patch.Status = &val
+	case 4: // Time
 		if tm, err := parser.ParseTime(val); err == nil {
 			tStr := parser.FormatTime(tm)
 			patch.Time = &tStr
 		}
-	case 4: // Duration
+	case 5: // Duration
 		if d, err := strconv.Atoi(val); err == nil && d > 0 {
 			patch.Duration = &d
 		}
-	case 6: // Notes
+	case 7: // Notes
 		patch.Notes = &val
 	}
 
 	if m.targetID != "" {
-		if m.selected == 5 { // Date move
+		if m.selected == 6 { // Date move
 			if d, err := parser.ParseDate(val, time.Now()); err == nil {
 				sess, ok := app.svc.ByID(m.targetID)
 				if ok {
@@ -536,7 +632,16 @@ type ModalSessionForm struct {
 	notes     string
 	repeatStr string // "none", "d", "w", "m"
 	fieldIdx  int    // 0..8
+	appRef    *App
 
+	pickerOpen   bool
+	pickerField  int // 2: Name, 3: Type, 6: Status, 8: Repeat
+	pickerIdx    int
+	pickerScroll int
+	pickerList   []string
+	pickerTitle  string
+
+	// Legacy aliases for test compatibility
 	catPickerOpen   bool
 	catPickerIdx    int
 	catPickerScroll int
@@ -665,42 +770,52 @@ func (m *ModalSessionForm) Draw(s *Screen) {
 		}
 		s.DrawText(x+26, rowY, txt, valFg, valBg, valBoxW-2, isCur, false, false)
 
-		if i == 3 && isCur && !m.catPickerOpen && valBoxW > 6 {
+		hasDropdown := false
+		switch i {
+		case 2, 3, 6:
+			hasDropdown = true
+		case 8:
+			if !m.isEdit {
+				hasDropdown = true
+			}
+		}
+
+		if hasDropdown && isCur && !m.pickerOpen && valBoxW > 6 {
 			s.DrawText(x+25+valBoxW-5, rowY, "[▼]", FgCyan, valBg, 3, true, false, false)
 		}
 	}
 
-	if m.catPickerOpen && len(m.catPickerList) > 0 {
+	if m.pickerOpen && len(m.pickerList) > 0 {
 		popX := x + 25
-		popY := y + 2 + (3 * 2) + 1
+		popY := y + 2 + (m.pickerField * 2) + 1
 		popW := valBoxW
-		if popW < 26 {
-			popW = 26
+		if popW < 28 {
+			popW = 28
 		}
 		if popX+popW > s.Width-1 {
 			popW = s.Width - 1 - popX
 		}
 		visibleRows := 6
-		if len(m.catPickerList) < visibleRows {
-			visibleRows = len(m.catPickerList)
+		if len(m.pickerList) < visibleRows {
+			visibleRows = len(m.pickerList)
 		}
 		popH := visibleRows + 2
 		if popY+popH > s.Height-1 {
-			popY = (y + 2 + (3 * 2)) - popH
+			popY = (y + 2 + (m.pickerField * 2)) - popH
 			if popY < 1 {
 				popY = 1
 			}
 		}
 
-		s.DrawBox(popX, popY, popW, popH, " Категории [Enter] ", FgCyan, BorderFocus, BgCard, true)
+		s.DrawBox(popX, popY, popW, popH, m.pickerTitle, FgCyan, BorderFocus, BgCard, true)
 		for i := 0; i < visibleRows; i++ {
-			itemIdx := m.catPickerScroll + i
-			if itemIdx >= len(m.catPickerList) {
+			itemIdx := m.pickerScroll + i
+			if itemIdx >= len(m.pickerList) {
 				break
 			}
-			item := m.catPickerList[itemIdx]
+			item := m.pickerList[itemIdx]
 			itemY := popY + 1 + i
-			isSel := itemIdx == m.catPickerIdx
+			isSel := itemIdx == m.pickerIdx
 
 			bg := BgCard
 			fg := FgWhite
@@ -711,58 +826,93 @@ func (m *ModalSessionForm) Draw(s *Screen) {
 				prefix = "► "
 			}
 			s.Fill(popX+1, itemY, popW-2, 1, ' ', fg, bg)
-			s.DrawText(popX+1, itemY, prefix+item, fg, bg, popW-2, isSel, false, false)
+			if m.pickerField == 6 { // Status
+				badgeText, bFg, _ := StatusBadge(item)
+				s.DrawText(popX+1, itemY, prefix+badgeText, bFg, bg, popW-2, isSel, false, false)
+			} else {
+				s.DrawText(popX+1, itemY, prefix+item, fg, bg, popW-2, isSel, false, false)
+			}
 		}
 	}
 
-	if m.catPickerOpen {
-		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор категории  [Enter] Выбрать  [Esc/←] Закрыть", FgDim, BgModal)
-	} else if m.fieldIdx == 3 {
-		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab] Поля  [→] Выбрать из списка  [Enter] Сохранить  [Esc] Отмена", FgDim, BgModal)
+	if m.pickerOpen {
+		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор из списка  [Enter] Выбрать  [Esc/←] Закрыть", FgDim, BgModal)
 	} else {
-		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab/Shift+Tab] Поля  [Enter] Сохранить  [Esc] Отмена", FgDim, BgModal)
+		switch m.fieldIdx {
+		case 2:
+			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab] Поля  [→] Выбрать из списка  [Enter] Сохранить  [Esc] Отмена", FgDim, BgModal)
+		case 3:
+			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab] Поля  [→] Выбрать из списка  [Enter] Сохранить  [Esc] Отмена", FgDim, BgModal)
+		case 6:
+			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab] Поля  [→] Выбрать из списка  [Space] След. статус  [Enter] Сохранить  [Esc] Отмена", FgDim, BgModal)
+		case 8:
+			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab] Поля  [→/Space] Выбрать повтор  [Enter] Сохранить  [Esc] Отмена", FgDim, BgModal)
+		default:
+			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab/Shift+Tab] Поля  [Enter] Сохранить  [Esc] Отмена", FgDim, BgModal)
+		}
 	}
 }
 
 func (m *ModalSessionForm) HandleKey(k Key, app *App) bool {
+	m.appRef = app
 	maxField := 7
 	if !m.isEdit {
 		maxField = 8
 	}
 
-	if m.catPickerOpen {
+	if m.pickerOpen {
 		switch {
 		case k.Type == KeyEsc || k.Type == KeyLeft:
+			m.pickerOpen = false
 			m.catPickerOpen = false
 			return true
 
 		case k.Type == KeyUp || k.Matches('k', 'л'):
-			if m.catPickerIdx > 0 {
-				m.catPickerIdx--
-				if m.catPickerIdx < m.catPickerScroll {
-					m.catPickerScroll = m.catPickerIdx
+			if m.pickerIdx > 0 {
+				m.pickerIdx--
+				if m.pickerIdx < m.pickerScroll {
+					m.pickerScroll = m.pickerIdx
 				}
+				m.catPickerIdx = m.pickerIdx
+				m.catPickerScroll = m.pickerScroll
 			}
 			return true
 
 		case k.Type == KeyDown || k.Matches('j', 'о'):
-			if m.catPickerIdx < len(m.catPickerList)-1 {
-				m.catPickerIdx++
+			if m.pickerIdx < len(m.pickerList)-1 {
+				m.pickerIdx++
 				visibleRows := 6
-				if m.catPickerIdx >= m.catPickerScroll+visibleRows {
-					m.catPickerScroll = m.catPickerIdx - visibleRows + 1
+				if m.pickerIdx >= m.pickerScroll+visibleRows {
+					m.pickerScroll = m.pickerIdx - visibleRows + 1
 				}
+				m.catPickerIdx = m.pickerIdx
+				m.catPickerScroll = m.pickerScroll
 			}
 			return true
 
 		case k.Type == KeyEnter || k.Type == KeySpace:
-			if m.catPickerIdx >= 0 && m.catPickerIdx < len(m.catPickerList) {
-				m.typeStr = m.catPickerList[m.catPickerIdx]
+			if m.pickerIdx >= 0 && m.pickerIdx < len(m.pickerList) {
+				val := m.pickerList[m.pickerIdx]
+				switch m.pickerField {
+				case 2:
+					m.name = val
+				case 3:
+					m.typeStr = val
+				case 6:
+					m.status = val
+				case 8:
+					repCodes := []string{"none", "d", "w", "m"}
+					if m.pickerIdx < len(repCodes) {
+						m.repeatStr = repCodes[m.pickerIdx]
+					}
+				}
 			}
+			m.pickerOpen = false
 			m.catPickerOpen = false
 			return true
 
 		case k.Type == KeyTab:
+			m.pickerOpen = false
 			m.catPickerOpen = false
 			if m.fieldIdx < maxField {
 				m.fieldIdx++
@@ -771,7 +921,7 @@ func (m *ModalSessionForm) HandleKey(k Key, app *App) bool {
 			}
 			return true
 		}
-		return true // consume input when category dropdown is active
+		return true // consume input when dropdown is active
 	}
 
 	switch k.Type {
@@ -780,8 +930,18 @@ func (m *ModalSessionForm) HandleKey(k Key, app *App) bool {
 		return true
 
 	case KeyRight, KeyF2:
-		if m.fieldIdx == 3 {
+		switch m.fieldIdx {
+		case 2:
+			m.openNamePicker(app)
+			return true
+		case 3:
 			m.openCatPicker(app)
+			return true
+		case 6:
+			m.openStatusPicker(app)
+			return true
+		case 8:
+			m.openRepeatPicker()
 			return true
 		}
 
@@ -859,23 +1019,163 @@ func (m *ModalSessionForm) appendChar(r rune) {
 	case 6:
 		// Cycle status on key
 		if r == ' ' || r == 's' || r == 'ы' {
-			m.cycleStatus()
+			m.cycleStatus(m.appRef)
 		} else {
 			m.status += string(r)
 		}
 	case 7:
 		m.notes += string(r)
 	case 8:
-		// Toggle repeat
-		if m.repeatStr == "none" {
-			m.repeatStr = "d"
-		} else if m.repeatStr == "d" {
-			m.repeatStr = "w"
-		} else if m.repeatStr == "w" {
-			m.repeatStr = "m"
-		} else {
-			m.repeatStr = "none"
+		m.cycleRepeat()
+	}
+}
+
+func (m *ModalSessionForm) cycleRepeat() {
+	if m.repeatStr == "none" {
+		m.repeatStr = "d"
+	} else if m.repeatStr == "d" {
+		m.repeatStr = "w"
+	} else if m.repeatStr == "w" {
+		m.repeatStr = "m"
+	} else {
+		m.repeatStr = "none"
+	}
+}
+
+func (m *ModalSessionForm) openRepeatPicker() {
+	m.pickerList = []string{"Без повтора", "Каждый день", "Каждую неделю", "Каждый месяц"}
+	m.pickerTitle = " Повтор [Enter] "
+	m.pickerField = 8
+	m.pickerOpen = true
+	m.pickerScroll = 0
+	m.pickerIdx = 0
+
+	repCodes := []string{"none", "d", "w", "m"}
+	for i, code := range repCodes {
+		if code == m.repeatStr {
+			m.pickerIdx = i
+			break
 		}
+	}
+}
+
+func (m *ModalSessionForm) openCatPicker(app *App) {
+	var list []string
+	seen := map[string]bool{}
+
+	if app != nil {
+		for _, t := range app.getAvailableTypes() {
+			t = strings.TrimSpace(t)
+			if t != "" && !seen[t] {
+				seen[t] = true
+				list = append(list, t)
+			}
+		}
+	}
+
+	defaults := []string{"Работа", "Личное", "Спорт", "Отдых", "Здоровье", "Обучение", "Хобби"}
+	if app != nil && app.cfg.DefaultType != "" {
+		defaults = append([]string{app.cfg.DefaultType}, defaults...)
+	}
+	for _, d := range defaults {
+		if !seen[d] {
+			seen[d] = true
+			list = append(list, d)
+		}
+	}
+
+	m.pickerList = list
+	m.pickerTitle = " Категории [Enter] "
+	m.pickerField = 3
+	m.pickerOpen = true
+	m.pickerScroll = 0
+	m.pickerIdx = 0
+
+	m.catPickerList = list
+	m.catPickerOpen = true
+	m.catPickerScroll = 0
+	m.catPickerIdx = 0
+
+	cur := strings.TrimSpace(m.typeStr)
+	for i, item := range m.pickerList {
+		if strings.EqualFold(item, cur) {
+			m.pickerIdx = i
+			m.catPickerIdx = i
+			if m.pickerIdx >= 6 {
+				m.pickerScroll = m.pickerIdx - 5
+				m.catPickerScroll = m.pickerScroll
+			}
+			break
+		}
+	}
+}
+
+func (m *ModalSessionForm) openStatusPicker(app *App) {
+	var list []string
+	if app != nil {
+		list = app.getAvailableStatuses()
+	} else {
+		list = []string{"Активно", "Завершено", "Запланировано", "В процессе", "Отменено"}
+	}
+	m.pickerList = list
+	m.pickerTitle = " Статусы [Enter] "
+	m.pickerField = 6
+	m.pickerOpen = true
+	m.pickerScroll = 0
+	m.pickerIdx = 0
+
+	cur := strings.TrimSpace(m.status)
+	for i, item := range m.pickerList {
+		if strings.EqualFold(item, cur) {
+			m.pickerIdx = i
+			if m.pickerIdx >= 6 {
+				m.pickerScroll = m.pickerIdx - 5
+			}
+			break
+		}
+	}
+}
+
+func (m *ModalSessionForm) openNamePicker(app *App) {
+	var list []string
+	if app != nil {
+		list = app.getAvailableNames()
+	}
+	if len(list) == 0 {
+		return
+	}
+	m.pickerList = list
+	m.pickerTitle = " Частые имена [Enter] "
+	m.pickerField = 2
+	m.pickerOpen = true
+	m.pickerScroll = 0
+	m.pickerIdx = 0
+
+	cur := strings.TrimSpace(m.name)
+	for i, item := range m.pickerList {
+		if strings.EqualFold(item, cur) {
+			m.pickerIdx = i
+			if m.pickerIdx >= 6 {
+				m.pickerScroll = m.pickerIdx - 5
+			}
+			break
+		}
+	}
+}
+
+func (m *ModalSessionForm) cycleStatus(app *App) {
+	order := []string{"Активно", "Завершено", "Запланировано", "В процессе", "Отменено"}
+	if app != nil {
+		order = app.getAvailableStatuses()
+	}
+	for i, st := range order {
+		if strings.EqualFold(st, m.status) {
+			m.status = order[(i+1)%len(order)]
+			return
+		}
+	}
+	if len(order) > 0 {
+		m.status = order[0]
 	}
 }
 
@@ -904,17 +1204,6 @@ func (m *ModalSessionForm) backspace() {
 	case 7:
 		delLast(&m.notes)
 	}
-}
-
-func (m *ModalSessionForm) cycleStatus() {
-	order := []string{"Активно", "Завершено", "Запланировано", "В процессе", "Отменено"}
-	for i, st := range order {
-		if strings.EqualFold(st, m.status) {
-			m.status = order[(i+1)%len(order)]
-			return
-		}
-	}
-	m.status = order[0]
 }
 
 func (m *ModalSessionForm) save(app *App) {
@@ -1016,45 +1305,6 @@ func (m *ModalSessionForm) save(app *App) {
 				app.cursorIdx = idx
 				break
 			}
-		}
-	}
-}
-
-func (m *ModalSessionForm) openCatPicker(app *App) {
-	var list []string
-	seen := map[string]bool{}
-
-	if app != nil {
-		for _, t := range app.getAvailableTypes() {
-			t = strings.TrimSpace(t)
-			if t != "" && !seen[t] {
-				seen[t] = true
-				list = append(list, t)
-			}
-		}
-	}
-
-	defaults := []string{"Работа", "Личное", "Спорт", "Отдых", "Здоровье", "Обучение", "Хобби"}
-	for _, d := range defaults {
-		if !seen[d] {
-			seen[d] = true
-			list = append(list, d)
-		}
-	}
-
-	m.catPickerList = list
-	m.catPickerOpen = true
-	m.catPickerScroll = 0
-	m.catPickerIdx = 0
-
-	cur := strings.TrimSpace(m.typeStr)
-	for i, item := range m.catPickerList {
-		if strings.EqualFold(item, cur) {
-			m.catPickerIdx = i
-			if m.catPickerIdx >= 6 {
-				m.catPickerScroll = m.catPickerIdx - 5
-			}
-			break
 		}
 	}
 }
