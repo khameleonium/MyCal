@@ -18,7 +18,7 @@ import (
 // entry. Exported so a caller can override them.
 var (
 	DefaultTypes    = []string{"Стрельба из лука", "Метание ножей"}
-	DefaultStatuses = []string{"Активно", "Пропущено", "Отменено"}
+	DefaultStatuses = []string{"Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"}
 )
 
 // Service holds the calendar in memory and persists it on demand.
