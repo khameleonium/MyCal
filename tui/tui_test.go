@@ -18,7 +18,7 @@ func TestVisualWidth(t *testing.T) {
 	}{
 		{"Hello", 5},
 		{"Привет", 6}, // 6 Cyrillic characters = 6 visual columns
-		{"🗓️", 2},      // Emoji calendar with variation selector
+		{"🗓️", 2},     // Emoji calendar with variation selector
 		{"[● Активно]", 11},
 		{"\033[31mКрасный\033[0m", 7}, // ANSI stripped
 	}
