@@ -19,6 +19,12 @@ const (
 	PanelSidebar   = 0
 	PanelFeed      = 1
 	PanelInspector = 2
+
+	// Tabs for Compact / Vertical mode
+	TabFeed      = 0
+	TabCalendar  = 1
+	TabInspector = 2
+	TabStats     = 3
 )
 
 // App manages the full terminal user interface.
@@ -32,6 +38,8 @@ type App struct {
 	term   *Terminal
 	width  int
 	height int
+
+	activeTab int // TabFeed, TabCalendar, TabInspector, TabStats (for compact mode)
 
 	focusPanel  int // PanelSidebar, PanelFeed, PanelInspector
 	periodMode  string
@@ -74,6 +82,7 @@ func NewApp(svc *calendar.Service, cfg *models.Config, cfgPath, version string) 
 		calMonth:    int(now.Month()),
 		calDay:      now.Day(),
 		sidebarIdx:  1, // "Все записи"
+		activeTab:   TabFeed,
 	}
 	return app
 }
@@ -249,39 +258,87 @@ func (a *App) handleKey(k Key) bool {
 		return false
 
 	case k.Type == KeyTab:
-		a.focusPanel = (a.focusPanel + 1) % 3
+		if a.width < 115 {
+			a.activeTab = (a.activeTab + 1) % 4
+		} else {
+			a.focusPanel = (a.focusPanel + 1) % 3
+		}
 		return false
 
 	case k.Type == KeyBackTab:
-		a.focusPanel = (a.focusPanel + 2) % 3
+		if a.width < 115 {
+			a.activeTab = (a.activeTab + 3) % 4
+		} else {
+			a.focusPanel = (a.focusPanel + 2) % 3
+		}
 		return false
 
 	case k.Matches('1', '1'):
-		a.periodMode = "all"
-		a.sidebarIdx = 1
-		a.reloadSessions()
-		a.setStatusMsg("Выбран период: Все записи")
+		if a.width < 115 {
+			a.activeTab = TabFeed
+		} else {
+			a.periodMode = "all"
+			a.sidebarIdx = 1
+			a.reloadSessions()
+			a.setStatusMsg("Выбран период: Все записи")
+		}
 		return false
 
 	case k.Matches('2', '2'):
-		a.periodMode = "today"
-		a.sidebarIdx = 2
-		a.reloadSessions()
-		a.setStatusMsg("Выбран период: Сегодня")
+		if a.width < 115 {
+			a.activeTab = TabCalendar
+		} else {
+			a.periodMode = "today"
+			a.sidebarIdx = 2
+			a.reloadSessions()
+			a.setStatusMsg("Выбран период: Сегодня")
+		}
 		return false
 
 	case k.Matches('3', '3'):
-		a.periodMode = "week"
-		a.sidebarIdx = 3
-		a.reloadSessions()
-		a.setStatusMsg("Выбран период: Неделя")
+		if a.width < 115 {
+			a.activeTab = TabInspector
+		} else {
+			a.periodMode = "week"
+			a.sidebarIdx = 3
+			a.reloadSessions()
+			a.setStatusMsg("Выбран период: Неделя")
+		}
 		return false
 
 	case k.Matches('4', '4'):
-		a.periodMode = "month"
-		a.sidebarIdx = 4
-		a.reloadSessions()
-		a.setStatusMsg("Выбран период: Месяц")
+		if a.width < 115 {
+			a.activeTab = TabStats
+		} else {
+			a.periodMode = "month"
+			a.sidebarIdx = 4
+			a.reloadSessions()
+			a.setStatusMsg("Выбран период: Месяц")
+		}
+		return false
+
+	case k.Matches('l', 'д'):
+		if a.width < 115 {
+			a.activeTab = TabFeed
+		} else {
+			a.focusPanel = PanelFeed
+		}
+		return false
+
+	case k.Matches('c', 'к'):
+		if a.width < 115 {
+			a.activeTab = TabCalendar
+		} else {
+			a.focusPanel = PanelSidebar
+		}
+		return false
+
+	case k.Matches('i', 'ш'):
+		if a.width < 115 {
+			a.activeTab = TabInspector
+		} else {
+			a.focusPanel = PanelInspector
+		}
 		return false
 
 	case k.Matches('t', 'е'):
@@ -348,6 +405,10 @@ func (a *App) handleKey(k Key) bool {
 		return false
 
 	case k.Type == KeyEsc:
+		if a.width < 115 && a.activeTab != TabFeed {
+			a.activeTab = TabFeed
+			return false
+		}
 		// Clear selection or type filter
 		if len(a.selectedIDs) > 0 {
 			a.selectedIDs = make(map[string]bool)
@@ -360,7 +421,23 @@ func (a *App) handleKey(k Key) bool {
 		return false
 	}
 
-	// Panel-specific navigation
+	// Panel/Tab-specific navigation
+	if a.width < 115 {
+		switch a.activeTab {
+		case TabFeed:
+			a.handleFeedKey(k)
+		case TabCalendar:
+			a.handleSidebarKey(k)
+		case TabInspector:
+			a.handleInspectorKey(k)
+		case TabStats:
+			if k.Type == KeyEnter || k.Type == KeyEsc {
+				a.activeTab = TabFeed
+			}
+		}
+		return false
+	}
+
 	switch a.focusPanel {
 	case PanelSidebar:
 		a.handleSidebarKey(k)
@@ -412,8 +489,12 @@ func (a *App) handleFeedKey(k Key) {
 		}
 	case KeyEnter:
 		if len(a.sessions) > 0 && a.cursorIdx < len(a.sessions) {
-			sess := a.sessions[a.cursorIdx]
-			a.activeModal = NewModalSessionForm(&sess, "")
+			if a.width < 115 {
+				a.activeTab = TabInspector
+			} else {
+				sess := a.sessions[a.cursorIdx]
+				a.activeModal = NewModalSessionForm(&sess, "")
+			}
 		}
 	}
 }
@@ -421,7 +502,7 @@ func (a *App) handleFeedKey(k Key) {
 func (a *App) handleSidebarKey(k Key) {
 	switch k.Type {
 	case KeyUp:
-		if a.sidebarIdx > 0 {
+		if a.sidebarIdx > 1 {
 			a.sidebarIdx--
 		}
 	case KeyDown:
@@ -436,25 +517,51 @@ func (a *App) handleSidebarKey(k Key) {
 		switch a.sidebarIdx {
 		case 1:
 			a.periodMode = "all"
+			a.setStatusMsg("Выбран период: Все записи")
 		case 2:
 			a.periodMode = "today"
+			a.setStatusMsg("Выбран период: Сегодня")
 		case 3:
 			a.periodMode = "week"
+			a.setStatusMsg("Выбран период: Неделя")
 		case 4:
 			a.periodMode = "month"
-		case 5:
+			a.setStatusMsg("Выбран период: Месяц")
+		default:
 			a.cycleTypeFilter()
 		}
 		a.reloadSessions()
+		if a.width < 115 {
+			a.activeTab = TabFeed
+		}
 	}
 }
 
 func (a *App) handleInspectorKey(k Key) {
-	switch k.Type {
-	case KeyEnter:
+	switch {
+	case k.Type == KeyEsc || k.Type == KeyEnter || k.Matches('1', '1') || k.Matches('l', 'д'):
+		if a.width < 115 {
+			a.activeTab = TabFeed
+		}
+	case k.Matches('e', 'у'):
 		if len(a.sessions) > 0 && a.cursorIdx < len(a.sessions) {
 			sess := a.sessions[a.cursorIdx]
 			a.activeModal = NewModalSessionForm(&sess, "")
+		}
+	case k.Matches('s', 'ы'):
+		if len(a.sessions) > 0 && a.cursorIdx < len(a.sessions) {
+			sess := a.sessions[a.cursorIdx]
+			a.activeModal = NewModalStatusPicker(a.cfg.CustomStatuses, sess.Status, sess.ID)
+		}
+	case k.Matches('f', 'а'):
+		if len(a.sessions) > 0 && a.cursorIdx < len(a.sessions) {
+			sess := a.sessions[a.cursorIdx]
+			a.activeModal = NewModalQuickEditField(sess.ID)
+		}
+	case k.Matches('d', 'в') || k.Type == KeyDelete:
+		if len(a.sessions) > 0 && a.cursorIdx < len(a.sessions) {
+			sess := a.sessions[a.cursorIdx]
+			a.activeModal = NewModalConfirmDelete(sess.ID, 1)
 		}
 	}
 }
@@ -533,11 +640,28 @@ func (a *App) render() {
 	workspaceY := 1
 	workspaceH := a.height - 3
 
-	wSidebar := 26
-	wInspector := 34
+	if a.width < 115 {
+		// Responsive Tab bar at row 1 for vertical/compact proportions
+		a.renderTabBar(screen)
+		workspaceY = 2
+		workspaceH = a.height - 4
 
-	if a.width >= 115 {
-		// Full 3 panels with subtle gap
+		switch a.activeTab {
+		case TabFeed:
+			a.renderFeed(screen, 0, workspaceY, a.width, workspaceH)
+		case TabCalendar:
+			a.renderSidebar(screen, 0, workspaceY, a.width, workspaceH)
+		case TabInspector:
+			a.renderInspector(screen, 0, workspaceY, a.width, workspaceH)
+		case TabStats:
+			a.renderStats(screen, 0, workspaceY, a.width, workspaceH)
+		default:
+			a.renderFeed(screen, 0, workspaceY, a.width, workspaceH)
+		}
+	} else {
+		// Full 3 panels side-by-side with subtle gap
+		wSidebar := 26
+		wInspector := 34
 		gap := 1
 		wFeed := a.width - wSidebar - wInspector - (gap * 2)
 		xSidebar := 0
@@ -547,18 +671,6 @@ func (a *App) render() {
 		a.renderSidebar(screen, xSidebar, workspaceY, wSidebar, workspaceH)
 		a.renderFeed(screen, xFeed, workspaceY, wFeed, workspaceH)
 		a.renderInspector(screen, xInspector, workspaceY, wInspector, workspaceH)
-	} else if a.width >= 85 {
-		// 2 panels: Sidebar + Feed
-		gap := 1
-		wFeed := a.width - wSidebar - gap
-		xSidebar := 0
-		xFeed := wSidebar + gap
-
-		a.renderSidebar(screen, xSidebar, workspaceY, wSidebar, workspaceH)
-		a.renderFeed(screen, xFeed, workspaceY, wFeed, workspaceH)
-	} else {
-		// Single Feed panel
-		a.renderFeed(screen, 0, workspaceY, a.width, workspaceH)
 	}
 
 	// 3. Footer Bar (Bottom 2 rows)
@@ -572,11 +684,54 @@ func (a *App) render() {
 	_ = screen.Render(os.Stdout)
 }
 
+func (a *App) renderTabBar(s *Screen) {
+	s.Fill(0, 1, a.width, 1, ' ', FgMain, BgPanelAlt)
+
+	tabs := []struct {
+		id   int
+		num  string
+		name string
+	}{
+		{TabFeed, "1", "Записи"},
+		{TabCalendar, "2", "Календарь"},
+		{TabInspector, "3", "Карточка"},
+		{TabStats, "4", "Статистика"},
+	}
+
+	cx := 2
+	for _, t := range tabs {
+		isActive := a.activeTab == t.id
+		fg := FgMuted
+		bg := BgPanelAlt
+		bold := false
+		label := fmt.Sprintf(" [%s] %s ", t.num, t.name)
+		if isActive {
+			fg = FgWhite
+			bg = BgHighlight
+			bold = true
+			label = fmt.Sprintf(" ► %s: %s ", t.num, t.name)
+		}
+		lblW := StringVisualWidth(label)
+		if cx+lblW > a.width-1 {
+			break
+		}
+		s.Fill(cx, 1, lblW, 1, ' ', fg, bg)
+		s.DrawText(cx, 1, label, fg, bg, lblW, bold, false, false)
+		cx += lblW + 1
+	}
+
+	hint := "[Tab / 1-4]"
+	if a.width-len(hint)-2 > cx+1 {
+		s.DrawText(a.width-len(hint)-2, 1, hint, FgDim, BgPanelAlt, len(hint), false, false, false)
+	}
+}
+
 func (a *App) renderHeader(s *Screen) {
 	s.Fill(0, 0, a.width, 1, ' ', FgMain, BgPanelAlt)
 
 	title := fmt.Sprintf("🗓️ MyCal TUI %s", a.version)
-	s.DrawText(2, 0, title, FgCyan, BgPanelAlt, 24, true, false, false)
+	titleW := StringVisualWidth(title)
+	s.DrawText(2, 0, title, FgCyan, BgPanelAlt, titleW, true, false, false)
 
 	// Period & filter breadcrumbs
 	pLabel := "Все записи"
@@ -591,7 +746,7 @@ func (a *App) renderHeader(s *Screen) {
 		pLabel = "Период"
 	}
 	if a.typeFilter != "" {
-		pLabel += fmt.Sprintf(" [Тип: %s]", a.typeFilter)
+		pLabel += fmt.Sprintf(" [%s]", a.typeFilter)
 	}
 
 	totalMin := 0
@@ -602,21 +757,29 @@ func (a *App) renderHeader(s *Screen) {
 	}
 	totalHours := float64(totalMin) / 60.0
 
-	infoStr := fmt.Sprintf("│ Период: %s (%d зап.) │ Часов: %.1f ч │ Кэш: %.1f",
-		pLabel, len(a.sessions), totalHours, totalCash)
-	s.DrawText(26, 0, infoStr, FgMuted, BgPanelAlt, a.width-44, false, false, false)
+	startX := 2 + titleW + 2
+	if a.width >= 90 {
+		cashStr := strconv.FormatFloat(totalCash, 'f', -1, 64)
+		infoStr := fmt.Sprintf("│ Период: %s (%d зап.) │ Часов: %.1f ч │ Кэш: %s",
+			pLabel, len(a.sessions), totalHours, cashStr)
+		s.DrawText(startX, 0, infoStr, FgMuted, BgPanelAlt, a.width-startX-10, false, false, false)
+	} else if a.width >= 62 {
+		infoStr := fmt.Sprintf("│ %s (%d) │ %.1fч", pLabel, len(a.sessions), totalHours)
+		s.DrawText(startX, 0, infoStr, FgMuted, BgPanelAlt, a.width-startX-8, false, false, false)
+	}
 
 	// Clock
 	nowStr := time.Now().Format("15:04")
-	s.DrawText(a.width-8, 0, nowStr, FgWhite, BgPanelAlt, 6, true, false, false)
+	s.DrawText(a.width-7, 0, nowStr, FgWhite, BgPanelAlt, 5, true, false, false)
 }
 
 func (a *App) renderSidebar(s *Screen, x, y, w, h int) {
 	borderCol := BorderDim
-	if a.focusPanel == PanelSidebar {
+	isFocused := a.focusPanel == PanelSidebar || a.width < 115
+	if isFocused {
 		borderCol = BorderFocus
 	}
-	s.DrawBox(x, y, w, h, "Календарь", FgCyan, borderCol, BgSurface, a.focusPanel == PanelSidebar)
+	s.DrawBox(x, y, w, h, "Календарь и периоды", FgCyan, borderCol, BgSurface, isFocused)
 
 	// Month header
 	monthsRu := []string{
@@ -624,12 +787,7 @@ func (a *App) renderSidebar(s *Screen, x, y, w, h int) {
 		"Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
 	}
 	mTitle := fmt.Sprintf("◄  %s %d  ►", monthsRu[a.calMonth], a.calYear)
-	s.DrawText(x+2, y+1, CenterString(mTitle, w-4), FgYellow, BgSurface, w-4, true, false, false)
 
-	// Weekdays
-	s.DrawText(x+2, y+2, "Пн Вт Ср Чт Пт Сб Вс", FgMuted, BgSurface, w-4, false, false, false)
-
-	// Mini Calendar Grid
 	firstDay := time.Date(a.calYear, time.Month(a.calMonth), 1, 0, 0, 0, 0, time.UTC)
 	weekday := int(firstDay.Weekday())
 	if weekday == 0 {
@@ -651,42 +809,6 @@ func (a *App) renderSidebar(s *Screen, x, y, w, h int) {
 		}
 	}
 
-	curX := x + 2 + (weekday * 3)
-	curY := y + 3
-
-	for d := 1; d <= daysInMonth; d++ {
-		fg := FgMain
-		bg := BgSurface
-		bold := false
-		under := false
-
-		hasSess := daysWithSessions[d]
-		if hasSess {
-			fg = FgGreen
-			bold = true
-		}
-		if isCurrentMonth && d == now.Day() {
-			under = true
-			fg = FgCyan
-			bold = true
-		}
-
-		s.DrawText(curX, curY, fmt.Sprintf("%2d", d), fg, bg, 2, bold, false, under)
-		curX += 3
-		weekday++
-		if weekday == 7 {
-			weekday = 0
-			curX = x + 2
-			curY++
-		}
-	}
-
-	// Separator
-	sepY := y + 10
-	s.DrawHLine(x+1, x+w-2, sepY, BoxH, BorderDim, BgSurface)
-	s.DrawText(x+2, sepY, "┤ Периоды ├", FgDim, BgSurface, w-4, false, false, false)
-
-	// Presets
 	presets := []struct {
 		id   string
 		name string
@@ -698,50 +820,185 @@ func (a *App) renderSidebar(s *Screen, x, y, w, h int) {
 		{"month", "Месяц", "4"},
 	}
 
-	for i, p := range presets {
-		rowY := sepY + 1 + i
-		isCur := a.periodMode == p.id
-		fg := FgMuted
-		bg := BgSurface
-		prefix := "  "
-		if isCur {
-			fg = FgWhite
-			bg = BgHighlight
-			prefix = "► "
-		}
-		s.Fill(x+2, rowY, w-4, 1, ' ', fg, bg)
-		line := fmt.Sprintf("%s[%s] %s", prefix, p.num, p.name)
-		s.DrawText(x+2, rowY, line, fg, bg, w-4, isCur, false, false)
-	}
-
-	// Types list
-	typesSepY := sepY + 6
-	s.DrawHLine(x+1, x+w-2, typesSepY, BoxH, BorderDim, BgSurface)
-	s.DrawText(x+2, typesSepY, "┤ Категории ├", FgDim, BgSurface, w-4, false, false, false)
-
 	types := a.getAvailableTypes()
-	for i, t := range types {
-		if i >= 4 {
-			break
+
+	if w >= 54 {
+		// Wide mode (Full screen Calendar tab): 2 columns
+		calW := 23
+		s.DrawText(x+2, y+1, CenterString(mTitle, calW), FgYellow, BgSurface, calW, true, false, false)
+		s.DrawText(x+2, y+2, "Пн Вт Ср Чт Пт Сб Вс", FgMuted, BgSurface, calW, false, false, false)
+
+		curX := x + 2 + (weekday * 3)
+		curY := y + 3
+
+		for d := 1; d <= daysInMonth; d++ {
+			fg := FgMain
+			bg := BgSurface
+			bold := false
+			under := false
+
+			hasSess := daysWithSessions[d]
+			if hasSess {
+				fg = FgGreen
+				bold = true
+			}
+			if isCurrentMonth && d == now.Day() {
+				under = true
+				fg = FgCyan
+				bold = true
+			}
+
+			s.DrawText(curX, curY, fmt.Sprintf("%2d", d), fg, bg, 2, bold, false, under)
+			curX += 3
+			weekday++
+			if weekday == 7 {
+				weekday = 0
+				curX = x + 2
+				curY++
+			}
 		}
-		rowY := typesSepY + 1 + i
-		isCur := strings.EqualFold(a.typeFilter, t)
-		fg := FgMuted
-		bg := BgSurface
-		check := "[ ] "
-		if isCur {
-			fg = FgCyan
-			bg = BgHighlight
-			check = "[✓] "
+
+		// Vertical divider
+		divX := x + calW + 3
+		s.DrawVLine(divX, y+1, y+h-2, BoxV, BorderDim, BgSurface)
+
+		// Right column: Presets and Categories
+		rightX := divX + 2
+		rightW := w - calW - 7
+
+		s.DrawText(rightX, y+1, "┤ Периоды (фильтр) ├", FgDim, BgSurface, rightW, false, false, false)
+		for i, p := range presets {
+			rowY := y + 2 + i
+			isCur := a.periodMode == p.id
+			fg := FgMuted
+			bg := BgSurface
+			prefix := "  "
+			if isCur {
+				fg = FgWhite
+				bg = BgHighlight
+				prefix = "► "
+			}
+			s.Fill(rightX, rowY, rightW, 1, ' ', fg, bg)
+			line := fmt.Sprintf("%s[%s] %s", prefix, p.num, p.name)
+			s.DrawText(rightX, rowY, line, fg, bg, rightW, isCur, false, false)
 		}
-		s.Fill(x+2, rowY, w-4, 1, ' ', fg, bg)
-		s.DrawText(x+2, rowY, check+t, fg, bg, w-4, isCur, false, false)
+
+		typesSepY := y + 7
+		s.DrawHLine(rightX, x+w-2, typesSepY, BoxH, BorderDim, BgSurface)
+		s.DrawText(rightX, typesSepY, "┤ Категории ├", FgDim, BgSurface, rightW, false, false, false)
+		for i, t := range types {
+			if i >= 6 || typesSepY+1+i >= y+h-3 {
+				break
+			}
+			rowY := typesSepY + 1 + i
+			isCur := strings.EqualFold(a.typeFilter, t)
+			fg := FgMuted
+			bg := BgSurface
+			check := "[ ] "
+			if isCur {
+				fg = FgCyan
+				bg = BgHighlight
+				check = "[✓] "
+			}
+			s.Fill(rightX, rowY, rightW, 1, ' ', fg, bg)
+			s.DrawText(rightX, rowY, check+t, fg, bg, rightW, isCur, false, false)
+		}
+
+		s.DrawText(x+2, y+h-2, "[Enter] Применить период    [1/Esc] К записям    [←/→] Месяц", FgDim, BgSurface, w-4, false, false, false)
+	} else {
+		// Narrow mode (Stacked layout in 3-panel sidebar)
+		s.DrawText(x+2, y+1, CenterString(mTitle, w-4), FgYellow, BgSurface, w-4, true, false, false)
+		s.DrawText(x+2, y+2, "Пн Вт Ср Чт Пт Сб Вс", FgMuted, BgSurface, w-4, false, false, false)
+
+		curX := x + 2 + (weekday * 3)
+		curY := y + 3
+
+		for d := 1; d <= daysInMonth; d++ {
+			fg := FgMain
+			bg := BgSurface
+			bold := false
+			under := false
+
+			hasSess := daysWithSessions[d]
+			if hasSess {
+				fg = FgGreen
+				bold = true
+			}
+			if isCurrentMonth && d == now.Day() {
+				under = true
+				fg = FgCyan
+				bold = true
+			}
+
+			s.DrawText(curX, curY, fmt.Sprintf("%2d", d), fg, bg, 2, bold, false, under)
+			curX += 3
+			weekday++
+			if weekday == 7 {
+				weekday = 0
+				curX = x + 2
+				curY++
+			}
+		}
+
+		sepY := y + 10
+		if sepY < y+h-7 {
+			s.DrawHLine(x+1, x+w-2, sepY, BoxH, BorderDim, BgSurface)
+			s.DrawText(x+2, sepY, "┤ Периоды ├", FgDim, BgSurface, w-4, false, false, false)
+
+			for i, p := range presets {
+				rowY := sepY + 1 + i
+				if rowY >= y+h-5 {
+					break
+				}
+				isCur := a.periodMode == p.id
+				fg := FgMuted
+				bg := BgSurface
+				prefix := "  "
+				if isCur {
+					fg = FgWhite
+					bg = BgHighlight
+					prefix = "► "
+				}
+				s.Fill(x+2, rowY, w-4, 1, ' ', fg, bg)
+				line := fmt.Sprintf("%s[%s] %s", prefix, p.num, p.name)
+				s.DrawText(x+2, rowY, line, fg, bg, w-4, isCur, false, false)
+			}
+
+			typesSepY := sepY + 6
+			if typesSepY < y+h-3 {
+				s.DrawHLine(x+1, x+w-2, typesSepY, BoxH, BorderDim, BgSurface)
+				s.DrawText(x+2, typesSepY, "┤ Категории ├", FgDim, BgSurface, w-4, false, false, false)
+
+				for i, t := range types {
+					if i >= 4 || typesSepY+1+i >= y+h-2 {
+						break
+					}
+					rowY := typesSepY + 1 + i
+					isCur := strings.EqualFold(a.typeFilter, t)
+					fg := FgMuted
+					bg := BgSurface
+					check := "[ ] "
+					if isCur {
+						fg = FgCyan
+						bg = BgHighlight
+						check = "[✓] "
+					}
+					s.Fill(x+2, rowY, w-4, 1, ' ', fg, bg)
+					s.DrawText(x+2, rowY, check+t, fg, bg, w-4, isCur, false, false)
+				}
+			}
+		}
+
+		if a.width < 115 {
+			s.DrawText(x+2, y+h-2, "[Enter] Выбрать  [1/Esc] К списку", FgDim, BgSurface, w-4, false, false, false)
+		}
 	}
 }
 
 func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 	borderCol := BorderDim
-	if a.focusPanel == PanelFeed {
+	isFocused := a.focusPanel == PanelFeed || a.width < 115
+	if isFocused {
 		borderCol = BorderFocus
 	}
 
@@ -749,28 +1006,45 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 	if len(a.selectedIDs) > 0 {
 		title += fmt.Sprintf(" [Выбрано: %d]", len(a.selectedIDs))
 	}
-	s.DrawBox(x, y, w, h, title, FgBlue, borderCol, BgSurface, a.focusPanel == PanelFeed)
+	s.DrawBox(x, y, w, h, title, FgBlue, borderCol, BgSurface, isFocused)
 
-	// Dynamic column calculations
+	// Adaptive column layouts based on width w
+	showTime := w >= 65
+	showDur := w >= 65
+	showCash := w >= 65
+	showType := w >= 90
+
 	colCheck := x + 2
 	colDate := x + 6
 	colTime := x + 17
+
 	colStatus := x + w - 16
 	colCash := colStatus - 9
 	colDur := colCash - 7
 
-	avail := colDur - (colTime + 6) - 1
-	wType := 0
-	wName := avail
-	colName := colTime + 6
-	colType := colName
-	if avail > 24 {
-		wType = avail * 35 / 100
-		if wType > 16 {
-			wType = 16
+	var colName, wName, colType, wType int
+
+	if showTime && showDur && showCash {
+		colName = colTime + 6
+		avail := colDur - colName - 1
+		if showType && avail > 24 {
+			wType = avail * 35 / 100
+			if wType > 16 {
+				wType = 16
+			}
+			wName = avail - wType - 1
+			colType = colName + wName + 1
+		} else {
+			wName = avail
+			wType = 0
 		}
-		wName = avail - wType - 1
-		colType = colName + wName + 1
+	} else {
+		// Narrow layout (e.g. w < 65)
+		colName = colDate + 11
+		wName = colStatus - colName - 1
+		if wName < 10 {
+			wName = 10
+		}
 	}
 
 	// Column Headers
@@ -778,13 +1052,19 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 	s.Fill(x+1, colY, w-2, 1, ' ', FgDim, BgCard)
 	s.DrawText(colCheck, colY, "[✓]", FgDim, BgCard, 4, false, false, false)
 	s.DrawText(colDate, colY, "Дата", FgMuted, BgCard, 10, true, false, false)
-	s.DrawText(colTime, colY, "Время", FgMuted, BgCard, 5, true, false, false)
+	if showTime {
+		s.DrawText(colTime, colY, "Время", FgMuted, BgCard, 5, true, false, false)
+	}
 	s.DrawText(colName, colY, "Название", FgMuted, BgCard, wName, true, false, false)
 	if wType > 0 {
 		s.DrawText(colType, colY, "Категория", FgMuted, BgCard, wType, true, false, false)
 	}
-	s.DrawText(colDur, colY, "Длит.", FgMuted, BgCard, 6, true, false, false)
-	s.DrawText(colCash, colY, "Кэш", FgMuted, BgCard, 8, true, false, false)
+	if showDur {
+		s.DrawText(colDur, colY, "Длит.", FgMuted, BgCard, 6, true, false, false)
+	}
+	if showCash {
+		s.DrawText(colCash, colY, "Кэш", FgMuted, BgCard, 8, true, false, false)
+	}
 	s.DrawText(colStatus, colY, "Статус", FgMuted, BgCard, 14, true, false, false)
 
 	// Rows viewport
@@ -793,7 +1073,6 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 		return
 	}
 
-	// Adjust scroll offset so cursor is visible
 	if a.cursorIdx < a.scrollOffset {
 		a.scrollOffset = a.cursorIdx
 	}
@@ -815,7 +1094,7 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 		sess := a.sessions[sessIdx]
 		rowY := y + 2 + i
 
-		isCursor := sessIdx == a.cursorIdx && a.focusPanel == PanelFeed
+		isCursor := sessIdx == a.cursorIdx && isFocused
 		isSelected := a.selectedIDs[sess.ID]
 
 		rowBg := BgSurface
@@ -843,9 +1122,13 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 		s.DrawText(x+1, rowY, arrow, FgCyan, rowBg, 1, true, false, false)
 		s.DrawText(colCheck, rowY, checkStr, FgCyan, rowBg, 3, isSelected, false, false)
 
-		// Date & Time
+		// Date
 		s.DrawText(colDate, rowY, sess.Date(), FgDim, rowBg, 10, false, false, false)
-		s.DrawText(colTime, rowY, sess.Time, FgWhite, rowBg, 5, true, false, false)
+
+		// Time
+		if showTime {
+			s.DrawText(colTime, rowY, sess.Time, FgWhite, rowBg, 5, true, false, false)
+		}
 
 		// Name
 		nameFg := FgMain
@@ -864,15 +1147,19 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 		}
 
 		// Duration
-		durStr := fmt.Sprintf("%02d:%02d", sess.Duration/60, sess.Duration%60)
-		s.DrawText(colDur, rowY, durStr, FgDim, rowBg, 6, false, false, false)
+		if showDur {
+			durStr := fmt.Sprintf("%02d:%02d", sess.Duration/60, sess.Duration%60)
+			s.DrawText(colDur, rowY, durStr, FgDim, rowBg, 6, false, false, false)
+		}
 
 		// Cash (pure number!)
-		cashStr := ""
-		if sess.Cash > 0 {
-			cashStr = strconv.FormatFloat(sess.Cash, 'f', -1, 64)
+		if showCash {
+			cashStr := ""
+			if sess.Cash > 0 {
+				cashStr = strconv.FormatFloat(sess.Cash, 'f', -1, 64)
+			}
+			s.DrawText(colCash, rowY, cashStr, FgWhite, rowBg, 8, false, false, false)
 		}
-		s.DrawText(colCash, rowY, cashStr, FgWhite, rowBg, 8, false, false, false)
 
 		// Status pill
 		badgeText, bFg, _ := StatusBadge(sess.Status)
@@ -882,10 +1169,11 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 
 func (a *App) renderInspector(s *Screen, x, y, w, h int) {
 	borderCol := BorderDim
-	if a.focusPanel == PanelInspector {
+	isFocused := a.focusPanel == PanelInspector || a.width < 115
+	if isFocused {
 		borderCol = BorderFocus
 	}
-	s.DrawBox(x, y, w, h, "Карточка", FgGreen, borderCol, BgSurface, a.focusPanel == PanelInspector)
+	s.DrawBox(x, y, w, h, "Карточка записи", FgGreen, borderCol, BgSurface, isFocused)
 
 	if len(a.sessions) == 0 || a.cursorIdx >= len(a.sessions) {
 		s.DrawText(x+2, y+2, "(Запись не выбрана)", FgDim, BgSurface, w-4, false, false, false)
@@ -893,12 +1181,38 @@ func (a *App) renderInspector(s *Screen, x, y, w, h int) {
 	}
 
 	sess := a.sessions[a.cursorIdx]
+	maxContentW := w - 4
+	if maxContentW < 12 {
+		maxContentW = 12
+	}
 
-	s.DrawText(x+2, y+1, TruncateString(sess.Name, w-4, "…"), FgWhite, BgSurface, w-4, true, false, false)
+	actionH := 6
+	actionTop := y + h - actionH
+	if actionTop < y+8 {
+		actionTop = y + 8
+	}
 
+	curY := y + 1
+
+	// Title wrapping: neatly wrapped across lines
+	titleLines := WrapText(sess.Name, maxContentW)
+	if len(titleLines) == 0 {
+		titleLines = []string{"(Без названия)"}
+	}
+	for _, tl := range titleLines {
+		if curY >= actionTop-6 {
+			break
+		}
+		s.DrawText(x+2, curY, tl, FgWhite, BgSurface, maxContentW, true, false, false)
+		curY++
+	}
+
+	// Status badge
 	badgeText, bFg, _ := StatusBadge(sess.Status)
-	s.DrawText(x+2, y+2, badgeText, bFg, BgSurface, w-4, true, false, false)
+	s.DrawText(x+2, curY, badgeText, bFg, BgSurface, maxContentW, true, false, false)
+	curY += 2
 
+	// Details list
 	details := []struct {
 		lbl string
 		val string
@@ -911,27 +1225,167 @@ func (a *App) renderInspector(s *Screen, x, y, w, h int) {
 		{"ID:       ", sess.ID},
 	}
 
-	for i, d := range details {
-		rowY := y + 4 + i
-		s.DrawText(x+2, rowY, d.lbl, FgDim, BgSurface, 10, false, false, false)
-		s.DrawText(x+12, rowY, d.val, FgMain, BgSurface, w-14, false, false, false)
+	valW := maxContentW - 10
+	if valW < 6 {
+		valW = 6
 	}
 
-	// Notes
-	s.DrawText(x+2, y+11, "Заметки:", FgDim, BgSurface, 10, false, false, false)
-	notes := sess.Notes
-	if notes == "" {
-		notes = "(нет заметок)"
+	for _, d := range details {
+		if curY >= actionTop-4 {
+			break
+		}
+		vLines := WrapText(d.val, valW)
+		if len(vLines) == 0 {
+			vLines = []string{"—"}
+		}
+		s.DrawText(x+2, curY, d.lbl, FgDim, BgSurface, 10, false, false, false)
+		s.DrawText(x+12, curY, vLines[0], FgMain, BgSurface, valW, false, false, false)
+		curY++
+		for _, vl := range vLines[1:] {
+			if curY >= actionTop-4 {
+				break
+			}
+			s.DrawText(x+12, curY, vl, FgMain, BgSurface, valW, false, false, false)
+			curY++
+		}
 	}
-	s.DrawText(x+2, y+12, TruncateString(notes, w-4, "…"), FgMuted, BgSurface, w-4, false, false, false)
 
-	// Quick hotkeys hint
-	s.DrawHLine(x+1, x+w-2, y+14, BoxH, BorderDim, BgSurface)
-	s.DrawText(x+2, y+14, "┤ Действия ├", FgDim, BgSurface, w-4, false, false, false)
-	s.DrawText(x+2, y+15, "[e] Редактировать", FgCyan, BgSurface, w-4, false, false, false)
-	s.DrawText(x+2, y+16, "[s] Сменить статус", FgBlue, BgSurface, w-4, false, false, false)
-	s.DrawText(x+2, y+17, "[f] Изменить поле", FgYellow, BgSurface, w-4, false, false, false)
-	s.DrawText(x+2, y+18, "[d] Удалить запись", FgRed, BgSurface, w-4, false, false, false)
+	// Notes wrapping
+	if curY < actionTop-1 {
+		s.DrawText(x+2, curY, "Заметки:", FgDim, BgSurface, maxContentW, true, false, false)
+		curY++
+		notes := sess.Notes
+		if notes == "" {
+			notes = "(нет заметок)"
+		}
+		nLines := WrapText(notes, maxContentW)
+		for _, nl := range nLines {
+			if curY >= actionTop-1 {
+				break
+			}
+			s.DrawText(x+2, curY, nl, FgMuted, BgSurface, maxContentW, false, false, false)
+			curY++
+		}
+	}
+
+	// Quick hotkeys hint pinned to bottom
+	if actionTop > y+3 && actionTop < y+h-1 {
+		s.DrawHLine(x+1, x+w-2, actionTop, BoxH, BorderDim, BgSurface)
+		s.DrawText(x+2, actionTop, "┤ Действия ├", FgDim, BgSurface, maxContentW, false, false, false)
+		s.DrawText(x+2, actionTop+1, "[e] Редактировать", FgCyan, BgSurface, maxContentW, false, false, false)
+		s.DrawText(x+2, actionTop+2, "[s] Сменить статус", FgBlue, BgSurface, maxContentW, false, false, false)
+		s.DrawText(x+2, actionTop+3, "[f] Изменить поле", FgYellow, BgSurface, maxContentW, false, false, false)
+		delHint := "[d] Удалить запись"
+		if a.width < 115 {
+			delHint += "    [1/Esc] К списку"
+		}
+		s.DrawText(x+2, actionTop+4, delHint, FgRed, BgSurface, maxContentW, false, false, false)
+	}
+}
+
+func (a *App) renderStats(s *Screen, x, y, w, h int) {
+	borderCol := BorderFocus
+	title := "Статистика за период"
+	s.DrawBox(x, y, w, h, title, FgYellow, borderCol, BgSurface, true)
+
+	// Calculate statistics
+	totalEntries := len(a.sessions)
+	totalMin := 0
+	totalCash := 0.0
+	statusCounts := map[string]int{}
+	typeCounts := map[string]int{}
+
+	for _, sess := range a.sessions {
+		totalMin += sess.Duration
+		totalCash += sess.Cash
+		statusCounts[sess.Status]++
+		t := sess.Type
+		if t == "" {
+			t = "(без типа)"
+		}
+		typeCounts[t]++
+	}
+
+	pLabel := "Все записи"
+	switch a.periodMode {
+	case "today":
+		pLabel = "Сегодня"
+	case "week":
+		pLabel = "Эта неделя"
+	case "month":
+		pLabel = "Этот месяц"
+	case "custom":
+		pLabel = "Выбранный период"
+	}
+
+	totalHours := float64(totalMin) / 60.0
+	avgMin := 0
+	if totalEntries > 0 {
+		avgMin = totalMin / totalEntries
+	}
+
+	curY := y + 2
+	s.DrawText(x+2, curY, fmt.Sprintf("Период:            %s", pLabel), FgWhite, BgSurface, w-4, true, false, false)
+	curY++
+	s.DrawText(x+2, curY, fmt.Sprintf("Всего записей:     %d шт.", totalEntries), FgWhite, BgSurface, w-4, true, false, false)
+	curY++
+	s.DrawText(x+2, curY, fmt.Sprintf("Общее время:       %.1f ч (%d мин)", totalHours, totalMin), FgCyan, BgSurface, w-4, true, false, false)
+	curY++
+	s.DrawText(x+2, curY, fmt.Sprintf("Среднее на запись: %d мин (%02d:%02d)", avgMin, avgMin/60, avgMin%60), FgDim, BgSurface, w-4, false, false, false)
+	curY++
+	// Cash is strictly a pure number!
+	s.DrawText(x+2, curY, fmt.Sprintf("Суммарный кэш:     %s", strconv.FormatFloat(totalCash, 'f', -1, 64)), FgGreen, BgSurface, w-4, true, false, false)
+	curY += 2
+
+	// Status breakdown
+	s.DrawHLine(x+1, x+w-2, curY, BoxH, BorderDim, BgSurface)
+	s.DrawText(x+2, curY, "┤ Распределение по статусам ├", FgDim, BgSurface, w-4, false, false, false)
+	curY++
+
+	statusOrder := []string{"Активно", "Завершено", "Запланировано", "В процессе", "Отменено"}
+	for _, st := range statusOrder {
+		c := statusCounts[st]
+		if c > 0 || totalEntries == 0 {
+			bText, bFg, _ := StatusBadge(st)
+			s.DrawText(x+2, curY, bText, bFg, BgSurface, 16, true, false, false)
+			s.DrawText(x+18, curY, fmt.Sprintf("%d записей", c), FgWhite, BgSurface, w-20, false, false, false)
+			curY++
+		}
+	}
+	for st, c := range statusCounts {
+		isDefault := false
+		for _, def := range statusOrder {
+			if def == st {
+				isDefault = true
+				break
+			}
+		}
+		if !isDefault && c > 0 {
+			bText, bFg, _ := StatusBadge(st)
+			s.DrawText(x+2, curY, bText, bFg, BgSurface, 16, true, false, false)
+			s.DrawText(x+18, curY, fmt.Sprintf("%d записей", c), FgWhite, BgSurface, w-20, false, false, false)
+			curY++
+		}
+	}
+
+	curY++
+	// Category breakdown
+	if len(typeCounts) > 0 && curY < y+h-4 {
+		s.DrawHLine(x+1, x+w-2, curY, BoxH, BorderDim, BgSurface)
+		s.DrawText(x+2, curY, "┤ Распределение по категориям ├", FgDim, BgSurface, w-4, false, false, false)
+		curY++
+		for tName, c := range typeCounts {
+			if curY >= y+h-3 {
+				break
+			}
+			s.DrawText(x+2, curY, fmt.Sprintf("• %s:", tName), FgMuted, BgSurface, 20, false, false, false)
+			s.DrawText(x+24, curY, fmt.Sprintf("%d записей", c), FgCyan, BgSurface, w-26, true, false, false)
+			curY++
+		}
+	}
+
+	// Hint at bottom
+	s.DrawText(x+2, y+h-2, "[1 / Esc] Вернуться к списку записей  [Tab] Следующая вкладка", FgDim, BgSurface, w-4, false, false, false)
 }
 
 func (a *App) renderFooter(s *Screen) {
@@ -946,20 +1400,45 @@ func (a *App) renderFooter(s *Screen) {
 	hotkeyY := a.height - 1
 	s.Fill(0, hotkeyY, a.width, 1, ' ', FgMain, BgPrimary)
 
-	hints := []struct {
+	var hints []struct {
 		key  string
 		desc string
-	}{
-		{"[↑↓]", "Навигация"},
-		{"[Space]", "Выбор"},
-		{"[s]", "Статус"},
-		{"[a]", "Создать"},
-		{"[e]", "Правка"},
-		{"[f]", "Поле"},
-		{"[d]", "Удалить"},
-		{"[Tab]", "Панель"},
-		{"[?]", "Помощь"},
-		{"[q]", "Выход"},
+	}
+
+	if a.width < 115 {
+		hints = []struct {
+			key  string
+			desc string
+		}{
+			{"[Tab/1-4]", "Вкладки"},
+			{"[↑↓]", "Навигация"},
+			{"[Enter]", "Карточка"},
+			{"[Space]", "Выбор"},
+			{"[s]", "Статус"},
+			{"[a]", "Создать"},
+			{"[e]", "Правка"},
+			{"[f]", "Поле"},
+			{"[d]", "Удалить"},
+			{"[?]", "Помощь"},
+			{"[q]", "Выход"},
+		}
+	} else {
+		hints = []struct {
+			key  string
+			desc string
+		}{
+			{"[↑↓]", "Навигация"},
+			{"[Space]", "Выбор"},
+			{"[s]", "Статус"},
+			{"[a]", "Создать"},
+			{"[e]", "Правка"},
+			{"[f]", "Поле"},
+			{"[d]", "Удалить"},
+			{"[Tab]", "Панель"},
+			{"[1-4]", "Период"},
+			{"[?]", "Помощь"},
+			{"[q]", "Выход"},
+		}
 	}
 
 	cx := 2
