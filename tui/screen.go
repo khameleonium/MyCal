@@ -153,6 +153,24 @@ func (s *Screen) DrawText(x, y int, text, fg, bg string, maxWidth int, bold, dim
 	return cx - x
 }
 
+// DrawWrappedText wraps text to maxWidth and draws up to maxHeight lines starting at (x, y).
+// It returns the number of lines drawn.
+func (s *Screen) DrawWrappedText(x, y, maxWidth, maxHeight int, text, fg, bg string, bold, dim, underline bool) int {
+	if maxWidth <= 0 || maxHeight <= 0 || y >= s.Height {
+		return 0
+	}
+	lines := WrapText(text, maxWidth)
+	drawn := 0
+	for i, line := range lines {
+		if i >= maxHeight || y+i >= s.Height {
+			break
+		}
+		s.DrawText(x, y+i, line, fg, bg, maxWidth, bold, dim, underline)
+		drawn++
+	}
+	return drawn
+}
+
 // DrawHLine draws a horizontal line from x1 to x2 (inclusive) on row y.
 func (s *Screen) DrawHLine(x1, x2, y int, ch rune, fg, bg string) {
 	if y < 0 || y >= s.Height {

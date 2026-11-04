@@ -196,3 +196,100 @@ func CleanString(s string) string {
 	}
 	return sb.String()
 }
+
+// WrapText wraps text into lines such that each line has visual width <= maxWidth.
+// It wraps on word boundaries (spaces), or breaks long words if a single word exceeds maxWidth.
+func WrapText(text string, maxWidth int) []string {
+	if maxWidth <= 0 {
+		return nil
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+
+	var lines []string
+	rawLines := strings.Split(text, "\n")
+
+	for _, rawLine := range rawLines {
+		rawLine = strings.TrimRight(rawLine, "\r\n")
+		words := strings.Fields(rawLine)
+		if len(words) == 0 {
+			lines = append(lines, "")
+			continue
+		}
+
+		currentLine := ""
+		currentWidth := 0
+
+		for _, word := range words {
+			wWidth := StringVisualWidth(word)
+
+			if currentLine == "" {
+				if wWidth <= maxWidth {
+					currentLine = word
+					currentWidth = wWidth
+				} else {
+					// Word itself is longer than maxWidth: chunk it
+					chunks := chunkLongWord(word, maxWidth)
+					for i, chk := range chunks {
+						if i < len(chunks)-1 {
+							lines = append(lines, chk)
+						} else {
+							currentLine = chk
+							currentWidth = StringVisualWidth(chk)
+						}
+					}
+				}
+			} else {
+				// Try adding word to currentLine with a space
+				if currentWidth+1+wWidth <= maxWidth {
+					currentLine += " " + word
+					currentWidth += 1 + wWidth
+				} else {
+					lines = append(lines, currentLine)
+					if wWidth <= maxWidth {
+						currentLine = word
+						currentWidth = wWidth
+					} else {
+						chunks := chunkLongWord(word, maxWidth)
+						for i, chk := range chunks {
+							if i < len(chunks)-1 {
+								lines = append(lines, chk)
+							} else {
+								currentLine = chk
+								currentWidth = StringVisualWidth(chk)
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if currentLine != "" {
+			lines = append(lines, currentLine)
+		}
+	}
+
+	return lines
+}
+
+func chunkLongWord(word string, maxWidth int) []string {
+	var chunks []string
+	var sb strings.Builder
+	w := 0
+	for _, r := range word {
+		rw := RuneVisualWidth(r)
+		if w+rw > maxWidth {
+			chunks = append(chunks, sb.String())
+			sb.Reset()
+			w = 0
+		}
+		sb.WriteRune(r)
+		w += rw
+	}
+	if sb.Len() > 0 {
+		chunks = append(chunks, sb.String())
+	}
+	return chunks
+}

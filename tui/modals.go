@@ -62,6 +62,12 @@ func NewModalStatusPicker(customStatuses []string, currentStatus, targetID strin
 func (m *ModalStatusPicker) Draw(s *Screen) {
 	w := 38
 	h := len(m.statuses) + 6
+	if w > s.Width-2 {
+		w = s.Width - 2
+	}
+	if h > s.Height-2 {
+		h = s.Height - 2
+	}
 	x := (s.Width - w) / 2
 	y := (s.Height - h) / 2
 	if x < 1 {
@@ -195,6 +201,12 @@ func NewModalQuickEditField(targetID string) *ModalQuickEditField {
 func (m *ModalQuickEditField) Draw(s *Screen) {
 	w := 50
 	h := 14
+	if w > s.Width-2 {
+		w = s.Width - 2
+	}
+	if h > s.Height-2 {
+		h = s.Height - 2
+	}
 	x := (s.Width - w) / 2
 	y := (s.Height - h) / 2
 	if x < 1 {
@@ -444,6 +456,12 @@ func (m *ModalSessionForm) Draw(s *Screen) {
 	h := 20
 	if !m.isEdit {
 		h = 22
+	}
+	if w > s.Width-2 {
+		w = s.Width - 2
+	}
+	if h > s.Height-2 {
+		h = s.Height - 2
 	}
 	x := (s.Width - w) / 2
 	y := (s.Height - h) / 2
@@ -738,6 +756,12 @@ func NewModalConfirmDelete(targetID string, count int) *ModalConfirmDelete {
 func (m *ModalConfirmDelete) Draw(s *Screen) {
 	w := 46
 	h := 8
+	if w > s.Width-2 {
+		w = s.Width - 2
+	}
+	if h > s.Height-2 {
+		h = s.Height - 2
+	}
 	x := (s.Width - w) / 2
 	y := (s.Height - h) / 2
 	if x < 1 {
@@ -803,6 +827,12 @@ func NewModalYearCalendar(year int) *ModalYearCalendar {
 func (m *ModalYearCalendar) Draw(s *Screen) {
 	w := 68
 	h := 22
+	if w > s.Width-2 {
+		w = s.Width - 2
+	}
+	if h > s.Height-2 {
+		h = s.Height - 2
+	}
 	x := (s.Width - w) / 2
 	y := (s.Height - h) / 2
 	if x < 1 {
@@ -898,6 +928,12 @@ func NewModalSettings(cfg *models.Config) *ModalSettings {
 func (m *ModalSettings) Draw(s *Screen) {
 	w := 54
 	h := 18
+	if w > s.Width-2 {
+		w = s.Width - 2
+	}
+	if h > s.Height-2 {
+		h = s.Height - 2
+	}
 	x := (s.Width - w) / 2
 	y := (s.Height - h) / 2
 	if x < 1 {
@@ -1034,6 +1070,12 @@ func NewModalHelp() *ModalHelp {
 func (m *ModalHelp) Draw(s *Screen) {
 	w := 64
 	h := 22
+	if w > s.Width-2 {
+		w = s.Width - 2
+	}
+	if h > s.Height-2 {
+		h = s.Height - 2
+	}
 	x := (s.Width - w) / 2
 	y := (s.Height - h) / 2
 	if x < 1 {

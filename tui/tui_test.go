@@ -97,3 +97,59 @@ func TestKeyMatching(t *testing.T) {
 		t.Errorf("expected uppercase key 'A' to match ('a', 'ф')")
 	}
 }
+
+func TestWrapText(t *testing.T) {
+	text := "Очень длинное наименование события для проверки автоматического переноса строк"
+	maxWidth := 20
+	lines := WrapText(text, maxWidth)
+
+	if len(lines) < 2 {
+		t.Fatalf("expected multiple lines, got %d", len(lines))
+	}
+
+	for i, line := range lines {
+		w := StringVisualWidth(line)
+		if w > maxWidth {
+			t.Errorf("line %d exceeds maxWidth %d: got %d (%q)", i, maxWidth, w, line)
+		}
+	}
+
+	joined := strings.Join(lines, " ")
+	for _, word := range strings.Fields(text) {
+		if !strings.Contains(joined, word) {
+			t.Errorf("word %q lost during wrapping", word)
+		}
+	}
+}
+
+func TestWrapTextLongWord(t *testing.T) {
+	longWord := "СупермегадлинноеСловоБезПробеловКотороеНеПомещается"
+	maxWidth := 15
+	lines := WrapText(longWord, maxWidth)
+
+	if len(lines) < 2 {
+		t.Fatalf("expected chunked lines for long word, got %d", len(lines))
+	}
+
+	for i, line := range lines {
+		w := StringVisualWidth(line)
+		if w > maxWidth {
+			t.Errorf("chunk %d exceeds maxWidth %d: got %d (%q)", i, maxWidth, w, line)
+		}
+	}
+}
+
+func TestScreenDrawWrappedText(t *testing.T) {
+	screen := NewScreen(30, 10)
+	text := "Первая строка и продолжение текста на второй и третьей строках"
+	linesDrawn := screen.DrawWrappedText(2, 2, 18, 5, text, FgWhite, BgSurface, false, false, false)
+
+	if linesDrawn < 2 {
+		t.Errorf("expected at least 2 lines drawn, got %d", linesDrawn)
+	}
+
+	// Verify characters are placed in screen cells
+	if screen.Cells[2][2].Ch == 0 {
+		t.Errorf("expected cell (2,2) to have character")
+	}
+}
