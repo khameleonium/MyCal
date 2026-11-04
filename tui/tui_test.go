@@ -1209,3 +1209,79 @@ func TestRepeatPickerDropdownInSessionForm(t *testing.T) {
 	s := NewScreen(80, 25)
 	m.Draw(s)
 }
+
+func TestTimePickerDropdownInSessionForm(t *testing.T) {
+	app := newTestApp(t)
+	m := NewModalSessionForm(nil, "15.10.2026")
+	m.fieldIdx = 1 // time field
+	m.timeStr = "10:00"
+
+	m.HandleKey(Key{Type: KeyRight}, app)
+	if !m.pickerOpen {
+		t.Fatalf("expected pickerOpen == true on time field")
+	}
+	if m.pickerField != 1 {
+		t.Fatalf("expected pickerField == 1, got %d", m.pickerField)
+	}
+	if len(m.pickerList) != 24 {
+		t.Fatalf("expected 24 hours in pickerList, got %d", len(m.pickerList))
+	}
+
+	// Select 14:00 (index 14)
+	m.pickerIdx = 14
+	m.HandleKey(Key{Type: KeyEnter}, app)
+	if m.timeStr != "14:00" {
+		t.Fatalf("expected timeStr == '14:00', got %q", m.timeStr)
+	}
+
+	s := NewScreen(80, 25)
+	m.Draw(s)
+}
+
+func TestTimePickerDropdownInQuickEditField(t *testing.T) {
+	app := newTestApp(t)
+	m := NewModalQuickEditField("test-id")
+	m.selected = 4 // time field
+	m.stepInput = true
+	m.value = "10:00"
+
+	m.HandleKey(Key{Type: KeyRight}, app)
+	if !m.pickerOpen {
+		t.Fatalf("expected pickerOpen == true on time field in quick edit")
+	}
+	if m.pickerField != 4 {
+		t.Fatalf("expected pickerField == 4, got %d", m.pickerField)
+	}
+
+	// Select 18:00 (index 18)
+	m.pickerIdx = 18
+	m.HandleKey(Key{Type: KeyEnter}, app)
+	if m.value != "18:00" {
+		t.Fatalf("expected value == '18:00', got %q", m.value)
+	}
+
+	s := NewScreen(80, 25)
+	m.Draw(s)
+}
+
+func TestStatusPickerDrawHierarchy(t *testing.T) {
+	app := newTestApp(t)
+	m := NewModalSessionForm(nil, "15.10.2026")
+	m.fieldIdx = 6 // status field
+	m.status = "Активно"
+
+	m.HandleKey(Key{Type: KeyRight}, app)
+	if !m.pickerOpen {
+		t.Fatalf("expected status picker to be open")
+	}
+
+	s := NewScreen(80, 25)
+	m.Draw(s)
+
+	var buf bytes.Buffer
+	_ = s.Render(&buf)
+	// Ensure the popup title "Статусы" is rendered on top and visible
+	if !strings.Contains(buf.String(), "Статусы") {
+		t.Fatalf("expected status popup box title to be rendered on screen")
+	}
+}
