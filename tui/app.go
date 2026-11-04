@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	PanelSidebar   = 0
-	PanelFeed      = 1
-	PanelInspector = 2
+	PanelCalendar  = 0
+	PanelSidebar   = 1
+	PanelFeed      = 2
+	PanelInspector = 3
 
 	// Tabs for Compact / Vertical mode
 	TabFeed      = 0
@@ -41,11 +42,11 @@ type App struct {
 
 	activeTab int // TabFeed, TabCalendar, TabInspector, TabStats (for compact mode)
 
-	focusPanel  int // PanelSidebar, PanelFeed, PanelInspector
+	focusPanel  int // PanelCalendar, PanelSidebar, PanelFeed, PanelInspector
 	periodMode  string
 	startDate   time.Time
 	endDate     time.Time
-	typeFilter  string
+	typeFilters map[string]bool
 	searchQuery string
 
 	allSessions []models.Session
@@ -56,11 +57,14 @@ type App struct {
 	selectedIDs  map[string]bool
 
 	// Calendar state
-	calYear  int
-	calMonth int
-	calDay   int
+	calYear        int
+	calMonth       int
+	calDay         int
+	calHeaderFocus bool
+	calHeaderBtn   int // 0: ◄, 1: ►, 2: [Год]
+	rangeAnchor    *time.Time
 
-	sidebarIdx int // 0: cal, 1: all, 2: today, 3: week, 4: month, 5: period
+	sidebarIdx int // in PanelSidebar: 0..4 (presets), 5.. (categories)
 
 	activeModal Modal
 	statusMsg   string
@@ -78,6 +82,7 @@ func NewApp(svc *calendar.Service, cfg *models.Config, cfgPath, version string) 
 		focusPanel:  PanelFeed,
 		periodMode:  "all",
 		selectedIDs: make(map[string]bool),
+		typeFilters: make(map[string]bool),
 		calYear:     now.Year(),
 		calMonth:    int(now.Month()),
 		calDay:      now.Day(),
@@ -155,6 +160,73 @@ func (a *App) persistConfig() {
 	}
 }
 
+func (a *App) isTypeFilterActive(t string) bool {
+	if a.typeFilters == nil {
+		return false
+	}
+	return a.typeFilters[strings.ToLower(strings.TrimSpace(t))]
+}
+
+func (a *App) toggleTypeFilter(t string) {
+	if a.typeFilters == nil {
+		a.typeFilters = make(map[string]bool)
+	}
+	key := strings.ToLower(strings.TrimSpace(t))
+	if a.typeFilters[key] {
+		delete(a.typeFilters, key)
+	} else {
+		a.typeFilters[key] = true
+	}
+	a.reloadSessions()
+}
+
+func (a *App) hasActiveTypeFilters() bool {
+	for _, active := range a.typeFilters {
+		if active {
+			return true
+		}
+	}
+	return false
+}
+
+func (a *App) clearTypeFilters() {
+	a.typeFilters = make(map[string]bool)
+	a.reloadSessions()
+}
+
+func (a *App) isDayInFilter(year, month, day int) bool {
+	if a.periodMode == "all" {
+		return false // No date highlighted for "Все записи"!
+	}
+	d := time.Date(year, time.Month(month), day, 12, 0, 0, 0, time.Local)
+	switch a.periodMode {
+	case "day", "today":
+		return year == a.calYear && month == a.calMonth && day == a.calDay
+	case "week":
+		selDate := time.Date(a.calYear, time.Month(a.calMonth), a.calDay, 12, 0, 0, 0, time.Local)
+		weekday := int(selDate.Weekday())
+		if weekday == 0 {
+			weekday = 7
+		}
+		mon := selDate.AddDate(0, 0, -(weekday - 1))
+		sun := mon.AddDate(0, 0, 6)
+		monDate := time.Date(mon.Year(), mon.Month(), mon.Day(), 0, 0, 0, 0, time.Local)
+		sunDate := time.Date(sun.Year(), sun.Month(), sun.Day(), 23, 59, 59, 0, time.Local)
+		return (d.Equal(monDate) || d.After(monDate)) && (d.Equal(sunDate) || d.Before(sunDate))
+	case "month":
+		return year == a.calYear && month == a.calMonth
+	case "custom":
+		if a.startDate.IsZero() || a.endDate.IsZero() {
+			return false
+		}
+		start := time.Date(a.startDate.Year(), a.startDate.Month(), a.startDate.Day(), 0, 0, 0, 0, time.Local)
+		end := time.Date(a.endDate.Year(), a.endDate.Month(), a.endDate.Day(), 23, 59, 59, 0, time.Local)
+		return (d.Equal(start) || d.After(start)) && (d.Equal(end) || d.Before(end))
+	default:
+		return false
+	}
+}
+
 // reloadSessions filters and sorts sessions according to the current period and type.
 func (a *App) reloadSessions() {
 	a.allSessions = a.svc.All()
@@ -164,20 +236,23 @@ func (a *App) reloadSessions() {
 	now := time.Now()
 	var start, end time.Time
 
+	// Preset bounds computed relative to selected calendar date
+	selDate := time.Date(a.calYear, time.Month(a.calMonth), a.calDay, 0, 0, 0, 0, time.Local)
+
 	switch a.periodMode {
-	case "today":
-		start = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	case "today", "day":
+		start = selDate
 		end = start.Add(24*time.Hour - time.Nanosecond)
 	case "week":
-		weekday := int(now.Weekday())
+		weekday := int(selDate.Weekday())
 		if weekday == 0 {
 			weekday = 7
 		}
-		mon := now.AddDate(0, 0, -(weekday - 1))
+		mon := selDate.AddDate(0, 0, -(weekday - 1))
 		start = time.Date(mon.Year(), mon.Month(), mon.Day(), 0, 0, 0, 0, time.Local)
 		end = start.AddDate(0, 0, 7).Add(-time.Nanosecond)
 	case "month":
-		start = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.Local)
+		start = time.Date(a.calYear, time.Month(a.calMonth), 1, 0, 0, 0, 0, time.Local)
 		end = start.AddDate(0, 1, 0).Add(-time.Nanosecond)
 	case "custom":
 		start = a.startDate
@@ -195,9 +270,12 @@ func (a *App) reloadSessions() {
 			}
 		}
 
-		// Type filter check
-		if a.typeFilter != "" && !strings.EqualFold(s.Type, a.typeFilter) {
-			continue
+		// Type filter check (multi-category)
+		if a.hasActiveTypeFilters() {
+			sessType := strings.ToLower(strings.TrimSpace(s.Type))
+			if !a.typeFilters[sessType] {
+				continue
+			}
 		}
 
 		// Search query check
@@ -245,7 +323,7 @@ func (a *App) handleKey(k Key) bool {
 	case k.Type == KeyCtrlC || k.Matches('q', 'й'):
 		return true // Exit TUI
 
-	case k.Matches('?', '?') || k.Matches('h', 'р') || k.Type == KeyF1:
+	case k.Matches('?', '?') || k.Type == KeyF1:
 		a.activeModal = NewModalHelp()
 		return false
 
@@ -257,37 +335,77 @@ func (a *App) handleKey(k Key) bool {
 		a.activeModal = NewModalYearCalendar(a.calYear)
 		return false
 
+	case k.Matches('p', 'з') || k.Matches('P', 'З'):
+		curDate := time.Date(a.calYear, time.Month(a.calMonth), a.calDay, 0, 0, 0, 0, time.Local)
+		initFrom := curDate.Format("02.01.2006")
+		initTo := curDate.Format("02.01.2006")
+		if a.periodMode == "custom" && !a.startDate.IsZero() && !a.endDate.IsZero() {
+			initFrom = a.startDate.Format("02.01.2006")
+			initTo = a.endDate.Format("02.01.2006")
+		}
+		a.activeModal = NewModalDateRange(initFrom, initTo)
+		return false
+
+	case k.Matches('<', 'б') || k.Rune == '<' || k.Rune == ',' || k.Rune == 'б' || k.Rune == 'Б':
+		a.changeMonth(-1)
+		a.onMonthChanged()
+		return false
+
+	case k.Matches('>', 'ю') || k.Rune == '>' || k.Rune == '.' || k.Rune == 'ю' || k.Rune == 'Ю':
+		a.changeMonth(1)
+		a.onMonthChanged()
+		return false
+
 	case k.Type == KeyTab:
 		if a.width < 115 {
-			a.activeTab = (a.activeTab + 1) % 4
 			if a.activeTab == TabCalendar {
-				a.syncSidebarIdx()
+				if a.focusPanel == PanelCalendar {
+					a.focusPanel = PanelSidebar
+				} else {
+					a.focusPanel = PanelCalendar
+				}
+			} else {
+				a.activeTab = (a.activeTab + 1) % 4
+				if a.activeTab == TabCalendar {
+					a.focusPanel = PanelCalendar
+				} else if a.activeTab == TabFeed {
+					a.focusPanel = PanelFeed
+				} else if a.activeTab == TabInspector {
+					a.focusPanel = PanelInspector
+				}
 			}
 		} else {
-			a.focusPanel = (a.focusPanel + 1) % 3
-			if a.focusPanel == PanelSidebar {
-				a.syncSidebarIdx()
-			}
+			a.focusPanel = (a.focusPanel + 1) % 4
 		}
 		return false
 
 	case k.Type == KeyBackTab:
 		if a.width < 115 {
-			a.activeTab = (a.activeTab + 3) % 4
 			if a.activeTab == TabCalendar {
-				a.syncSidebarIdx()
+				if a.focusPanel == PanelCalendar {
+					a.focusPanel = PanelSidebar
+				} else {
+					a.focusPanel = PanelCalendar
+				}
+			} else {
+				a.activeTab = (a.activeTab + 3) % 4
+				if a.activeTab == TabCalendar {
+					a.focusPanel = PanelCalendar
+				} else if a.activeTab == TabFeed {
+					a.focusPanel = PanelFeed
+				} else if a.activeTab == TabInspector {
+					a.focusPanel = PanelInspector
+				}
 			}
 		} else {
-			a.focusPanel = (a.focusPanel + 2) % 3
-			if a.focusPanel == PanelSidebar {
-				a.syncSidebarIdx()
-			}
+			a.focusPanel = (a.focusPanel + 3) % 4
 		}
 		return false
 
 	case k.Matches('1', '1'):
 		if a.width < 115 {
 			a.activeTab = TabFeed
+			a.focusPanel = PanelFeed
 		} else {
 			a.periodMode = "all"
 			a.sidebarIdx = 0
@@ -299,18 +417,19 @@ func (a *App) handleKey(k Key) bool {
 	case k.Matches('2', '2'):
 		if a.width < 115 {
 			a.activeTab = TabCalendar
-			a.syncSidebarIdx()
+			a.focusPanel = PanelCalendar
 		} else {
-			a.periodMode = "today"
+			a.periodMode = "day"
 			a.sidebarIdx = 1
 			a.reloadSessions()
-			a.setStatusMsg("Выбран период: Сегодня")
+			a.setStatusMsg(fmt.Sprintf("Выбран период: День (%02d.%02d.%d)", a.calDay, a.calMonth, a.calYear))
 		}
 		return false
 
 	case k.Matches('3', '3'):
 		if a.width < 115 {
 			a.activeTab = TabInspector
+			a.focusPanel = PanelInspector
 		} else {
 			a.periodMode = "week"
 			a.sidebarIdx = 2
@@ -326,13 +445,14 @@ func (a *App) handleKey(k Key) bool {
 			a.periodMode = "month"
 			a.sidebarIdx = 3
 			a.reloadSessions()
-			a.setStatusMsg("Выбран период: Месяц")
+			a.setStatusMsg(fmt.Sprintf("Выбран период: Месяц (%02d.%d)", a.calMonth, a.calYear))
 		}
 		return false
 
 	case k.Matches('l', 'д'):
 		if a.width < 115 {
 			a.activeTab = TabFeed
+			a.focusPanel = PanelFeed
 		} else {
 			a.focusPanel = PanelFeed
 		}
@@ -341,23 +461,38 @@ func (a *App) handleKey(k Key) bool {
 	case k.Matches('c', 'к'):
 		if a.width < 115 {
 			a.activeTab = TabCalendar
-			a.syncSidebarIdx()
+			a.focusPanel = PanelCalendar
 		} else {
-			a.focusPanel = PanelSidebar
-			a.syncSidebarIdx()
+			if a.focusPanel == PanelCalendar {
+				a.focusPanel = PanelSidebar
+			} else {
+				a.focusPanel = PanelCalendar
+			}
 		}
 		return false
 
 	case k.Matches('i', 'ш'):
 		if a.width < 115 {
 			a.activeTab = TabInspector
+			a.focusPanel = PanelInspector
 		} else {
 			a.focusPanel = PanelInspector
 		}
 		return false
 
 	case k.Matches('t', 'е'):
-		a.cycleTypeFilter()
+		if a.focusPanel == PanelCalendar {
+			now := time.Now()
+			a.calYear = now.Year()
+			a.calMonth = int(now.Month())
+			a.calDay = now.Day()
+			a.calHeaderFocus = false
+			a.rangeAnchor = nil
+			a.syncCalendarSelection()
+			a.setStatusMsg("Календарь возвращён на Сегодня")
+		} else {
+			a.cycleTypeFilter()
+		}
 		return false
 
 	case k.Matches('a', 'ф'):
@@ -410,16 +545,23 @@ func (a *App) handleKey(k Key) bool {
 	case k.Type == KeySpace:
 		if a.width < 115 {
 			if a.activeTab == TabCalendar {
-				a.handleSidebarKey(k)
+				if a.focusPanel == PanelCalendar {
+					a.handleCalendarKey(k)
+				} else {
+					a.handleSidebarKey(k)
+				}
 				return false
 			}
 		} else {
-			if a.focusPanel == PanelSidebar {
+			if a.focusPanel == PanelCalendar {
+				a.handleCalendarKey(k)
+				return false
+			} else if a.focusPanel == PanelSidebar {
 				a.handleSidebarKey(k)
 				return false
 			}
 		}
-		// Toggle selection
+		// Toggle selection in Feed
 		if len(a.sessions) > 0 && a.cursorIdx < len(a.sessions) {
 			id := a.sessions[a.cursorIdx].ID
 			if a.selectedIDs[id] {
@@ -431,18 +573,30 @@ func (a *App) handleKey(k Key) bool {
 		return false
 
 	case k.Type == KeyEsc:
-		if a.width < 115 && a.activeTab != TabFeed {
-			a.activeTab = TabFeed
+		if a.rangeAnchor != nil {
+			a.rangeAnchor = nil
+			a.syncCalendarSelection()
+			a.setStatusMsg("Выделение периода отменено")
 			return false
 		}
-		// Clear selection or type filter
 		if len(a.selectedIDs) > 0 {
 			a.selectedIDs = make(map[string]bool)
 			a.setStatusMsg("Выделение снято")
-		} else if a.typeFilter != "" {
-			a.typeFilter = ""
-			a.reloadSessions()
-			a.setStatusMsg("Фильтр типов сброшен")
+			return false
+		}
+		if a.hasActiveTypeFilters() {
+			a.clearTypeFilters()
+			a.setStatusMsg("Фильтры категорий сброшены: Все категории")
+			return false
+		}
+		if a.width < 115 && a.activeTab != TabFeed {
+			a.activeTab = TabFeed
+			a.focusPanel = PanelFeed
+			return false
+		}
+		if a.focusPanel != PanelFeed {
+			a.focusPanel = PanelFeed
+			return false
 		}
 		return false
 	}
@@ -453,18 +607,25 @@ func (a *App) handleKey(k Key) bool {
 		case TabFeed:
 			a.handleFeedKey(k)
 		case TabCalendar:
-			a.handleSidebarKey(k)
+			if a.focusPanel == PanelCalendar {
+				a.handleCalendarKey(k)
+			} else {
+				a.handleSidebarKey(k)
+			}
 		case TabInspector:
 			a.handleInspectorKey(k)
 		case TabStats:
 			if k.Type == KeyEnter || k.Type == KeyEsc {
 				a.activeTab = TabFeed
+				a.focusPanel = PanelFeed
 			}
 		}
 		return false
 	}
 
 	switch a.focusPanel {
+	case PanelCalendar:
+		a.handleCalendarKey(k)
 	case PanelSidebar:
 		a.handleSidebarKey(k)
 	case PanelFeed:
@@ -480,13 +641,59 @@ func (a *App) syncSidebarIdx() {
 	switch a.periodMode {
 	case "all":
 		a.sidebarIdx = 0
-	case "today":
+	case "day", "today":
 		a.sidebarIdx = 1
 	case "week":
 		a.sidebarIdx = 2
 	case "month":
 		a.sidebarIdx = 3
+	case "custom":
+		a.sidebarIdx = 4
 	}
+}
+
+func (a *App) onMonthChanged() {
+	daysInMonth := time.Date(a.calYear, time.Month(a.calMonth+1), 0, 0, 0, 0, 0, time.Local).Day()
+	if a.calDay > daysInMonth {
+		a.calDay = daysInMonth
+	}
+	if a.calDay < 1 {
+		a.calDay = 1
+	}
+	monthsRu := []string{
+		"", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+		"Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
+	}
+	if a.periodMode == "month" {
+		a.reloadSessions()
+		a.setStatusMsg(fmt.Sprintf("Выбран месяц: %s %d", monthsRu[a.calMonth], a.calYear))
+	} else if a.focusPanel == PanelCalendar {
+		a.syncCalendarSelection()
+	} else {
+		a.setStatusMsg(fmt.Sprintf("Календарь: %s %d", monthsRu[a.calMonth], a.calYear))
+	}
+}
+
+func (a *App) syncCalendarSelection() {
+	curDate := time.Date(a.calYear, time.Month(a.calMonth), a.calDay, 0, 0, 0, 0, time.Local)
+	if a.rangeAnchor != nil {
+		anchor := *a.rangeAnchor
+		if curDate.Before(anchor) {
+			a.startDate = curDate
+			a.endDate = anchor.Add(24*time.Hour - time.Nanosecond)
+		} else {
+			a.startDate = anchor
+			a.endDate = curDate.Add(24*time.Hour - time.Nanosecond)
+		}
+		a.periodMode = "custom"
+		a.setStatusMsg(fmt.Sprintf("Выделен период: %s - %s", a.startDate.Format("02.01.2006"), a.endDate.Format("02.01.2006")))
+	} else {
+		a.startDate = curDate
+		a.endDate = curDate.Add(24*time.Hour - time.Nanosecond)
+		a.periodMode = "day"
+		a.setStatusMsg(fmt.Sprintf("Выбран день: %02d.%02d.%d", a.calDay, a.calMonth, a.calYear))
+	}
+	a.reloadSessions()
 }
 
 func (a *App) handleFeedKey(k Key) {
@@ -532,11 +739,149 @@ func (a *App) handleFeedKey(k Key) {
 	}
 }
 
+func (a *App) handleCalendarKey(k Key) {
+	switch {
+	case k.Type == KeyHome || (k.Matches('t', 'е') && !a.calHeaderFocus):
+		now := time.Now()
+		a.calYear = now.Year()
+		a.calMonth = int(now.Month())
+		a.calDay = now.Day()
+		a.calHeaderFocus = false
+		a.rangeAnchor = nil
+		a.syncCalendarSelection()
+		a.setStatusMsg("Календарь возвращён на Сегодня")
+
+	case a.calHeaderFocus:
+		switch {
+		case k.Type == KeyLeft || k.Matches('h', 'р'):
+			if a.calHeaderBtn > 0 {
+				a.calHeaderBtn--
+			} else {
+				a.changeMonth(-1)
+				a.onMonthChanged()
+			}
+		case k.Type == KeyRight:
+			if a.calHeaderBtn < 2 {
+				a.calHeaderBtn++
+			} else {
+				a.changeMonth(1)
+				a.onMonthChanged()
+			}
+		case k.Type == KeyEnter || k.Type == KeySpace:
+			if a.calHeaderBtn == 0 {
+				a.changeMonth(-1)
+				a.onMonthChanged()
+			} else if a.calHeaderBtn == 1 {
+				a.changeMonth(1)
+				a.onMonthChanged()
+			} else if a.calHeaderBtn == 2 {
+				a.activeModal = NewModalYearCalendar(a.calYear)
+			}
+		case k.Type == KeyDown || k.Matches('j', 'о'):
+			a.calHeaderFocus = false
+			if a.calDay < 1 {
+				a.calDay = 1
+			}
+		case k.Type == KeyEsc:
+			a.calHeaderFocus = false
+		}
+
+	default:
+		switch {
+		case k.Type == KeyLeft || k.Matches('h', 'р'):
+			cur := time.Date(a.calYear, time.Month(a.calMonth), a.calDay, 12, 0, 0, 0, time.Local)
+			prev := cur.AddDate(0, 0, -1)
+			a.calYear = prev.Year()
+			a.calMonth = int(prev.Month())
+			a.calDay = prev.Day()
+			a.syncCalendarSelection()
+
+		case k.Type == KeyRight:
+			cur := time.Date(a.calYear, time.Month(a.calMonth), a.calDay, 12, 0, 0, 0, time.Local)
+			next := cur.AddDate(0, 0, 1)
+			a.calYear = next.Year()
+			a.calMonth = int(next.Month())
+			a.calDay = next.Day()
+			a.syncCalendarSelection()
+
+		case k.Type == KeyUp || k.Matches('k', 'л'):
+			if a.calDay <= 7 {
+				a.calHeaderFocus = true
+				a.calHeaderBtn = 0
+			} else {
+				cur := time.Date(a.calYear, time.Month(a.calMonth), a.calDay, 12, 0, 0, 0, time.Local)
+				prevWeek := cur.AddDate(0, 0, -7)
+				a.calYear = prevWeek.Year()
+				a.calMonth = int(prevWeek.Month())
+				a.calDay = prevWeek.Day()
+				a.syncCalendarSelection()
+			}
+
+		case k.Type == KeyDown || k.Matches('j', 'о'):
+			cur := time.Date(a.calYear, time.Month(a.calMonth), a.calDay, 12, 0, 0, 0, time.Local)
+			nextWeek := cur.AddDate(0, 0, 7)
+			if int(nextWeek.Month()) != a.calMonth {
+				// Switch focus to Presets list
+				a.focusPanel = PanelSidebar
+				a.sidebarIdx = 0
+				a.applySidebarNav(false)
+			} else {
+				a.calYear = nextWeek.Year()
+				a.calMonth = int(nextWeek.Month())
+				a.calDay = nextWeek.Day()
+				a.syncCalendarSelection()
+			}
+
+		case k.Type == KeySpace:
+			if a.rangeAnchor == nil {
+				anchor := time.Date(a.calYear, time.Month(a.calMonth), a.calDay, 0, 0, 0, 0, time.Local)
+				a.rangeAnchor = &anchor
+				a.syncCalendarSelection()
+				a.setStatusMsg(fmt.Sprintf("Начало периода: %02d.%02d.%d. Стрелками выберите конец, [Space] зафиксировать", a.calDay, a.calMonth, a.calYear))
+			} else {
+				a.rangeAnchor = nil
+				a.setStatusMsg(fmt.Sprintf("Период зафиксирован: %s - %s", a.startDate.Format("02.01.2006"), a.endDate.Format("02.01.2006")))
+			}
+
+		case k.Type == KeyEnter:
+			if a.rangeAnchor != nil {
+				a.rangeAnchor = nil
+			}
+			a.focusPanel = PanelFeed
+			if a.width < 115 {
+				a.activeTab = TabFeed
+			}
+			a.setStatusMsg("Переход к записям")
+
+		case k.Type == KeyEsc:
+			if a.rangeAnchor != nil {
+				a.rangeAnchor = nil
+				a.syncCalendarSelection()
+				a.setStatusMsg("Выделение периода отменено")
+			} else {
+				a.focusPanel = PanelFeed
+				if a.width < 115 {
+					a.activeTab = TabFeed
+				}
+			}
+
+		case k.Type == KeyPgUp:
+			a.changeMonth(-1)
+			a.onMonthChanged()
+
+		case k.Type == KeyPgDn:
+			a.changeMonth(1)
+			a.onMonthChanged()
+		}
+	}
+}
+
 func (a *App) handleSidebarKey(k Key) {
 	types := a.getAvailableTypes()
-	maxIdx := 3
+	numPresets := 5
+	maxIdx := numPresets - 1
 	if len(types) > 0 {
-		maxIdx = 3 + len(types)
+		maxIdx = numPresets + len(types) - 1
 	}
 
 	switch {
@@ -544,42 +889,48 @@ func (a *App) handleSidebarKey(k Key) {
 		if a.sidebarIdx > 0 {
 			a.sidebarIdx--
 			a.applySidebarNav(false)
+		} else {
+			// Move up into Calendar Grid!
+			a.focusPanel = PanelCalendar
+			a.calHeaderFocus = false
+			a.setStatusMsg("Переход в сетку календаря")
 		}
+
 	case k.Type == KeyDown || k.Matches('j', 'о'):
 		if a.sidebarIdx < maxIdx {
 			a.sidebarIdx++
 			a.applySidebarNav(false)
 		}
-	case k.Type == KeyLeft || k.Matches('h', 'р'):
-		a.changeMonth(-1)
-		if a.periodMode == "month" {
-			a.reloadSessions()
-		}
-	case k.Type == KeyRight:
-		a.changeMonth(1)
-		if a.periodMode == "month" {
-			a.reloadSessions()
-		}
+
 	case k.Type == KeyEnter:
 		a.applySidebarNav(true)
+
 	case k.Type == KeySpace:
-		catIdx := a.sidebarIdx - 4
-		if catIdx >= 0 && catIdx < len(types) {
-			t := types[catIdx]
-			if strings.EqualFold(a.typeFilter, t) {
-				a.typeFilter = ""
-				a.setStatusMsg("Фильтр категорий сброшен: Все категории")
-			} else {
-				a.typeFilter = t
-				a.setStatusMsg("Фильтр категорий: " + t)
+		if a.sidebarIdx == 4 {
+			// "Период..."
+			a.applySidebarNav(true)
+		} else if a.sidebarIdx >= numPresets {
+			catIdx := a.sidebarIdx - numPresets
+			if catIdx >= 0 && catIdx < len(types) {
+				t := types[catIdx]
+				a.toggleTypeFilter(t)
+				if a.isTypeFilterActive(t) {
+					a.setStatusMsg("Включена категория: " + t)
+				} else {
+					a.setStatusMsg("Отключена категория: " + t)
+				}
 			}
-			a.reloadSessions()
 		}
+
 	case k.Type == KeyEsc:
-		if a.width < 115 {
-			a.activeTab = TabFeed
+		if a.hasActiveTypeFilters() {
+			a.clearTypeFilters()
+			a.setStatusMsg("Фильтры категорий очищены")
 		} else {
 			a.focusPanel = PanelFeed
+			if a.width < 115 {
+				a.activeTab = TabFeed
+			}
 		}
 	}
 }
@@ -590,21 +941,47 @@ func (a *App) applySidebarNav(enterPressed bool) {
 		name string
 	}{
 		{"all", "Все записи"},
-		{"today", "Сегодня"},
+		{"day", "День"},
 		{"week", "Неделя"},
 		{"month", "Месяц"},
+		{"custom", "Период..."},
 	}
 
 	if a.sidebarIdx >= 0 && a.sidebarIdx < len(presets) {
 		p := presets[a.sidebarIdx]
+		if p.id == "custom" {
+			if enterPressed {
+				curDate := time.Date(a.calYear, time.Month(a.calMonth), a.calDay, 0, 0, 0, 0, time.Local)
+				initFrom := curDate.Format("02.01.2006")
+				initTo := curDate.Format("02.01.2006")
+				if a.periodMode == "custom" && !a.startDate.IsZero() && !a.endDate.IsZero() {
+					initFrom = a.startDate.Format("02.01.2006")
+					initTo = a.endDate.Format("02.01.2006")
+				}
+				a.activeModal = NewModalDateRange(initFrom, initTo)
+			}
+			return
+		}
+
 		a.periodMode = p.id
+		a.rangeAnchor = nil
 		a.reloadSessions()
-		a.setStatusMsg("Выбран период: " + p.name)
+
+		switch p.id {
+		case "all":
+			a.setStatusMsg("Выбран период: Все записи")
+		case "day":
+			a.setStatusMsg(fmt.Sprintf("Выбран период: День (%02d.%02d.%d)", a.calDay, a.calMonth, a.calYear))
+		case "week":
+			a.setStatusMsg("Выбран период: Неделя")
+		case "month":
+			a.setStatusMsg(fmt.Sprintf("Выбран период: Месяц (%02d.%d)", a.calMonth, a.calYear))
+		}
+
 		if enterPressed {
+			a.focusPanel = PanelFeed
 			if a.width < 115 {
 				a.activeTab = TabFeed
-			} else {
-				a.focusPanel = PanelFeed
 			}
 		}
 		return
@@ -615,23 +992,19 @@ func (a *App) applySidebarNav(enterPressed bool) {
 	if catIdx >= 0 && catIdx < len(types) {
 		if enterPressed {
 			t := types[catIdx]
-			if strings.EqualFold(a.typeFilter, t) {
-				a.typeFilter = ""
-				a.setStatusMsg("Фильтр категорий сброшен: Все категории")
+			a.toggleTypeFilter(t)
+			if a.isTypeFilterActive(t) {
+				a.setStatusMsg("Включена категория: " + t)
 			} else {
-				a.typeFilter = t
-				a.setStatusMsg("Фильтр категорий: " + t)
+				a.setStatusMsg("Отключена категория: " + t)
 			}
-			a.reloadSessions()
+			a.focusPanel = PanelFeed
 			if a.width < 115 {
 				a.activeTab = TabFeed
-			} else {
-				a.focusPanel = PanelFeed
 			}
 		}
 	}
 }
-
 func (a *App) handleInspectorKey(k Key) {
 	switch {
 	case k.Type == KeyEsc || k.Type == KeyEnter || k.Matches('1', '1') || k.Matches('l', 'д'):
@@ -677,31 +1050,35 @@ func (a *App) cycleTypeFilter() {
 	if len(types) == 0 {
 		return
 	}
-	if a.typeFilter == "" {
-		a.typeFilter = types[0]
-	} else {
-		found := false
+	if !a.hasActiveTypeFilters() {
+		a.clearTypeFilters()
+		a.toggleTypeFilter(types[0])
+		a.setStatusMsg("Фильтр категорий: " + types[0])
+		return
+	}
+	var activeList []string
+	for _, t := range types {
+		if a.isTypeFilterActive(t) {
+			activeList = append(activeList, t)
+		}
+	}
+	if len(activeList) == 1 {
+		cur := activeList[0]
 		for i, t := range types {
-			if strings.EqualFold(t, a.typeFilter) {
+			if strings.EqualFold(t, cur) {
+				a.clearTypeFilters()
 				if i+1 < len(types) {
-					a.typeFilter = types[i+1]
+					a.toggleTypeFilter(types[i+1])
+					a.setStatusMsg("Фильтр категорий: " + types[i+1])
 				} else {
-					a.typeFilter = "" // reset to all
+					a.setStatusMsg("Фильтр категорий сброшен: Все категории")
 				}
-				found = true
-				break
+				return
 			}
 		}
-		if !found {
-			a.typeFilter = ""
-		}
 	}
-	a.reloadSessions()
-	if a.typeFilter == "" {
-		a.setStatusMsg("Фильтр типов: Все категории")
-	} else {
-		a.setStatusMsg("Фильтр типов: " + a.typeFilter)
-	}
+	a.clearTypeFilters()
+	a.setStatusMsg("Фильтр категорий сброшен: Все категории")
 }
 
 func (a *App) getAvailableTypes() []string {
@@ -829,19 +1206,51 @@ func (a *App) renderHeader(s *Screen) {
 	s.DrawText(2, 0, title, FgCyan, BgPanelAlt, titleW, true, false, false)
 
 	// Period & filter breadcrumbs
-	pLabel := "Все записи"
-	switch a.periodMode {
-	case "today":
-		pLabel = "Сегодня"
-	case "week":
-		pLabel = "Эта неделя"
-	case "month":
-		pLabel = "Этот месяц"
-	case "custom":
-		pLabel = "Период"
+	monthsRu := []string{
+		"", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+		"Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
 	}
-	if a.typeFilter != "" {
-		pLabel += fmt.Sprintf(" [%s]", a.typeFilter)
+	pLabel := "Все записи"
+	now := time.Now()
+	switch a.periodMode {
+	case "today", "day":
+		if now.Year() == a.calYear && int(now.Month()) == a.calMonth && now.Day() == a.calDay {
+			pLabel = "Сегодня"
+		} else {
+			pLabel = fmt.Sprintf("День (%02d.%02d.%d)", a.calDay, a.calMonth, a.calYear)
+		}
+	case "week":
+		selDate := time.Date(a.calYear, time.Month(a.calMonth), a.calDay, 12, 0, 0, 0, time.Local)
+		weekday := int(selDate.Weekday())
+		if weekday == 0 {
+			weekday = 7
+		}
+		mon := selDate.AddDate(0, 0, -(weekday - 1))
+		sun := mon.AddDate(0, 0, 6)
+		pLabel = fmt.Sprintf("Неделя (%s-%s)", mon.Format("02.01"), sun.Format("02.01"))
+	case "month":
+		pLabel = fmt.Sprintf("%s %d", monthsRu[a.calMonth], a.calYear)
+	case "custom":
+		if !a.startDate.IsZero() && !a.endDate.IsZero() {
+			pLabel = fmt.Sprintf("%s - %s", a.startDate.Format("02.01"), a.endDate.Format("02.01"))
+		} else {
+			pLabel = "Период"
+		}
+	}
+
+	var activeCatNames []string
+	for catName, active := range a.typeFilters {
+		if active {
+			activeCatNames = append(activeCatNames, catName)
+		}
+	}
+	sort.Strings(activeCatNames)
+	if len(activeCatNames) > 0 {
+		if len(activeCatNames) <= 2 {
+			pLabel += fmt.Sprintf(" [%s]", strings.Join(activeCatNames, ", "))
+		} else {
+			pLabel += fmt.Sprintf(" [%d катег.]", len(activeCatNames))
+		}
 	}
 
 	totalMin := 0
@@ -868,20 +1277,62 @@ func (a *App) renderHeader(s *Screen) {
 	s.DrawText(a.width-7, 0, nowStr, FgWhite, BgPanelAlt, 5, true, false, false)
 }
 
-func (a *App) renderSidebar(s *Screen, x, y, w, h int) {
+func (a *App) renderCalendarBox(s *Screen, x, y, w, h int) {
+	isCalFocused := a.focusPanel == PanelCalendar
 	borderCol := BorderDim
-	isFocused := a.focusPanel == PanelSidebar || a.width < 115
-	if isFocused {
+	if isCalFocused {
 		borderCol = BorderFocus
 	}
-	s.DrawBox(x, y, w, h, "Календарь и периоды", FgCyan, borderCol, BgSurface, isFocused)
+	s.DrawBox(x, y, w, h, "Календарь", FgCyan, borderCol, BgSurface, isCalFocused)
 
-	// Month header
 	monthsRu := []string{
 		"", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
 		"Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
 	}
-	mTitle := fmt.Sprintf("◄  %s %d  ►", monthsRu[a.calMonth], a.calYear)
+	mName := fmt.Sprintf("%s %d", monthsRu[a.calMonth], a.calYear)
+
+	if isCalFocused && a.calHeaderFocus {
+		btnPrev := "◄"
+		btnNext := "►"
+		btnYear := "[Y]"
+		prevBg := BgSurface
+		prevFg := FgYellow
+		if a.calHeaderBtn == 0 {
+			prevBg = BgHighlight
+			prevFg = FgWhite
+		}
+		nextBg := BgSurface
+		nextFg := FgYellow
+		if a.calHeaderBtn == 1 {
+			nextBg = BgHighlight
+			nextFg = FgWhite
+		}
+		yearBg := BgSurface
+		yearFg := FgYellow
+		if a.calHeaderBtn == 2 {
+			yearBg = BgHighlight
+			yearFg = FgWhite
+		}
+
+		s.DrawText(x+2, y+1, btnPrev, prevFg, prevBg, 1, a.calHeaderBtn == 0, false, false)
+		availCenter := w - 10
+		if availCenter < 6 {
+			availCenter = 6
+		}
+		s.DrawText(x+4, y+1, CenterString(mName, availCenter), FgWhite, BgSurface, availCenter, true, false, false)
+		if w >= 22 {
+			s.DrawText(x+w-6, y+1, btnNext, nextFg, nextBg, 1, a.calHeaderBtn == 1, false, false)
+			s.DrawText(x+w-4, y+1, btnYear, yearFg, yearBg, 3, a.calHeaderBtn == 2, false, false)
+		} else {
+			s.DrawText(x+w-3, y+1, btnNext, nextFg, nextBg, 1, a.calHeaderBtn == 1, false, false)
+		}
+	} else {
+		mTitle := fmt.Sprintf("◄  %s  ►", mName)
+		s.DrawText(x+2, y+1, CenterString(mTitle, w-4), FgYellow, BgSurface, w-4, true, false, false)
+	}
+
+	// Weekdays
+	s.DrawText(x+2, y+2, "Пн Вт Ср Чт Пт Сб Вс", FgMuted, BgSurface, w-4, false, false, false)
 
 	firstDay := time.Date(a.calYear, time.Month(a.calMonth), 1, 0, 0, 0, 0, time.UTC)
 	weekday := int(firstDay.Weekday())
@@ -894,7 +1345,6 @@ func (a *App) renderSidebar(s *Screen, x, y, w, h int) {
 	now := time.Now()
 	isCurrentMonth := now.Year() == a.calYear && int(now.Month()) == a.calMonth
 
-	// Days with sessions map
 	daysWithSessions := map[int]bool{}
 	for _, sess := range a.allSessions {
 		if d, err := parser.ParseDate(sess.Date(), now); err == nil {
@@ -904,94 +1354,143 @@ func (a *App) renderSidebar(s *Screen, x, y, w, h int) {
 		}
 	}
 
+	curX := x + 2 + (weekday * 3)
+	curY := y + 3
+
+	for d := 1; d <= daysInMonth; d++ {
+		if curY >= y+h-1 {
+			break
+		}
+		fg := FgMain
+		bg := BgSurface
+		bold := false
+		under := false
+
+		hasSess := daysWithSessions[d]
+		if hasSess {
+			fg = FgGreen
+			bold = true
+		}
+
+		inFilter := a.isDayInFilter(a.calYear, a.calMonth, d)
+		if inFilter {
+			bg = BgCard
+			if !hasSess {
+				fg = FgCyan
+			}
+		}
+
+		isAnchor := (a.rangeAnchor != nil && a.rangeAnchor.Year() == a.calYear && int(a.rangeAnchor.Month()) == a.calMonth && a.rangeAnchor.Day() == d)
+		if isAnchor {
+			bg = BgHighlight
+			fg = FgYellow
+			bold = true
+		}
+
+		isCursor := isCalFocused && !a.calHeaderFocus && (d == a.calDay)
+		if isCursor {
+			bg = BgSelected
+			fg = FgWhite
+			bold = true
+		}
+
+		if isCurrentMonth && d == now.Day() {
+			under = true
+			if !isCursor && !isAnchor {
+				bold = true
+				if !inFilter && !hasSess {
+					fg = FgCyan
+				}
+			}
+		}
+
+		s.Fill(curX, curY, 2, 1, ' ', fg, bg)
+		s.DrawText(curX, curY, fmt.Sprintf("%2d", d), fg, bg, 2, bold, false, under)
+
+		curX += 3
+		weekday++
+		if weekday == 7 {
+			weekday = 0
+			curX = x + 2
+			curY++
+		}
+	}
+
+	if h >= 12 {
+		hintY := y + h - 2
+		if a.rangeAnchor != nil {
+			s.DrawText(x+2, hintY, "[Space] Закрепить", FgYellow, BgSurface, w-4, true, false, false)
+		} else {
+			s.DrawText(x+2, hintY, "[Space] Период", FgDim, BgSurface, w-4, false, false, false)
+		}
+	}
+}
+
+func (a *App) renderPresetsBox(s *Screen, x, y, w, h int) {
+	isSidebarFocused := a.focusPanel == PanelSidebar
+	borderCol := BorderDim
+	if isSidebarFocused {
+		borderCol = BorderFocus
+	}
+	s.DrawBox(x, y, w, h, "Периоды и категории", FgCyan, borderCol, BgSurface, isSidebarFocused)
+
 	presets := []struct {
 		id   string
 		name string
 		num  string
 	}{
 		{"all", "Все записи", "1"},
-		{"today", "Сегодня", "2"},
+		{"day", "День", "2"},
 		{"week", "Неделя", "3"},
 		{"month", "Месяц", "4"},
+		{"custom", "Период...", "p"},
+	}
+
+	now := time.Now()
+	if now.Year() == a.calYear && int(now.Month()) == a.calMonth && now.Day() == a.calDay {
+		presets[1].name = "Сегодня"
+	} else {
+		presets[1].name = fmt.Sprintf("День (%02d.%02d)", a.calDay, a.calMonth)
+	}
+
+	curY := y + 1
+	for i, p := range presets {
+		if curY >= y+h-1 {
+			break
+		}
+		isCursor := isSidebarFocused && a.sidebarIdx == i
+		isActive := a.periodMode == p.id
+		fg := FgMuted
+		bg := BgSurface
+		prefix := "  "
+		if isCursor {
+			fg = FgWhite
+			bg = BgHighlight
+			prefix = "► "
+		} else if isActive {
+			fg = FgCyan
+			prefix = "• "
+		}
+
+		s.Fill(x+2, curY, w-4, 1, ' ', fg, bg)
+		line := fmt.Sprintf("%s[%s] %s", prefix, p.num, p.name)
+		s.DrawText(x+2, curY, line, fg, bg, w-4, isCursor || isActive, false, false)
+		curY++
 	}
 
 	types := a.getAvailableTypes()
+	if len(types) > 0 && curY < y+h-2 {
+		s.DrawHLine(x+1, x+w-2, curY, BoxH, BorderDim, BgSurface)
+		s.DrawText(x+2, curY, "┤ Категории ├", FgDim, BgSurface, w-4, false, false, false)
+		curY++
 
-	if w >= 54 {
-		// Wide mode (Full screen Calendar tab): 2 columns
-		calW := 23
-		s.DrawText(x+2, y+1, CenterString(mTitle, calW), FgYellow, BgSurface, calW, true, false, false)
-		s.DrawText(x+2, y+2, "Пн Вт Ср Чт Пт Сб Вс", FgMuted, BgSurface, calW, false, false, false)
-
-		curX := x + 2 + (weekday * 3)
-		curY := y + 3
-
-		for d := 1; d <= daysInMonth; d++ {
-			fg := FgMain
-			bg := BgSurface
-			bold := false
-			under := false
-
-			hasSess := daysWithSessions[d]
-			if hasSess {
-				fg = FgGreen
-				bold = true
-			}
-			if isCurrentMonth && d == now.Day() {
-				under = true
-				fg = FgCyan
-				bold = true
-			}
-
-			s.DrawText(curX, curY, fmt.Sprintf("%2d", d), fg, bg, 2, bold, false, under)
-			curX += 3
-			weekday++
-			if weekday == 7 {
-				weekday = 0
-				curX = x + 2
-				curY++
-			}
-		}
-
-		// Vertical divider
-		divX := x + calW + 3
-		s.DrawVLine(divX, y+1, y+h-2, BoxV, BorderDim, BgSurface)
-
-		// Right column: Presets and Categories
-		rightX := divX + 2
-		rightW := w - calW - 7
-
-		s.DrawText(rightX, y+1, "┤ Периоды (фильтр) ├", FgDim, BgSurface, rightW, false, false, false)
-		for i, p := range presets {
-			rowY := y + 2 + i
-			isCursor := isFocused && a.sidebarIdx == i
-			isActive := a.periodMode == p.id
-			fg := FgMuted
-			bg := BgSurface
-			prefix := "  "
-			if isCursor {
-				fg = FgWhite
-				bg = BgHighlight
-				prefix = "► "
-			} else if isActive {
-				fg = FgCyan
-				prefix = "• "
-			}
-			s.Fill(rightX, rowY, rightW, 1, ' ', fg, bg)
-			line := fmt.Sprintf("%s[%s] %s", prefix, p.num, p.name)
-			s.DrawText(rightX, rowY, line, fg, bg, rightW, isCursor || isActive, false, false)
-		}
-
-		typesSepY := y + 7
-		s.DrawHLine(rightX, x+w-2, typesSepY, BoxH, BorderDim, BgSurface)
-		s.DrawText(rightX, typesSepY, "┤ Категории ├", FgDim, BgSurface, rightW, false, false, false)
 		for i, t := range types {
-			if i >= 6 || typesSepY+1+i >= y+h-3 {
+			if curY >= y+h-1 {
 				break
 			}
-			rowY := typesSepY + 1 + i
-			isCursor := isFocused && a.sidebarIdx == 4+i
-			isSelected := strings.EqualFold(a.typeFilter, t)
+			isCursor := isSidebarFocused && a.sidebarIdx == len(presets)+i
+			isSelected := a.isTypeFilterActive(t)
+
 			fg := FgMuted
 			bg := BgSurface
 			prefix := "  "
@@ -1000,6 +1499,7 @@ func (a *App) renderSidebar(s *Screen, x, y, w, h int) {
 				bg = BgHighlight
 				prefix = "► "
 			}
+
 			check := "[ ] "
 			if isSelected {
 				check = "[✓] "
@@ -1007,109 +1507,35 @@ func (a *App) renderSidebar(s *Screen, x, y, w, h int) {
 					fg = FgCyan
 				}
 			}
-			s.Fill(rightX, rowY, rightW, 1, ' ', fg, bg)
-			s.DrawText(rightX, rowY, prefix+check+t, fg, bg, rightW, isCursor || isSelected, false, false)
-		}
 
-		s.DrawText(x+2, y+h-2, "[↑↓] Выбор периода/категории  [Enter] К записям  [←/→] Месяц", FgDim, BgSurface, w-4, false, false, false)
+			s.Fill(x+2, curY, w-4, 1, ' ', fg, bg)
+			line := prefix + check + t
+			s.DrawText(x+2, curY, line, fg, bg, w-4, isCursor || isSelected, false, false)
+			curY++
+		}
+	}
+}
+
+func (a *App) renderSidebar(s *Screen, x, y, w, h int) {
+	if w >= 54 {
+		// Wide 2-column layout (Full screen Calendar tab)
+		calW := 26
+		presetsW := w - calW - 1
+		a.renderCalendarBox(s, x, y, calW, h)
+		a.renderPresetsBox(s, x+calW+1, y, presetsW, h)
 	} else {
-		// Narrow mode (Stacked layout in 3-panel sidebar)
-		s.DrawText(x+2, y+1, CenterString(mTitle, w-4), FgYellow, BgSurface, w-4, true, false, false)
-		s.DrawText(x+2, y+2, "Пн Вт Ср Чт Пт Сб Вс", FgMuted, BgSurface, w-4, false, false, false)
-
-		curX := x + 2 + (weekday * 3)
-		curY := y + 3
-
-		for d := 1; d <= daysInMonth; d++ {
-			fg := FgMain
-			bg := BgSurface
-			bold := false
-			under := false
-
-			hasSess := daysWithSessions[d]
-			if hasSess {
-				fg = FgGreen
-				bold = true
-			}
-			if isCurrentMonth && d == now.Day() {
-				under = true
-				fg = FgCyan
-				bold = true
-			}
-
-			s.DrawText(curX, curY, fmt.Sprintf("%2d", d), fg, bg, 2, bold, false, under)
-			curX += 3
-			weekday++
-			if weekday == 7 {
-				weekday = 0
-				curX = x + 2
-				curY++
-			}
+		// Stacked layout (Narrow / 3-panel sidebar)
+		calH := 12
+		if calH > h-5 {
+			calH = h / 2
 		}
-
-		sepY := y + 10
-		if sepY < y+h-7 {
-			s.DrawHLine(x+1, x+w-2, sepY, BoxH, BorderDim, BgSurface)
-			s.DrawText(x+2, sepY, "┤ Периоды ├", FgDim, BgSurface, w-4, false, false, false)
-
-			for i, p := range presets {
-				rowY := sepY + 1 + i
-				if rowY >= y+h-5 {
-					break
-				}
-				isCursor := isFocused && a.sidebarIdx == i
-				isActive := a.periodMode == p.id
-				fg := FgMuted
-				bg := BgSurface
-				prefix := "  "
-				if isCursor {
-					fg = FgWhite
-					bg = BgHighlight
-					prefix = "► "
-				} else if isActive {
-					fg = FgCyan
-					prefix = "• "
-				}
-				s.Fill(x+2, rowY, w-4, 1, ' ', fg, bg)
-				line := fmt.Sprintf("%s[%s] %s", prefix, p.num, p.name)
-				s.DrawText(x+2, rowY, line, fg, bg, w-4, isCursor || isActive, false, false)
-			}
-
-			typesSepY := sepY + 6
-			if typesSepY < y+h-3 {
-				s.DrawHLine(x+1, x+w-2, typesSepY, BoxH, BorderDim, BgSurface)
-				s.DrawText(x+2, typesSepY, "┤ Категории ├", FgDim, BgSurface, w-4, false, false, false)
-
-				for i, t := range types {
-					if i >= 4 || typesSepY+1+i >= y+h-2 {
-						break
-					}
-					rowY := typesSepY + 1 + i
-					isCursor := isFocused && a.sidebarIdx == 4+i
-					isSelected := strings.EqualFold(a.typeFilter, t)
-					fg := FgMuted
-					bg := BgSurface
-					prefix := "  "
-					if isCursor {
-						fg = FgWhite
-						bg = BgHighlight
-						prefix = "► "
-					}
-					check := "[ ] "
-					if isSelected {
-						check = "[✓] "
-						if !isCursor {
-							fg = FgCyan
-						}
-					}
-					s.Fill(x+2, rowY, w-4, 1, ' ', fg, bg)
-					s.DrawText(x+2, rowY, prefix+check+t, fg, bg, w-4, isCursor || isSelected, false, false)
-				}
-			}
+		if calH < 8 {
+			calH = 8
 		}
-
-		if a.width < 115 {
-			s.DrawText(x+2, y+h-2, "[Enter] Выбрать  [1/Esc] К списку", FgDim, BgSurface, w-4, false, false, false)
+		a.renderCalendarBox(s, x, y, w, calH)
+		presetsH := h - calH
+		if presetsH > 2 {
+			a.renderPresetsBox(s, x, y+calH, w, presetsH)
 		}
 	}
 }
@@ -1530,9 +1956,11 @@ func (a *App) renderFooter(s *Screen) {
 			desc string
 		}{
 			{"[Tab/1-4]", "Вкладки"},
-			{"[↑↓]", "Навигация"},
-			{"[Enter]", "Карточка"},
-			{"[Space]", "Выбор"},
+			{"[↑↓←→]", "Навигация"},
+			{"[Space]", "Выбор/Период"},
+			{"[< >]", "Месяц"},
+			{"[p]", "Период"},
+			{"[t]", "Сегодня"},
 			{"[s]", "Статус"},
 			{"[a]", "Создать"},
 			{"[e]", "Правка"},
@@ -1546,14 +1974,17 @@ func (a *App) renderFooter(s *Screen) {
 			key  string
 			desc string
 		}{
-			{"[↑↓]", "Навигация"},
-			{"[Space]", "Выбор"},
+			{"[↑↓←→]", "Навигация"},
+			{"[Space]", "Выбор/Период"},
+			{"[< >]", "Месяц"},
+			{"[p]", "Период"},
+			{"[t]", "Сегодня"},
 			{"[s]", "Статус"},
 			{"[a]", "Создать"},
 			{"[e]", "Правка"},
 			{"[f]", "Поле"},
 			{"[d]", "Удалить"},
-			{"[Tab]", "Панель"},
+			{"[Tab]", "Блок"},
 			{"[1-4]", "Период"},
 			{"[?]", "Помощь"},
 			{"[q]", "Выход"},
