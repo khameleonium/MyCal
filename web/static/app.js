@@ -296,7 +296,9 @@ function renderFeed() {
       const statusClass = getStatusClass(s.status);
       const statusLabel = s.status ? s.status : "<пусто>";
       const repeatIcon = s.series_id ? '<span class="row-repeat-icon" title="Повторяющаяся серия">↻</span>' : '';
-      const cashBadge = s.cash > 0 ? `<span class="row-cash" title="Кэш / Оплата: ${formatCash(s.cash)}">💰 ${formatCash(s.cash)}</span>` : '';
+      const cashBadge = s.cash > 0
+        ? `<span class="row-cash" title="Кэш / Оплата: ${formatCash(s.cash)} ₽">💰 ${formatCash(s.cash)}</span>`
+        : `<span class="row-cash row-cash-empty" aria-hidden="true"></span>`;
 
       html += `
         <div class="session-row ${isSelected ? 'selected' : ''} ${isBatchChecked ? 'batch-selected' : ''}" 
@@ -318,7 +320,7 @@ function renderFeed() {
           </span>
           <span class="row-duration">${s.duration || 0} мин</span>
           ${cashBadge}
-          <div>
+          <div class="row-status-wrap">
             <span class="status-pill ${statusClass}" 
                   onclick="onStatusPillClick(event, '${s.id}')" 
                   title="Нажмите, чтобы изменить статус">
