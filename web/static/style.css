@@ -812,6 +812,11 @@ html, body {
   visibility: hidden;
 }
 
+.row-cash.cash-negative {
+  color: var(--accent-red);
+  background: rgba(247, 118, 142, 0.12);
+}
+
 .row-status-wrap {
   display: flex;
   justify-content: center;
