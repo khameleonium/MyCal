@@ -354,6 +354,7 @@ func newTestApp(t *testing.T) *App {
 		WebPort:     8080,
 	}
 	app := NewApp(svc, cfg, "", "vTest")
+	app.ctx = context.Background()
 	return app
 }
 
@@ -626,5 +627,177 @@ func TestIsDayInFilter(t *testing.T) {
 	}
 	if app.isDayInFilter(2026, 11, 1) {
 		t.Fatalf("November 1 should not be in October month filter")
+	}
+}
+
+func TestFeedHorizontalPanelNavigation(t *testing.T) {
+	app := newTestApp(t)
+	app.width = 120 // wide mode
+	app.focusPanel = PanelFeed
+
+	// 1. In Feed, press KeyLeft -> moves to PanelCalendar
+	app.handleFeedKey(Key{Type: KeyLeft})
+	if app.focusPanel != PanelCalendar {
+		t.Fatalf("expected focus to move to PanelCalendar on KeyLeft, got %d", app.focusPanel)
+	}
+
+	// 2. In Feed, press KeyRight -> moves to PanelInspector
+	app.focusPanel = PanelFeed
+	app.handleFeedKey(Key{Type: KeyRight})
+	if app.focusPanel != PanelInspector {
+		t.Fatalf("expected focus to move to PanelInspector on KeyRight, got %d", app.focusPanel)
+	}
+
+	// 3. In Inspector, press KeyLeft -> moves back to PanelFeed
+	app.handleInspectorKey(Key{Type: KeyLeft})
+	if app.focusPanel != PanelFeed {
+		t.Fatalf("expected focus to move to PanelFeed on KeyLeft from Inspector, got %d", app.focusPanel)
+	}
+
+	// 4. In Sidebar, press KeyRight -> moves to PanelFeed
+	app.focusPanel = PanelSidebar
+	app.handleSidebarKey(Key{Type: KeyRight})
+	if app.focusPanel != PanelFeed {
+		t.Fatalf("expected focus to move to PanelFeed on KeyRight from Sidebar, got %d", app.focusPanel)
+	}
+
+	// 5. In Feed, press KeyLeft when lastLeftPanel was Sidebar -> moves to PanelSidebar
+	app.lastLeftPanel = PanelSidebar
+	app.focusPanel = PanelFeed
+	app.handleFeedKey(Key{Type: KeyLeft})
+	if app.focusPanel != PanelSidebar {
+		t.Fatalf("expected focus to restore to PanelSidebar, got %d", app.focusPanel)
+	}
+
+	// 6. Compact mode (width < 115)
+	app.width = 100
+	app.activeTab = TabFeed
+	app.focusPanel = PanelFeed
+	app.handleFeedKey(Key{Type: KeyLeft})
+	if app.activeTab != TabCalendar || app.focusPanel != PanelCalendar {
+		t.Fatalf("compact KeyLeft: expected TabCalendar, got activeTab=%d, focusPanel=%d", app.activeTab, app.focusPanel)
+	}
+
+	app.activeTab = TabFeed
+	app.focusPanel = PanelFeed
+	app.handleFeedKey(Key{Type: KeyRight})
+	if app.activeTab != TabInspector || app.focusPanel != PanelInspector {
+		t.Fatalf("compact KeyRight: expected TabInspector, got activeTab=%d, focusPanel=%d", app.activeTab, app.focusPanel)
+	}
+}
+
+func TestCategoryPickerDropdownInSessionForm(t *testing.T) {
+	app := newTestApp(t)
+	// Add some sessions with distinct categories
+	_ = app.svc.Add(models.Session{ID: "20261015100000", Time: "10:00", Name: "Session A", Type: "Финансы", Duration: 60})
+	_ = app.svc.Add(models.Session{ID: "20261015110000", Time: "11:00", Name: "Session B", Type: "Маркетинг", Duration: 30})
+	_ = app.svc.Save(app.ctx)
+	app.reloadSessions()
+
+	m := NewModalSessionForm(nil, "15.10.2026")
+	m.fieldIdx = 3 // category field
+
+	// 1. Pressing KeyRight opens category picker
+	m.HandleKey(Key{Type: KeyRight}, app)
+	if !m.catPickerOpen {
+		t.Fatalf("expected catPickerOpen == true on KeyRight on field 3")
+	}
+	if len(m.catPickerList) == 0 {
+		t.Fatalf("expected non-empty catPickerList")
+	}
+
+	// Check that custom categories from sessions exist in list
+	hasFin := false
+	hasMkt := false
+	for _, c := range m.catPickerList {
+		if c == "Финансы" {
+			hasFin = true
+		}
+		if c == "Маркетинг" {
+			hasMkt = true
+		}
+	}
+	if !hasFin || !hasMkt {
+		t.Fatalf("expected custom categories in list, got: %v", m.catPickerList)
+	}
+
+	// 2. Select first item
+	m.catPickerIdx = 0
+	expectedCat := m.catPickerList[0]
+	m.HandleKey(Key{Type: KeyEnter}, app)
+	if m.catPickerOpen {
+		t.Fatalf("expected catPickerOpen == false after Enter")
+	}
+	if m.typeStr != expectedCat {
+		t.Fatalf("expected typeStr == %q, got %q", expectedCat, m.typeStr)
+	}
+
+	// 3. Test Esc closes picker without modifying
+	m.HandleKey(Key{Type: KeyRight}, app)
+	if !m.catPickerOpen {
+		t.Fatalf("expected catPickerOpen == true")
+	}
+	m.catPickerIdx = 1
+	m.HandleKey(Key{Type: KeyEsc}, app)
+	if m.catPickerOpen {
+		t.Fatalf("expected catPickerOpen == false after Esc")
+	}
+	if m.typeStr != expectedCat {
+		t.Fatalf("typeStr should remain %q on Esc, got %q", expectedCat, m.typeStr)
+	}
+
+	// 4. Verify Draw with picker open does not crash
+	s := NewScreen(100, 30)
+	m.openCatPicker(app)
+	m.Draw(s)
+}
+
+func TestCategoryPickerDropdownInQuickEditField(t *testing.T) {
+	app := newTestApp(t)
+	m := NewModalQuickEditField("test-id")
+	m.selected = 2 // "Категория / Тип"
+	m.stepInput = true
+
+	// Pressing KeyRight opens picker
+	m.HandleKey(Key{Type: KeyRight}, app)
+	if !m.catPickerOpen {
+		t.Fatalf("expected catPickerOpen == true")
+	}
+
+	// Navigate and select
+	m.HandleKey(Key{Type: KeyDown}, app)
+	expectedVal := m.catPickerList[m.catPickerIdx]
+	m.HandleKey(Key{Type: KeyEnter}, app)
+
+	if m.catPickerOpen {
+		t.Fatalf("expected catPickerOpen == false after Enter")
+	}
+	if m.value != expectedVal {
+		t.Fatalf("expected value == %q, got %q", expectedVal, m.value)
+	}
+}
+
+func TestCalendarHeaderAndFooterYearHints(t *testing.T) {
+	app := newTestApp(t)
+	app.width = 120
+	app.height = 30
+	s := NewScreen(app.width, app.height)
+
+	// Render calendar box
+	app.renderCalendarBox(s, 0, 1, 26, 14)
+	buf := s.PlainString()
+
+	// Check [Y] in calendar box
+	if !strings.Contains(buf, "[Y]") {
+		t.Fatalf("expected calendar box to contain [Y], got:\n%s", buf)
+	}
+
+	// Render footer
+	app.renderFooter(s)
+	footerBuf := s.PlainString()
+
+	// Check footer has [y] and Год
+	if !strings.Contains(footerBuf, "[y]") || !strings.Contains(footerBuf, "Год") {
+		t.Fatalf("expected footer to contain '[y]' and 'Год'")
 	}
 }
