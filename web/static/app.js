@@ -105,6 +105,7 @@ async function fetchTypes() {
     state.types = data.types || [];
     renderTypesFilter();
     updateTypeDatalist();
+    updateTypeSelect();
   } catch (e) {
     console.warn("Could not load types:", e);
   }
@@ -379,6 +380,39 @@ function updateTypeDatalist() {
   const datalist = document.getElementById("typesDatalist");
   if (!datalist) return;
   datalist.innerHTML = state.types.map(t => `<option value="${escapeHtml(t)}">`).join("");
+}
+
+function updateTypeSelect(selectedVal) {
+  const sel = document.getElementById("formType");
+  if (!sel) return;
+  const types = state.types || [];
+  const curVal = selectedVal !== undefined ? selectedVal : sel.value;
+  let optionsHtml = types.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join("");
+  if (curVal && !types.includes(curVal) && curVal !== "__custom__") {
+    optionsHtml = `<option value="${escapeHtml(curVal)}">${escapeHtml(curVal)}</option>` + optionsHtml;
+  }
+  optionsHtml += `<option value="__custom__">✏️ + Свой тип...</option>`;
+  sel.innerHTML = optionsHtml;
+  if (curVal && curVal !== "__custom__") {
+    sel.value = curVal;
+  } else if (types.length > 0) {
+    sel.value = types[0];
+  }
+}
+
+function promptCustomType() {
+  const custom = prompt("Введите новый тип записи:");
+  if (custom && custom.trim()) {
+    const val = custom.trim();
+    if (!state.types.includes(val)) {
+      state.types.push(val);
+      renderTypesFilter();
+      updateTypeDatalist();
+    }
+    updateTypeSelect(val);
+  } else {
+    updateTypeSelect();
+  }
 }
 
 function updateStatusSelect() {
@@ -1600,7 +1634,9 @@ function onBatchFieldSelectChange(field) {
     case "type":
       container.innerHTML = `
         <label for="batchFieldValue" class="form-label">Новый тип записи:</label>
-        <input type="text" id="batchFieldValue" class="form-input" list="typesDatalist" required placeholder="Категория">
+        <select id="batchFieldValue" class="form-select">
+          ${state.types.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join("")}
+        </select>
       `;
       break;
     case "time":
@@ -1730,7 +1766,7 @@ function openAddModal() {
   document.getElementById("formDate").value = todayIso;
   document.getElementById("formTime").value = "10:00";
   document.getElementById("formName").value = "";
-  document.getElementById("formType").value = state.types[0] || "Стрельба из лука";
+  updateTypeSelect(state.types[0] || "Стрельба из лука");
   document.getElementById("formDuration").value = state.config.default_duration || 60;
   document.getElementById("formCash").value = "0.0";
   document.getElementById("formStatus").value = "Активно";
@@ -1754,7 +1790,7 @@ function editFocusedSession() {
   document.getElementById("formDate").value = sessionDate(s);
   document.getElementById("formTime").value = s.time;
   document.getElementById("formName").value = s.name;
-  document.getElementById("formType").value = s.type;
+  updateTypeSelect(s.type);
   document.getElementById("formDuration").value = s.duration;
   document.getElementById("formCash").value = s.cash !== undefined ? s.cash : 0.0;
   document.getElementById("formStatus").value = s.status;
