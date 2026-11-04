@@ -332,7 +332,7 @@ func (a *App) handleKey(k Key) bool {
 		return false
 
 	case k.Matches('y', 'н'):
-		a.activeModal = NewModalYearCalendar(a.calYear)
+		a.activeModal = NewModalYearCalendar(a.calYear, a.calMonth, a.calDay, a.allSessions)
 		return false
 
 	case k.Matches('p', 'з') || k.Matches('P', 'З'):
@@ -775,7 +775,7 @@ func (a *App) handleCalendarKey(k Key) {
 				a.changeMonth(1)
 				a.onMonthChanged()
 			} else if a.calHeaderBtn == 2 {
-				a.activeModal = NewModalYearCalendar(a.calYear)
+				a.activeModal = NewModalYearCalendar(a.calYear, a.calMonth, a.calDay, a.allSessions)
 			}
 		case k.Type == KeyDown || k.Matches('j', 'о'):
 			a.calHeaderFocus = false
