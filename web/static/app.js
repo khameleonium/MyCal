@@ -50,6 +50,12 @@ document.addEventListener("DOMContentLoaded", () => {
   initPaginationUI();
   initFormHotkeys();
   loadInitialData();
+
+  window.addEventListener("focus", () => {
+    fetchTypes();
+    fetchStatuses();
+    refreshData();
+  });
 });
 
 function initFormHotkeys() {
@@ -377,12 +383,15 @@ function renderTypesFilter() {
     const count = state.sessions.filter(s => s.type === t).length;
 
     html += `
-      <div class="type-filter-row ${isChecked ? 'active' : ''}" onclick="toggleTypeFilter('${escapeHtml(t)}')">
-        <div class="type-label-left">
+      <div class="type-filter-row ${isChecked ? 'active' : ''}">
+        <div class="type-label-left" style="flex:1;cursor:pointer;" onclick="toggleTypeFilter('${escapeHtml(t)}')">
           <span class="cb-icon ${isChecked ? '' : 'unchecked'}">${isChecked ? '[✓]' : '[ ]'}</span>
           <span>${escapeHtml(t)}</span>
         </div>
-        <span class="type-count-badge">${count}</span>
+        <div style="display:flex;align-items:center;gap:4px;">
+          <span class="type-count-badge" onclick="toggleTypeFilter('${escapeHtml(t)}')">${count}</span>
+          <button type="button" class="btn-icon-subtle" title="Удалить тип «${escapeHtml(t)}» из списков" onclick="event.stopPropagation(); deleteType('${escapeHtml(t)}')">✕</button>
+        </div>
       </div>
     `;
   }
@@ -545,22 +554,34 @@ function promptCustomType() {
     placeholder: "Стрельба из лука\nМетание ножей\nПлавание",
     isMultiLine: true,
     initialValue: "",
-    onConfirm: (text) => {
+    onConfirm: async (text) => {
       const lines = text.split(/[\n;]/).map(l => l.trim()).filter(Boolean);
       if (lines.length === 0) {
         updateTypeSelect();
         return;
       }
-      let firstAdded = null;
-      for (const line of lines) {
-        if (!state.types.includes(line)) {
-          state.types.push(line);
-          if (!firstAdded) firstAdded = line;
+      try {
+        const res = await apiFetch("/api/types", {
+          method: "POST",
+          body: JSON.stringify({ types: lines }),
+        });
+        if (res && Array.isArray(res.types)) {
+          state.types = res.types;
+        } else {
+          for (const line of lines) {
+            if (!state.types.includes(line)) state.types.push(line);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to persist types:", err);
+        for (const line of lines) {
+          if (!state.types.includes(line)) state.types.push(line);
         }
       }
       renderTypesFilter();
       updateTypeDatalist();
-      updateTypeSelect(firstAdded || lines[0]);
+      updateTypeSelect(lines[0]);
+      renderSettingsManageLists();
     }
   });
 }
@@ -593,20 +614,32 @@ function promptCustomStatusInForm() {
     placeholder: "В ожидании\nПеренесено",
     isMultiLine: true,
     initialValue: "",
-    onConfirm: (text) => {
+    onConfirm: async (text) => {
       const lines = text.split(/[\n;]/).map(l => l.trim()).filter(Boolean);
       if (lines.length === 0) {
         updateStatusSelect();
         return;
       }
-      let firstAdded = null;
-      for (const line of lines) {
-        if (!state.statuses.includes(line)) {
-          state.statuses.push(line);
-          if (!firstAdded) firstAdded = line;
+      try {
+        const res = await apiFetch("/api/statuses", {
+          method: "POST",
+          body: JSON.stringify({ statuses: lines }),
+        });
+        if (res && Array.isArray(res.statuses)) {
+          state.statuses = res.statuses;
+        } else {
+          for (const line of lines) {
+            if (!state.statuses.includes(line)) state.statuses.push(line);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to persist statuses:", err);
+        for (const line of lines) {
+          if (!state.statuses.includes(line)) state.statuses.push(line);
         }
       }
-      updateStatusSelect(firstAdded || lines[0]);
+      updateStatusSelect(lines[0]);
+      renderSettingsManageLists();
     }
   });
 }
@@ -954,11 +987,14 @@ function renderStatusPickerPopup() {
   let html = statuses.map(st => {
     const meta = getStatusMeta(st);
     return `
-      <button type="button" class="status-opt-btn" onclick="selectNewStatus('${escapeHtml(st)}')">
-        <span class="st-dot ${meta.dot}"></span>
-        <span>${escapeHtml(st)}</span>
-        <span class="st-icon">${meta.icon}</span>
-      </button>
+      <div style="display:flex;align-items:center;position:relative;">
+        <button type="button" class="status-opt-btn" style="flex:1;padding-right:26px;" onclick="selectNewStatus('${escapeHtml(st)}')">
+          <span class="st-dot ${meta.dot}"></span>
+          <span>${escapeHtml(st)}</span>
+          <span class="st-icon">${meta.icon}</span>
+        </button>
+        <button type="button" class="status-del-btn" style="position:absolute;right:3px;" title="Удалить статус «${escapeHtml(st)}» из списков" onclick="event.stopPropagation(); deleteStatus('${escapeHtml(st)}')">✕</button>
+      </div>
     `;
   }).join("");
 
@@ -1060,12 +1096,26 @@ async function promptCustomStatus() {
     onConfirm: async (text) => {
       const lines = text.split(/[\n;]/).map(l => l.trim()).filter(Boolean);
       if (lines.length === 0) return;
-      for (const line of lines) {
-        if (!state.statuses.includes(line)) {
-          state.statuses.push(line);
+      try {
+        const res = await apiFetch("/api/statuses", {
+          method: "POST",
+          body: JSON.stringify({ statuses: lines }),
+        });
+        if (res && Array.isArray(res.statuses)) {
+          state.statuses = res.statuses;
+        } else {
+          for (const line of lines) {
+            if (!state.statuses.includes(line)) state.statuses.push(line);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to persist statuses:", err);
+        for (const line of lines) {
+          if (!state.statuses.includes(line)) state.statuses.push(line);
         }
       }
       updateStatusSelect(lines[0]);
+      renderSettingsManageLists();
       if (isBatch) {
         state.isBatchStatusPicker = true;
       } else {
@@ -1074,6 +1124,76 @@ async function promptCustomStatus() {
       await selectNewStatus(lines[0]);
     }
   });
+}
+
+async function deleteType(name) {
+  if (!name) return;
+  const ok = confirm(`Удалить тип «${name}» из списков выбора?\n(В существующих записях этот тип сохранится обычным текстом)`);
+  if (!ok) return;
+
+  try {
+    const res = await apiFetch(`/api/types/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    });
+    if (res && Array.isArray(res.types)) {
+      state.types = res.types;
+    } else {
+      state.types = state.types.filter(t => t !== name);
+    }
+    state.selectedTypes.delete(name);
+    renderTypesFilter();
+    updateTypeDatalist();
+    updateTypeSelect();
+    renderSettingsManageLists();
+    await refreshData();
+  } catch (err) {
+    alert("Ошибка удаления типа: " + err.message);
+  }
+}
+
+async function deleteStatus(name) {
+  if (!name) return;
+  const ok = confirm(`Удалить статус «${name}» из списков выбора?\n(В существующих записях этот статус сохранится обычным текстом)`);
+  if (!ok) return;
+
+  try {
+    const res = await apiFetch(`/api/statuses/${encodeURIComponent(name)}`, {
+      method: "DELETE",
+    });
+    if (res && Array.isArray(res.statuses)) {
+      state.statuses = res.statuses;
+    } else {
+      state.statuses = state.statuses.filter(s => s !== name);
+    }
+    hideStatusPopup();
+    updateStatusSelect();
+    renderSettingsManageLists();
+    await refreshData();
+  } catch (err) {
+    alert("Ошибка удаления статуса: " + err.message);
+  }
+}
+
+function renderSettingsManageLists() {
+  const typesContainer = document.getElementById("settingsTypesChips");
+  if (typesContainer) {
+    typesContainer.innerHTML = (state.types || []).map(t => `
+      <span class="manage-tag-chip">
+        <span>${escapeHtml(t)}</span>
+        <button type="button" title="Удалить из списков выбора" onclick="deleteType('${escapeHtml(t)}')">✕</button>
+      </span>
+    `).join("") || '<span style="color:var(--text-dim);font-size:0.75rem;">Нет доступных типов</span>';
+  }
+
+  const statusesContainer = document.getElementById("settingsStatusesChips");
+  if (statusesContainer) {
+    statusesContainer.innerHTML = (state.statuses || []).map(st => `
+      <span class="manage-tag-chip">
+        <span>${escapeHtml(st)}</span>
+        <button type="button" title="Удалить из списков выбора" onclick="deleteStatus('${escapeHtml(st)}')">✕</button>
+      </span>
+    `).join("") || '<span style="color:var(--text-dim);font-size:0.75rem;">Нет доступных статусов</span>';
+  }
 }
 
 function hideStatusPopup() {
@@ -2324,6 +2444,7 @@ function applyModalTypes() {
 
 function openSettingsModal() {
   fetchServiceStatus();
+  renderSettingsManageLists();
   openModal("modalSettings");
 }
 

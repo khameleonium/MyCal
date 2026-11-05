@@ -529,6 +529,26 @@
         <div id="serviceDetailsBox" style="display: none; margin-top: 8px; font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono); background: var(--bg-surface); padding: 8px; border-radius: 6px; max-height: 100px; overflow-y: auto;"></div>
       </div>
 
+      <!-- MANAGE TYPES AND STATUSES -->
+      <div class="settings-highlight-card" style="border-color: var(--border-bright);">
+        <label class="form-label" style="color: var(--accent-purple); font-weight: 700; margin-bottom: 6px;">
+          <span>🏷️ Управление типами и статусами:</span>
+        </label>
+        <p class="settings-hint">
+          Удалите ненужные пункты из выпадающих списков. В существующих записях они останутся обычным текстом, но больше не будут предлагаться для выбора:
+        </p>
+        <div style="margin-top: 10px;">
+          <div style="font-size: 0.78rem; font-weight: 600; color: var(--text-dim); margin-bottom: 5px;">Типы записей:</div>
+          <div id="settingsTypesChips" style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;"></div>
+          <button type="button" class="btn btn-sm btn-secondary" onclick="promptCustomType()">+ Добавить тип</button>
+        </div>
+        <div style="margin-top: 14px;">
+          <div style="font-size: 0.78rem; font-weight: 600; color: var(--text-dim); margin-bottom: 5px;">Статусы записей:</div>
+          <div id="settingsStatusesChips" style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;"></div>
+          <button type="button" class="btn btn-sm btn-secondary" onclick="promptCustomStatusInForm()">+ Добавить статус</button>
+        </div>
+      </div>
+
       <div class="form-group">
         <label for="cfgDefaultDuration" class="form-label">Длительность по умолчанию (мин):</label>
         <input type="number" id="cfgDefaultDuration" class="form-input" min="5" max="720" value="60">

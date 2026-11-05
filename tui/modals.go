@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"mycalendar/calendar"
-	"mycalendar/config"
 	"mycalendar/models"
 	"mycalendar/parser"
 	"mycalendar/service"
@@ -149,7 +148,7 @@ func (m *ModalStatusPicker) Draw(s *Screen) {
 	s.Fill(x+2, customY, w-4, 1, ' ', customFg, customBg)
 	s.DrawText(x+2, customY, customPrefix+"+ Свой статус...", customFg, customBg, w-4, isCustomCur, false, false)
 
-	hint := fmt.Sprintf("[↑↓/1-%d] Выбор  [+] Свой статус  [Enter]  [Esc Отмена]", len(m.statuses))
+	hint := fmt.Sprintf("[↑↓/1-%d] Выбор  [+] Добавить  [d] Удалить  [Enter]  [Esc]", len(m.statuses))
 	s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, hint, FgDim, BgModal)
 }
 
@@ -164,19 +163,8 @@ func (m *ModalStatusPicker) HandleKey(k Key, app *App) bool {
 			val := strings.TrimSpace(m.customInput)
 			if val != "" {
 				if app.cfg != nil {
-					found := false
-					for _, st := range app.cfg.CustomStatuses {
-						if strings.EqualFold(st, val) {
-							found = true
-							break
-						}
-					}
-					if !found {
-						app.cfg.CustomStatuses = append(app.cfg.CustomStatuses, val)
-						if app.cfgPath != "" {
-							_ = config.Save(app.ctx, app.cfgPath, app.cfg)
-						}
-					}
+					app.cfg.AddCustomStatus(val)
+					app.persistConfig()
 				}
 				m.applyStatus(app, val)
 				app.activeModal = nil
@@ -207,6 +195,21 @@ func (m *ModalStatusPicker) HandleKey(k Key, app *App) bool {
 	case k.Type == KeyEsc:
 		app.activeModal = nil
 		return true
+
+	case k.Matches('d', 'в') || k.Type == KeyDelete:
+		if m.selected < len(m.statuses) {
+			st := m.statuses[m.selected]
+			if app.cfg != nil {
+				app.cfg.RemoveStatus(st)
+				app.persistConfig()
+			}
+			app.setStatusMsg("Статус «" + st + "» удалён из списков выбора")
+			m.statuses = app.getAvailableStatuses()
+			if m.selected >= len(m.statuses) {
+				m.selected = len(m.statuses)
+			}
+			return true
+		}
 
 	case k.Matches('+', '='):
 		m.isCustomInput = true
@@ -374,7 +377,7 @@ func (m *ModalQuickEditField) Draw(s *Screen) {
 		}
 
 		if m.pickerOpen {
-			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор из списка  [Enter] Применить  [Esc/←] Ввести вручную", FgDim, BgModal)
+			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор  [d] Удалить  [Enter] Применить  [Esc/←] Ввести вручную", FgDim, BgModal)
 		} else if canHaveDropdown {
 			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Ввод текста] Новое значение  [→] Выбрать из списка  [Enter] Сохранить  [Esc] Назад", FgDim, BgModal)
 		} else {
@@ -485,6 +488,26 @@ func (m *ModalQuickEditField) HandleKey(k Key, app *App) bool {
 					m.catPickerScroll = m.pickerScroll
 				}
 				return true
+			case k.Matches('d', 'в') || k.Type == KeyDelete:
+				if m.pickerIdx >= 0 && m.pickerIdx < len(m.pickerList) {
+					item := m.pickerList[m.pickerIdx]
+					if m.pickerField == 2 { // Category / Type
+						if app.cfg != nil {
+							app.cfg.RemoveType(item)
+							app.persistConfig()
+						}
+						app.setStatusMsg("Тип «" + item + "» удалён из списков выбора")
+						m.openCatPicker(app)
+					} else if m.pickerField == 3 { // Status
+						if app.cfg != nil {
+							app.cfg.RemoveStatus(item)
+							app.persistConfig()
+						}
+						app.setStatusMsg("Статус «" + item + "» удалён из списков выбора")
+						m.openStatusPicker(app)
+					}
+				}
+				return true
 			case k.Type == KeyEnter || k.Type == KeySpace:
 				if m.pickerIdx >= 0 && m.pickerIdx < len(m.pickerList) {
 					m.value = m.pickerList[m.pickerIdx]
@@ -576,17 +599,6 @@ func (m *ModalQuickEditField) openCatPicker(app *App) {
 				seen[t] = true
 				list = append(list, t)
 			}
-		}
-	}
-
-	defaults := []string{"Работа", "Личное", "Спорт", "Отдых", "Здоровье", "Обучение", "Хобби"}
-	if app != nil && app.cfg.DefaultType != "" {
-		defaults = append([]string{app.cfg.DefaultType}, defaults...)
-	}
-	for _, d := range defaults {
-		if !seen[d] {
-			seen[d] = true
-			list = append(list, d)
 		}
 	}
 
@@ -926,7 +938,11 @@ func (m *ModalSessionForm) Draw(s *Screen) {
 	}
 
 	if m.pickerOpen {
-		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор из списка  [Enter] Выбрать  [Esc/←] Ввести свой вручную", FgDim, BgModal)
+		if m.pickerField == 3 || m.pickerField == 6 {
+			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор  [d] Удалить  [Enter] Выбрать  [Esc/←] Ввести вручную", FgDim, BgModal)
+		} else {
+			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор из списка  [Enter] Выбрать  [Esc/←] Ввести свой вручную", FgDim, BgModal)
+		}
 	} else {
 		switch m.fieldIdx {
 		case 1:
@@ -1038,6 +1054,27 @@ func (m *ModalSessionForm) HandleKey(k Key, app *App) bool {
 				}
 				m.catPickerIdx = m.pickerIdx
 				m.catPickerScroll = m.pickerScroll
+			}
+			return true
+
+		case k.Matches('d', 'в') || k.Type == KeyDelete:
+			if m.pickerIdx >= 0 && m.pickerIdx < len(m.pickerList) {
+				item := m.pickerList[m.pickerIdx]
+				if m.pickerField == 3 { // Type
+					if app.cfg != nil {
+						app.cfg.RemoveType(item)
+						app.persistConfig()
+					}
+					app.setStatusMsg("Тип «" + item + "» удалён из списков выбора")
+					m.openCatPicker(app)
+				} else if m.pickerField == 6 { // Status
+					if app.cfg != nil {
+						app.cfg.RemoveStatus(item)
+						app.persistConfig()
+					}
+					app.setStatusMsg("Статус «" + item + "» удалён из списков выбора")
+					m.openStatusPicker(app)
+				}
 			}
 			return true
 
@@ -1259,17 +1296,6 @@ func (m *ModalSessionForm) openCatPicker(app *App) {
 		}
 	}
 
-	defaults := []string{"Работа", "Личное", "Спорт", "Отдых", "Здоровье", "Обучение", "Хобби"}
-	if app != nil && app.cfg.DefaultType != "" {
-		defaults = append([]string{app.cfg.DefaultType}, defaults...)
-	}
-	for _, d := range defaults {
-		if !seen[d] {
-			seen[d] = true
-			list = append(list, d)
-		}
-	}
-
 	m.pickerList = list
 	m.pickerTitle = " Категории [Enter] "
 	m.pickerField = 3
@@ -1419,6 +1445,16 @@ func (m *ModalSessionForm) save(app *App) {
 		statusVal = "Активно"
 	}
 	notesVal := strings.TrimSpace(m.notes)
+
+	if app.cfg != nil {
+		if typeVal != "" {
+			app.cfg.AddCustomType(typeVal)
+		}
+		if statusVal != "" {
+			app.cfg.AddCustomStatus(statusVal)
+		}
+		app.persistConfig()
+	}
 
 	var savedID string
 	if m.isEdit {
