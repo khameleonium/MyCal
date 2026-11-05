@@ -11,6 +11,7 @@ import (
 	"mycalendar/models"
 	"mycalendar/parser"
 	"mycalendar/service"
+	"mycalendar/storage"
 )
 
 // Modal represents a floating dialog overlay on top of the main screen.
@@ -2571,7 +2572,7 @@ func (m *ModalSettings) Draw(s *Screen) {
 		if valW > 0 {
 			s.Fill(valX, rowY, valW, 1, ' ', valFg, valBg)
 			disp := f.val
-			if isCur && (fieldIdx == 1 || fieldIdx == 2) {
+			if isCur && (fieldIdx == 1 || fieldIdx == 2 || fieldIdx == 10) {
 				disp += "█"
 			}
 			s.DrawText(valX+1, rowY, disp, valFg, valBg, valW-2, isCur, false, false)
@@ -2741,14 +2742,20 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 		} else if m.selectedIdx == 2 && len(m.durationStr) > 0 {
 			m.durationStr = m.durationStr[:len(m.durationStr)-1]
 			return true
+		} else if m.selectedIdx == 10 && len(m.dataPath) > 0 {
+			m.dataPath = m.dataPath[:len(m.dataPath)-1]
+			return true
 		}
 
-	case k.Type == KeyRune && k.Rune >= '0' && k.Rune <= '9':
-		if m.selectedIdx == 1 && len(m.portStr) < 5 {
+	case k.Type == KeyRune:
+		if m.selectedIdx == 1 && k.Rune >= '0' && k.Rune <= '9' && len(m.portStr) < 5 {
 			m.portStr += string(k.Rune)
 			return true
-		} else if m.selectedIdx == 2 && len(m.durationStr) < 4 {
+		} else if m.selectedIdx == 2 && k.Rune >= '0' && k.Rune <= '9' && len(m.durationStr) < 4 {
 			m.durationStr += string(k.Rune)
+			return true
+		} else if m.selectedIdx == 10 && k.Rune >= 32 && len(m.dataPath) < 120 {
+			m.dataPath += string(k.Rune)
 			return true
 		}
 
@@ -2885,6 +2892,18 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 		if app.svc != nil && oldSplit != m.splitMode {
 			app.svc.SetMode(m.splitMode)
 			_ = app.svc.Save(app.ctx)
+		}
+		newDataPath := strings.TrimSpace(m.dataPath)
+		if newDataPath != "" {
+			newDataPath = storage.ExpandPath(newDataPath)
+			if err := storage.EnsureWritableDir(newDataPath); err == nil {
+				if app.cfg.DataPath != newDataPath {
+					app.cfg.DataPath = newDataPath
+					if newSvc, err := calendar.NewService(app.ctx, newDataPath, app.cfg.DataFileName, app.cfg.SplitMode); err == nil {
+						app.svc = newSvc
+					}
+				}
+			}
 		}
 		app.persistConfig()
 		app.reloadSessions()
