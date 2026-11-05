@@ -48,8 +48,21 @@ document.addEventListener("DOMContentLoaded", () => {
   initGlobalKeyboard();
   initOutsideClickDismiss();
   initPaginationUI();
+  initFormHotkeys();
   loadInitialData();
 });
+
+function initFormHotkeys() {
+  const sessionModal = document.getElementById("modalSession");
+  if (sessionModal) {
+    sessionModal.addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        e.preventDefault();
+        handleSessionFormSubmit();
+      }
+    });
+  }
+}
 
 function initLiveClock() {
   const clockEl = document.getElementById("liveClock");
@@ -382,6 +395,130 @@ function updateTypeDatalist() {
   datalist.innerHTML = state.types.map(t => `<option value="${escapeHtml(t)}">`).join("");
 }
 
+// ==================== IN-APP PROMPT / MULTI-LINE MODAL ====================
+
+let inAppInputCallback = null;
+let inAppInputIsMultiLine = false;
+
+function openInAppInputModal({ title, label, hint, initialValue, isMultiLine, placeholder, onConfirm }) {
+  const modal = document.getElementById("modalInAppInput");
+  if (!modal) return;
+
+  inAppInputIsMultiLine = !!isMultiLine;
+  document.getElementById("inAppInputTitle").textContent = title || "Ввод данных";
+  document.getElementById("inAppInputLabel").textContent = label || "Введите значения:";
+  document.getElementById("inAppInputHint").textContent = hint || (isMultiLine
+    ? "Каждый пункт с новой строки. [Ctrl+Enter] или [OK] — сохранить, [Esc] — отмена."
+    : "[Enter] или [OK] — сохранить, [Esc] — отмена.");
+
+  const textarea = document.getElementById("inAppInputText");
+  textarea.value = initialValue || "";
+  textarea.placeholder = placeholder || "";
+  textarea.rows = isMultiLine ? 5 : 2;
+
+  inAppInputCallback = onConfirm;
+
+  openModal("modalInAppInput");
+
+  setTimeout(() => {
+    textarea.focus();
+    if (textarea.value) {
+      textarea.select();
+    }
+  }, 50);
+}
+
+function submitInAppInputModal() {
+  const textarea = document.getElementById("inAppInputText");
+  const val = textarea.value;
+  const cb = inAppInputCallback;
+  closeInAppInputModal();
+  if (typeof cb === "function") {
+    cb(val);
+  }
+}
+
+function closeInAppInputModal() {
+  closeModal("modalInAppInput");
+  inAppInputCallback = null;
+  inAppInputIsMultiLine = false;
+}
+
+function onInAppInputKeyDown(e) {
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+    e.preventDefault();
+    submitInAppInputModal();
+  } else if (e.key === "Enter" && !inAppInputIsMultiLine) {
+    e.preventDefault();
+    submitInAppInputModal();
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    closeInAppInputModal();
+  }
+}
+
+// ----------------- TIME SELECT (DARK THEMED) -----------------
+
+function updateTimeSelect(selectedVal) {
+  const sel = document.getElementById("formTime");
+  if (!sel) return;
+
+  const curVal = selectedVal !== undefined ? selectedVal : (sel.value || "10:00");
+  const standardHours = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, "0")}:00`);
+
+  let optionsHtml = "";
+  let hasSelected = false;
+
+  for (const h of standardHours) {
+    const isSel = h === curVal;
+    if (isSel) hasSelected = true;
+    optionsHtml += `<option value="${h}" ${isSel ? "selected" : ""}>${h}</option>`;
+  }
+
+  // If curVal is a custom non-round time (e.g. 14:30), add it at top
+  if (curVal && !standardHours.includes(curVal) && curVal !== "__custom__") {
+    optionsHtml = `<option value="${escapeHtml(curVal)}" selected>${escapeHtml(curVal)}</option>` + optionsHtml;
+    hasSelected = true;
+  }
+
+  optionsHtml += `<option value="__custom__">✏️ + Другое время...</option>`;
+  sel.innerHTML = optionsHtml;
+
+  if (curVal && curVal !== "__custom__") {
+    sel.value = curVal;
+  } else {
+    sel.value = "10:00";
+  }
+}
+
+function openCustomTimeModal() {
+  const sel = document.getElementById("formTime");
+  const cur = sel ? (sel.value !== "__custom__" ? sel.value : "10:00") : "10:00";
+
+  openInAppInputModal({
+    title: "Указать время начала",
+    label: "Введите время в формате ЧЧ:ММ (например, 14:30):",
+    hint: "[Ctrl+Enter] или [OK] — применить, [Esc] — отмена.",
+    placeholder: "14:30",
+    isMultiLine: false,
+    initialValue: cur,
+    onConfirm: (text) => {
+      let val = text.trim();
+      if (!val) {
+        updateTimeSelect();
+        return;
+      }
+      if (/^\d{1,2}:\d{2}$/.test(val)) {
+        const parts = val.split(":");
+        val = `${parts[0].padStart(2, "0")}:${parts[1]}`;
+      } else if (/^\d{1,2}$/.test(val)) {
+        val = `${val.padStart(2, "0")}:00`;
+      }
+      updateTimeSelect(val);
+    }
+  });
+}
+
 function updateTypeSelect(selectedVal) {
   const sel = document.getElementById("formType");
   if (!sel) return;
@@ -401,18 +538,31 @@ function updateTypeSelect(selectedVal) {
 }
 
 function promptCustomType() {
-  const custom = prompt("Введите новый тип записи:");
-  if (custom && custom.trim()) {
-    const val = custom.trim();
-    if (!state.types.includes(val)) {
-      state.types.push(val);
+  openInAppInputModal({
+    title: "Добавить типы записей",
+    label: "Введите типы записей (можно несколько, через Enter или точку с запятой):",
+    hint: "Каждый пункт с новой строки. [Ctrl+Enter] или [OK] — сохранить, [Esc] — отмена.",
+    placeholder: "Стрельба из лука\nМетание ножей\nПлавание",
+    isMultiLine: true,
+    initialValue: "",
+    onConfirm: (text) => {
+      const lines = text.split(/[\n;]/).map(l => l.trim()).filter(Boolean);
+      if (lines.length === 0) {
+        updateTypeSelect();
+        return;
+      }
+      let firstAdded = null;
+      for (const line of lines) {
+        if (!state.types.includes(line)) {
+          state.types.push(line);
+          if (!firstAdded) firstAdded = line;
+        }
+      }
       renderTypesFilter();
       updateTypeDatalist();
+      updateTypeSelect(firstAdded || lines[0]);
     }
-    updateTypeSelect(val);
-  } else {
-    updateTypeSelect();
-  }
+  });
 }
 
 function updateStatusSelect(selectedVal) {
@@ -436,16 +586,29 @@ function updateStatusSelect(selectedVal) {
 }
 
 function promptCustomStatusInForm() {
-  const custom = prompt("Введите новый статус записи (например, 'В ожидании', 'Перенесено'):");
-  if (custom && custom.trim()) {
-    const val = custom.trim();
-    if (!state.statuses.includes(val)) {
-      state.statuses.push(val);
+  openInAppInputModal({
+    title: "Добавить статусы записей",
+    label: "Введите статусы записей (можно несколько, через Enter или точку с запятой):",
+    hint: "Каждый пункт с новой строки. [Ctrl+Enter] или [OK] — сохранить, [Esc] — отмена.",
+    placeholder: "В ожидании\nПеренесено",
+    isMultiLine: true,
+    initialValue: "",
+    onConfirm: (text) => {
+      const lines = text.split(/[\n;]/).map(l => l.trim()).filter(Boolean);
+      if (lines.length === 0) {
+        updateStatusSelect();
+        return;
+      }
+      let firstAdded = null;
+      for (const line of lines) {
+        if (!state.statuses.includes(line)) {
+          state.statuses.push(line);
+          if (!firstAdded) firstAdded = line;
+        }
+      }
+      updateStatusSelect(firstAdded || lines[0]);
     }
-    updateStatusSelect(val);
-  } else {
-    updateStatusSelect();
-  }
+  });
 }
 
 function updateNamesDatalist() {
@@ -887,20 +1050,30 @@ async function promptCustomStatus() {
   hideStatusPopup();
   if (!isBatch && !id) return;
 
-  const custom = prompt("Введите свой статус (например, 'В ожидании', 'Перенесено'):");
-  if (custom !== null && custom.trim() !== "") {
-    const val = custom.trim();
-    if (!state.statuses.includes(val)) {
-      state.statuses.push(val);
-      updateStatusSelect();
+  openInAppInputModal({
+    title: "Новый статус",
+    label: "Введите статус (можно несколько, через Enter или точку с запятой):",
+    hint: "Каждый пункт с новой строки. [Ctrl+Enter] или [OK] — сохранить, [Esc] — отмена.",
+    placeholder: "В ожидании",
+    isMultiLine: true,
+    initialValue: "",
+    onConfirm: async (text) => {
+      const lines = text.split(/[\n;]/).map(l => l.trim()).filter(Boolean);
+      if (lines.length === 0) return;
+      for (const line of lines) {
+        if (!state.statuses.includes(line)) {
+          state.statuses.push(line);
+        }
+      }
+      updateStatusSelect(lines[0]);
+      if (isBatch) {
+        state.isBatchStatusPicker = true;
+      } else {
+        state.statusPopupTargetId = id;
+      }
+      await selectNewStatus(lines[0]);
     }
-    if (isBatch) {
-      state.isBatchStatusPicker = true;
-    } else {
-      state.statusPopupTargetId = id;
-    }
-    await selectNewStatus(val);
-  }
+  });
 }
 
 function hideStatusPopup() {
@@ -1723,12 +1896,16 @@ function onBatchFieldSelectChange(field) {
         </select>
       `;
       break;
-    case "time":
+    case "time": {
+      const hours = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, "0")}:00`);
       container.innerHTML = `
         <label for="batchFieldValue" class="form-label">Новое время начала (ЧЧ:ММ):</label>
-        <input type="time" id="batchFieldValue" class="form-input" required value="10:00">
+        <select id="batchFieldValue" class="form-select">
+          ${hours.map(h => `<option value="${h}" ${h === "10:00" ? "selected" : ""}>${h}</option>`).join("")}
+        </select>
       `;
       break;
+    }
     case "duration":
       container.innerHTML = `
         <label for="batchFieldValue" class="form-label">Новая длительность (в минутах):</label>
@@ -1848,7 +2025,7 @@ function openAddModal() {
 
   const todayIso = state.selectedDate || new Date().toISOString().slice(0, 10);
   document.getElementById("formDate").value = todayIso;
-  document.getElementById("formTime").value = "10:00";
+  updateTimeSelect("10:00");
   document.getElementById("formName").value = "";
   updateTypeSelect(state.types[0] || "Стрельба из лука");
   document.getElementById("formDuration").value = state.config.default_duration || 60;
@@ -1872,7 +2049,7 @@ function editFocusedSession() {
   document.getElementById("modalSessionTitle").textContent = `Редактирование (${s.id})`;
   document.getElementById("formSessionId").value = s.id;
   document.getElementById("formDate").value = sessionDate(s);
-  document.getElementById("formTime").value = s.time;
+  updateTimeSelect(s.time || "10:00");
   document.getElementById("formName").value = s.name;
   updateTypeSelect(s.type);
   document.getElementById("formDuration").value = s.duration;
@@ -1891,45 +2068,81 @@ async function editFocusedField(field) {
   const s = state.sessions.find(x => x.id === state.focusedId);
   if (!s) return;
 
-  let newVal = null;
-  switch (field) {
-    case "name":
-      newVal = prompt("Введите новое название записи:", s.name);
-      break;
-    case "time":
-      newVal = prompt("Введите новое время записи (ЧЧ:ММ):", s.time);
-      break;
-    case "duration":
-      newVal = prompt("Введите продолжительность в минутах:", s.duration);
-      break;
-    case "cash":
-      newVal = prompt("Введите значение кэша:", s.cash !== undefined ? s.cash : 0.0);
-      break;
-    case "type":
-      newVal = prompt("Введите тип записи:", s.type);
-      break;
-    case "notes":
-      newVal = prompt("Введите комментарий / заметку:", s.notes || "");
-      break;
-    case "date":
-      editFocusedSession();
-      return;
+  if (field === "date") {
+    editFocusedSession();
+    return;
   }
 
-  if (newVal !== null) {
-    try {
-      if (field === "cash") {
-        newVal = parseCash(newVal);
-      }
-      await apiFetch(`/api/sessions/${s.id}/field`, {
-        method: "PATCH",
-        body: JSON.stringify({ field, value: newVal }),
-      });
-      await refreshData();
-    } catch (err) {
-      alert("Ошибка обновления поля: " + err.message);
-    }
+  let title = "Редактировать поле";
+  let label = "Введите значение:";
+  let initial = "";
+  let isMulti = false;
+  let placeholder = "";
+
+  switch (field) {
+    case "name":
+      title = "Наименование записи";
+      label = "Введите новое название записи:";
+      initial = s.name;
+      break;
+    case "time":
+      title = "Время записи";
+      label = "Введите новое время записи (ЧЧ:ММ):";
+      initial = s.time;
+      placeholder = "14:30";
+      break;
+    case "duration":
+      title = "Продолжительность";
+      label = "Введите продолжительность в минутах:";
+      initial = String(s.duration);
+      placeholder = "60";
+      break;
+    case "cash":
+      title = "Кэш";
+      label = "Введите значение кэша (₽):";
+      initial = String(s.cash !== undefined ? s.cash : 0.0);
+      placeholder = "0.0";
+      break;
+    case "type":
+      title = "Тип записи";
+      label = "Введите тип записи:";
+      initial = s.type;
+      break;
+    case "notes":
+      title = "Комментарий / Заметки";
+      label = "Введите комментарий / заметку:";
+      initial = s.notes || "";
+      isMulti = true;
+      break;
   }
+
+  openInAppInputModal({
+    title,
+    label,
+    initialValue: initial,
+    isMultiLine: isMulti,
+    placeholder,
+    onConfirm: async (val) => {
+      let newVal = val.trim();
+      if (field === "notes") {
+        newVal = val;
+      }
+      try {
+        if (field === "cash") {
+          newVal = parseCash(newVal);
+        } else if (field === "duration") {
+          newVal = parseInt(newVal, 10) || 0;
+        }
+        await apiFetch(`/api/sessions/${s.id}/field`, {
+          method: "PATCH",
+          body: JSON.stringify({ field, value: newVal }),
+        });
+        await refreshData();
+      } catch (err) {
+        alert("Ошибка обновления поля: " + err.message);
+      }
+    }
+  });
 }
 
 function onRepeatSelectChange(mode) {
@@ -1948,40 +2161,57 @@ function onRepeatSelectChange(mode) {
 }
 
 async function handleSessionFormSubmit(e) {
-  e.preventDefault();
+  if (e && typeof e.preventDefault === "function") {
+    e.preventDefault();
+  }
   const id = document.getElementById("formSessionId").value;
   const isEdit = !!id;
 
   const date = document.getElementById("formDate").value;
   const time = document.getElementById("formTime").value;
-  const name = document.getElementById("formName").value;
+  const rawName = document.getElementById("formName").value;
   const type = document.getElementById("formType").value;
   const duration = parseInt(document.getElementById("formDuration").value, 10);
   const cash = parseCash(document.getElementById("formCash").value);
   const status = document.getElementById("formStatus").value;
   const notes = document.getElementById("formNotes").value;
 
+  const names = isEdit
+    ? [rawName.trim()]
+    : rawName.split(/[\n;]/).map(n => n.trim()).filter(Boolean);
+
+  if (names.length === 0) {
+    alert("Укажите наименование записи");
+    return;
+  }
+
   try {
     if (!isEdit) {
-      // Create new session
+      // Create new session(s)
       const repeat = document.getElementById("formRepeat").value;
       const repeat_until = document.getElementById("formRepeatUntil").value;
 
-      const res = await apiFetch("/api/sessions", {
-        method: "POST",
-        body: JSON.stringify({ date, time, name, type, duration, cash, status, notes, repeat, repeat_until }),
-      });
+      let lastId = null;
+      for (const name of names) {
+        const res = await apiFetch("/api/sessions", {
+          method: "POST",
+          body: JSON.stringify({ date, time, name, type, duration, cash, status, notes, repeat, repeat_until }),
+        });
+        if (res && res.first_id) {
+          lastId = res.first_id;
+        }
+      }
       closeModal("modalSession");
       await fetchTypes(); // refresh types in case a new one was added
       await refreshData();
-      if (res.first_id) setFocusedSession(res.first_id);
+      if (lastId) setFocusedSession(lastId);
     } else {
       // Update existing session
       const updateSeries = document.querySelector('input[name="editSeriesMode"]:checked')?.value === "series";
 
       await apiFetch(`/api/sessions/${id}`, {
         method: "PUT",
-        body: JSON.stringify({ date, time, name, type, duration, cash, status, notes, update_series: updateSeries }),
+        body: JSON.stringify({ date, time, name: names[0], type, duration, cash, status, notes, update_series: updateSeries }),
       });
       closeModal("modalSession");
       await fetchTypes();
