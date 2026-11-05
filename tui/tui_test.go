@@ -1906,6 +1906,106 @@ func TestKeyTNavigatesToCategoriesThenCycles(t *testing.T) {
 	}
 }
 
+func TestTUIDefaultPeriodStartupAndSettings(t *testing.T) {
+	dir := t.TempDir()
+	svc, err := calendar.NewService(context.Background(), dir, "mycal", models.SplitNone)
+	if err != nil {
+		t.Fatalf("failed to create service: %v", err)
+	}
+
+	// 1. Startup period mode checks
+	cases := []struct {
+		configured  string
+		wantPeriod  string
+		wantSidebar int
+	}{
+		{"", "today", 1},
+		{"today", "today", 1},
+		{"all", "all", 0},
+		{"week", "week", 2},
+		{"month", "month", 3},
+		{"unknown", "today", 1}, // fallback to today
+	}
+
+	for _, tc := range cases {
+		cfg := &models.Config{DefaultMode: "tui", WebPort: 8080, TUIDefaultPeriod: tc.configured}
+		app := NewApp(svc, cfg, "", "vTest")
+		if app.periodMode != tc.wantPeriod {
+			t.Errorf("configured %q: expected periodMode %q, got %q", tc.configured, tc.wantPeriod, app.periodMode)
+		}
+		if app.sidebarIdx != tc.wantSidebar {
+			t.Errorf("configured %q: expected sidebarIdx %d, got %d", tc.configured, tc.wantSidebar, app.sidebarIdx)
+		}
+	}
+
+	// 2. ModalSettings field 11: picker & space toggle
+	app := newTestApp(t)
+	app.cfg.TUIDefaultPeriod = "today"
+	m := NewModalSettings(app.cfg)
+	app.activeModal = m
+
+	m.selectedIdx = 11 // TUIDefaultPeriod field
+	if m.tuiDefaultPeriod != "today" {
+		t.Fatalf("expected initial tuiDefaultPeriod 'today', got %q", m.tuiDefaultPeriod)
+	}
+
+	// Space key cycles options: today -> all -> week -> month -> today
+	m.HandleKey(Key{Type: KeySpace}, app)
+	if m.tuiDefaultPeriod != "all" {
+		t.Fatalf("expected 'all' after space, got %q", m.tuiDefaultPeriod)
+	}
+	m.HandleKey(Key{Type: KeySpace}, app)
+	if m.tuiDefaultPeriod != "week" {
+		t.Fatalf("expected 'week' after space, got %q", m.tuiDefaultPeriod)
+	}
+	m.HandleKey(Key{Type: KeySpace}, app)
+	if m.tuiDefaultPeriod != "month" {
+		t.Fatalf("expected 'month' after space, got %q", m.tuiDefaultPeriod)
+	}
+	m.HandleKey(Key{Type: KeySpace}, app)
+	if m.tuiDefaultPeriod != "today" {
+		t.Fatalf("expected 'today' after space cycle, got %q", m.tuiDefaultPeriod)
+	}
+
+	// Right arrow opens dropdown picker
+	m.HandleKey(Key{Type: KeyRight}, app)
+	if !m.pickerOpen {
+		t.Fatalf("expected pickerOpen true on field 11")
+	}
+	if len(m.pickerList) != 4 {
+		t.Fatalf("expected 4 options in pickerList, got %d", len(m.pickerList))
+	}
+	if m.pickerIdx != 0 {
+		t.Fatalf("expected pickerIdx 0 ('today'), got %d", m.pickerIdx)
+	}
+
+	// Select 3rd option ("week", index 2)
+	m.HandleKey(Key{Type: KeyDown}, app)
+	m.HandleKey(Key{Type: KeyDown}, app)
+	if m.pickerIdx != 2 {
+		t.Fatalf("expected pickerIdx 2, got %d", m.pickerIdx)
+	}
+
+	// Press Enter to confirm selection
+	m.HandleKey(Key{Type: KeyEnter}, app)
+	if m.pickerOpen {
+		t.Fatalf("expected pickerOpen false after Enter")
+	}
+	if m.tuiDefaultPeriod != "week" {
+		t.Fatalf("expected tuiDefaultPeriod 'week', got %q", m.tuiDefaultPeriod)
+	}
+
+	// Draw screen with modal to ensure rendering works without panic
+	s := NewScreen(80, 25)
+	m.Draw(s)
+
+	// Save settings by pressing Enter on field 11 (or navigation to OK)
+	m.HandleKey(Key{Type: KeyEnter}, app)
+	if app.cfg.TUIDefaultPeriod != "week" {
+		t.Fatalf("expected app.cfg.TUIDefaultPeriod updated to 'week', got %q", app.cfg.TUIDefaultPeriod)
+	}
+}
+
 
 
 

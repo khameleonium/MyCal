@@ -98,6 +98,28 @@ func NewApp(svc *calendar.Service, cfg *models.Config, cfgPath, version string) 
 		}
 		sortAsc = cfg.SortAsc
 	}
+	initialPeriod := "today"
+	initialSidebarIdx := 1
+	if cfg != nil && cfg.TUIDefaultPeriod != "" {
+		switch cfg.TUIDefaultPeriod {
+		case "all":
+			initialPeriod = "all"
+			initialSidebarIdx = 0
+		case "week":
+			initialPeriod = "week"
+			initialSidebarIdx = 2
+		case "month":
+			initialPeriod = "month"
+			initialSidebarIdx = 3
+		case "today", "day":
+			initialPeriod = "today"
+			initialSidebarIdx = 1
+		default:
+			initialPeriod = "today"
+			initialSidebarIdx = 1
+		}
+	}
+
 	app := &App{
 		svc:           svc,
 		cfg:           cfg,
@@ -105,13 +127,13 @@ func NewApp(svc *calendar.Service, cfg *models.Config, cfgPath, version string) 
 		version:       version,
 		focusPanel:    PanelFeed,
 		lastLeftPanel: PanelCalendar,
-		periodMode:    "all",
+		periodMode:    initialPeriod,
 		selectedIDs:   make(map[string]bool),
 		typeFilters:   make(map[string]bool),
 		calYear:       now.Year(),
 		calMonth:      int(now.Month()),
 		calDay:        now.Day(),
-		sidebarIdx:    0, // "Все записи" (0-indexed)
+		sidebarIdx:    initialSidebarIdx,
 		activeTab:     TabFeed,
 		lastDataMod:   dataMod,
 		lastCfgMod:    cfgMod,
@@ -1666,7 +1688,7 @@ func (a *App) renderPresetsBox(s *Screen, x, y, w, h int) {
 			break
 		}
 		isCursor := isSidebarFocused && a.sidebarIdx == i
-		isActive := a.periodMode == p.id
+		isActive := a.periodMode == p.id || (p.id == "day" && a.periodMode == "today")
 		fg := FgMuted
 		bg := BgSurface
 		prefix := "  "

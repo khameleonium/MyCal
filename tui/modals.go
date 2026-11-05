@@ -2185,11 +2185,12 @@ type ModalSettings struct {
 	askOnConflict  bool
 	silentAddNames bool
 	splitMode      string // "none", "year", "month"
-	useSystemDate  bool
-	dataPath       string
-	svcStatus      *service.StatusInfo
-	selectedIdx    int
-	scrollOffset   int
+	useSystemDate    bool
+	dataPath         string
+	tuiDefaultPeriod string // "today", "all", "week", "month"
+	svcStatus        *service.StatusInfo
+	selectedIdx      int
+	scrollOffset     int
 
 	// Dropdown picker state
 	pickerOpen   bool
@@ -2214,6 +2215,7 @@ func NewModalSettings(cfg *models.Config) *ModalSettings {
 	splitMode := models.SplitNone
 	useSystemDate := true
 	dataPath := "~/.mycal"
+	tuiDefaultPeriod := "today"
 
 	if cfg != nil {
 		if cfg.DurationUnit == "hours" {
@@ -2239,28 +2241,32 @@ func NewModalSettings(cfg *models.Config) *ModalSettings {
 		if cfg.DataPath != "" {
 			dataPath = cfg.DataPath
 		}
+		if cfg.TUIDefaultPeriod != "" {
+			tuiDefaultPeriod = cfg.TUIDefaultPeriod
+		}
 	}
 	return &ModalSettings{
-		defaultMode:    defaultMode,
-		portStr:        portStr,
-		durationStr:    durStr,
-		durationUnit:   durUnit,
-		defaultType:    defaultType,
-		dateCheckMode:  dateCheckMode,
-		askOnConflict:  askOnConflict,
-		silentAddNames: silentAddNames,
-		splitMode:      splitMode,
-		useSystemDate:  useSystemDate,
-		dataPath:       dataPath,
-		selectedIdx:    0,
-		scrollOffset:   0,
-		svcStatus:      st,
+		defaultMode:      defaultMode,
+		portStr:          portStr,
+		durationStr:      durStr,
+		durationUnit:     durUnit,
+		defaultType:      defaultType,
+		dateCheckMode:    dateCheckMode,
+		askOnConflict:    askOnConflict,
+		silentAddNames:   silentAddNames,
+		splitMode:        splitMode,
+		useSystemDate:    useSystemDate,
+		dataPath:         dataPath,
+		tuiDefaultPeriod: tuiDefaultPeriod,
+		selectedIdx:      0,
+		scrollOffset:     0,
+		svcStatus:        st,
 	}
 }
 
 func (m *ModalSettings) canHavePicker(fieldIdx int) bool {
 	switch fieldIdx {
-	case 0, 2, 3, 4, 5, 6, 7, 8, 9, 11:
+	case 0, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12:
 		return true
 	default:
 		return false
@@ -2360,6 +2366,16 @@ func (m *ModalSettings) openPicker(fieldIdx int, app *App) {
 		curCode = strconv.FormatBool(m.useSystemDate)
 
 	case 11:
+		title = " Период запуска в TUI [Enter] "
+		list = []ModalSettingsOption{
+			{Code: "today", Label: "Сегодня (по умолч.)"},
+			{Code: "all", Label: "Все записи"},
+			{Code: "week", Label: "Неделя"},
+			{Code: "month", Label: "Месяц"},
+		}
+		curCode = m.tuiDefaultPeriod
+
+	case 12:
 		title = " Фоновая служба [Enter] "
 		list = []ModalSettingsOption{
 			{Code: "start", Label: "Запустить службу"},
@@ -2413,6 +2429,8 @@ func (m *ModalSettings) applyPickerOption(opt ModalSettingsOption, app *App) {
 	case 9:
 		m.useSystemDate = (opt.Code == "true")
 	case 11:
+		m.tuiDefaultPeriod = opt.Code
+	case 12:
 		if app != nil {
 			mgr := service.NewManager()
 			switch opt.Code {
@@ -2509,6 +2527,18 @@ func (m *ModalSettings) Draw(s *Screen) {
 		pathDisplay = "~/.mycal"
 	}
 
+	tuiPeriodDisplay := "Сегодня (по умолч.)"
+	switch m.tuiDefaultPeriod {
+	case "all":
+		tuiPeriodDisplay = "Все записи"
+	case "week":
+		tuiPeriodDisplay = "Неделя"
+	case "month":
+		tuiPeriodDisplay = "Месяц"
+	case "today", "day":
+		tuiPeriodDisplay = "Сегодня"
+	}
+
 	fields := []struct {
 		lbl string
 		val string
@@ -2524,7 +2554,8 @@ func (m *ModalSettings) Draw(s *Screen) {
 		{"9. Режим хранения записей:  ", splitDisplay},
 		{"10. Системная дата:         ", dateDisplay},
 		{"11. Путь к данным:          ", pathDisplay},
-		{"12. Фоновая служба:         ", m.svcStatusText()},
+		{"12. Период по умолч. в TUI: ", tuiPeriodDisplay},
+		{"13. Фоновая служба:         ", m.svcStatusText()},
 	}
 
 	availRows := h - 4
@@ -2707,7 +2738,7 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 		return false
 	}
 
-	totalFields := 12
+	totalFields := 13
 	switch {
 	case k.Type == KeyEsc:
 		app.activeModal = nil
@@ -2838,6 +2869,21 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 			m.useSystemDate = !m.useSystemDate
 			return true
 		case 11:
+			// Cycle tui default period
+			switch m.tuiDefaultPeriod {
+			case "today", "day", "":
+				m.tuiDefaultPeriod = "all"
+			case "all":
+				m.tuiDefaultPeriod = "week"
+			case "week":
+				m.tuiDefaultPeriod = "month"
+			case "month":
+				m.tuiDefaultPeriod = "today"
+			default:
+				m.tuiDefaultPeriod = "today"
+			}
+			return true
+		case 12:
 			// Toggle service
 			mgr := service.NewManager()
 			if m.svcStatus != nil && m.svcStatus.Running {
@@ -2856,7 +2902,7 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 		}
 
 	case k.Type == KeyEnter:
-		if m.selectedIdx == 11 {
+		if m.selectedIdx == 12 {
 			// Trigger service action on Enter
 			mgr := service.NewManager()
 			if m.svcStatus != nil && m.svcStatus.Running {
@@ -2875,6 +2921,7 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 		}
 
 		app.cfg.DefaultMode = m.defaultMode
+		app.cfg.TUIDefaultPeriod = m.tuiDefaultPeriod
 		if p, err := strconv.Atoi(m.portStr); err == nil && p > 0 {
 			app.cfg.WebPort = p
 		}

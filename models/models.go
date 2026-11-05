@@ -43,6 +43,7 @@ var DefaultConfig = Config{
 	SortField:       "date",
 	SortAsc:         false,
 	DurationUnit:    "min",
+	TUIDefaultPeriod: "today",
 }
 
 // Config mirrors config_mycal.json.
@@ -68,6 +69,7 @@ type Config struct {
 	SortField        string   `json:"sort_field,omitempty"`
 	SortAsc          bool     `json:"sort_asc,omitempty"`
 	DurationUnit     string   `json:"duration_unit,omitempty"`
+	TUIDefaultPeriod string   `json:"tui_default_period,omitempty"`
 }
 
 // AddCustomType adds a custom type and ensures it is not in ExcludedTypes.
@@ -203,6 +205,11 @@ func (c *Config) Normalize() {
 	case "hours", "min":
 	default:
 		c.DurationUnit = "min"
+	}
+	switch c.TUIDefaultPeriod {
+	case "today", "day", "all", "week", "month":
+	default:
+		c.TUIDefaultPeriod = "today"
 	}
 }
 

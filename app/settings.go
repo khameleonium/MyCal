@@ -56,6 +56,8 @@ func (a *App) settingsMenu() {
 		a.hint("Управление работой MyCal как фоновой системной службы")
 		fmt.Printf(" f | 14. Формат длительности         [%s]\n", durationUnitDisplay(a.cfg.DurationUnit))
 		a.hint("Отображение продолжительности (в минутах или часах)")
+		fmt.Printf(" e | 15. Период запуска в TUI        [%s]\n", tuiDefaultPeriodDisplay(a.cfg.TUIDefaultPeriod))
+		a.hint("Основной период при запуске в TUI (Сегодня, Все записи, Неделя, Месяц)")
 		fmt.Println(" q | 0. Сохранить и выйти")
 		a.hint("Применить изменения и вернуться в главное меню")
 
@@ -120,11 +122,13 @@ func (a *App) settingsMenu() {
 			} else {
 				a.cfg.DurationUnit = "hours"
 			}
+		case match(choice, "15", "e", "у"):
+			a.cfg.TUIDefaultPeriod = nextInCycle([]string{"today", "all", "week", "month"}, a.cfg.TUIDefaultPeriod)
 		case match(choice, "0", "q"):
 			a.persistSettings(startMode, startName, startPath)
 			return
 		default:
-			fmt.Println(color.Red(errMark + " Некорректный выбор (0–14)"))
+			fmt.Println(color.Red(errMark + " Некорректный выбор (0–15)"))
 		}
 	}
 }
@@ -427,5 +431,18 @@ func dateCheckHint(mode string) string {
 		return "Реакция на ошибки (32.01, 31.02). Сейчас [Переспрашивать]: отклонить 32.01 и потребовать ввести дату заново"
 	default:
 		return "Реакция на ошибки в дате (напр. 32.01): Выключена, Спрашивать, Исправлять авто, Переспрашивать"
+	}
+}
+
+func tuiDefaultPeriodDisplay(p string) string {
+	switch p {
+	case "all":
+		return "Все записи"
+	case "week":
+		return "Неделя"
+	case "month":
+		return "Месяц"
+	default:
+		return "Сегодня"
 	}
 }
