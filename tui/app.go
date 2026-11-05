@@ -813,6 +813,9 @@ func (a *App) handleCalendarKey(k Key) {
 
 	case a.calHeaderFocus:
 		switch {
+		case k.Matches('y', 'н'):
+			a.activeModal = NewModalYearCalendar(a.calYear, a.calMonth, a.calDay, a.allSessions)
+			return
 		case k.Type == KeyLeft || k.Matches('h', 'р'):
 			if a.calHeaderBtn > 0 {
 				a.calHeaderBtn--
@@ -820,8 +823,8 @@ func (a *App) handleCalendarKey(k Key) {
 				a.changeMonth(-1)
 				a.onMonthChanged()
 			}
-		case k.Type == KeyRight:
-			if a.calHeaderBtn < 2 {
+		case k.Type == KeyRight || k.Matches('l', 'д'):
+			if a.calHeaderBtn < 1 {
 				a.calHeaderBtn++
 			} else {
 				a.changeMonth(1)
@@ -834,8 +837,6 @@ func (a *App) handleCalendarKey(k Key) {
 			} else if a.calHeaderBtn == 1 {
 				a.changeMonth(1)
 				a.onMonthChanged()
-			} else if a.calHeaderBtn == 2 {
-				a.activeModal = NewModalYearCalendar(a.calYear, a.calMonth, a.calDay, a.allSessions)
 			}
 		case k.Type == KeyDown || k.Matches('j', 'о'):
 			a.calHeaderFocus = false
@@ -1457,7 +1458,6 @@ func (a *App) renderCalendarBox(s *Screen, x, y, w, h int) {
 	if isCalFocused && a.calHeaderFocus {
 		btnPrev := "◄"
 		btnNext := "►"
-		btnYear := "[Y]"
 		prevBg := BgSurface
 		prevFg := FgYellow
 		if a.calHeaderBtn == 0 {
@@ -1470,34 +1470,17 @@ func (a *App) renderCalendarBox(s *Screen, x, y, w, h int) {
 			nextBg = BgHighlight
 			nextFg = FgWhite
 		}
-		yearBg := BgSurface
-		yearFg := FgYellow
-		if a.calHeaderBtn == 2 {
-			yearBg = BgHighlight
-			yearFg = FgWhite
-		}
 
 		s.DrawText(x+2, y+1, btnPrev, prevFg, prevBg, 1, a.calHeaderBtn == 0, false, false)
-		availCenter := w - 10
-		if availCenter < 6 {
-			availCenter = 6
+		availCenter := w - 8
+		if availCenter < 4 {
+			availCenter = 4
 		}
 		s.DrawText(x+4, y+1, CenterString(mName, availCenter), FgWhite, BgSurface, availCenter, true, false, false)
-		if w >= 22 {
-			s.DrawText(x+w-6, y+1, btnNext, nextFg, nextBg, 1, a.calHeaderBtn == 1, false, false)
-			s.DrawText(x+w-4, y+1, btnYear, yearFg, yearBg, 3, a.calHeaderBtn == 2, false, false)
-		} else {
-			s.DrawText(x+w-3, y+1, btnNext, nextFg, nextBg, 1, a.calHeaderBtn == 1, false, false)
-		}
+		s.DrawText(x+w-3, y+1, btnNext, nextFg, nextBg, 1, a.calHeaderBtn == 1, false, false)
 	} else {
 		mTitle := fmt.Sprintf("◄  %s  ►", mName)
-		if w >= 24 {
-			availCenter := w - 8
-			s.DrawText(x+2, y+1, CenterString(mTitle, availCenter), FgYellow, BgSurface, availCenter, true, false, false)
-			s.DrawText(x+w-5, y+1, "[Y]", FgCyan, BgSurface, 3, false, false, false)
-		} else {
-			s.DrawText(x+2, y+1, CenterString(mTitle, w-4), FgYellow, BgSurface, w-4, true, false, false)
-		}
+		s.DrawText(x+2, y+1, CenterString(mTitle, w-4), FgYellow, BgSurface, w-4, true, false, false)
 	}
 
 	// Weekdays

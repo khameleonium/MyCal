@@ -787,9 +787,15 @@ func TestCalendarHeaderAndFooterYearHints(t *testing.T) {
 	app.renderCalendarBox(s, 0, 1, 26, 14)
 	buf := s.PlainString()
 
-	// Check [Y] in calendar box
-	if !strings.Contains(buf, "[Y]") {
-		t.Fatalf("expected calendar box to contain [Y], got:\n%s", buf)
+	// Check [Y] in calendar box border title
+	if !strings.Contains(buf, "Календарь [Y]") {
+		t.Fatalf("expected calendar title to contain 'Календарь [Y]', got:\n%s", buf)
+	}
+
+	lines := strings.Split(buf, "\n")
+	// The month line (row 2 of screen: ◄ Месяц Год ►) should not have duplicate [Y]
+	if len(lines) > 2 && strings.Contains(lines[2], "[Y]") {
+		t.Fatalf("expected month line not to contain duplicate '[Y]', got:\n%s", lines[2])
 	}
 
 	// Render footer
@@ -1350,6 +1356,49 @@ func TestMultiNameSessionFormCreation(t *testing.T) {
 	names := []string{all[0].Name, all[1].Name, all[2].Name}
 	if names[0] != "Первая задача" || names[1] != "Вторая задача" || names[2] != "Третья задача" {
 		t.Errorf("unexpected session names: %v", names)
+	}
+}
+
+func TestModalStatusPickerCustomStatusInput(t *testing.T) {
+	app := newTestApp(t)
+	sess := models.Session{
+		ID:       "20260101100000",
+		Time:     "10:00",
+		Name:     "Тестовая задача",
+		Status:   "Активно",
+		Duration: 60,
+	}
+	_ = app.svc.Add(sess)
+
+	p := NewModalStatusPicker(nil, "Активно", sess.ID)
+	// Press '+' to activate custom status input
+	p.HandleKey(Key{Type: KeyRune, Rune: '+'}, app)
+	if !p.isCustomInput {
+		t.Fatalf("expected isCustomInput == true after '+'")
+	}
+
+	// Type custom status "В архиве"
+	for _, r := range "В архиве" {
+		p.HandleKey(Key{Type: KeyRune, Rune: r}, app)
+	}
+	// Press Enter to apply
+	p.HandleKey(Key{Type: KeyEnter}, app)
+
+	updated, ok := app.svc.ByID(sess.ID)
+	if !ok || updated.Status != "В архиве" {
+		t.Fatalf("expected session status 'В архиве', got %q", updated.Status)
+	}
+
+	// Check it was added to app.cfg.CustomStatuses
+	foundCfg := false
+	for _, st := range app.cfg.CustomStatuses {
+		if st == "В архиве" {
+			foundCfg = true
+			break
+		}
+	}
+	if !foundCfg {
+		t.Fatalf("expected 'В архиве' in cfg.CustomStatuses, got %v", app.cfg.CustomStatuses)
 	}
 }
 

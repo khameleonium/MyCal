@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"mycalendar/calendar"
+	"mycalendar/config"
 	"mycalendar/models"
 	"mycalendar/parser"
 	"mycalendar/service"
@@ -22,9 +23,11 @@ type Modal interface {
 // ----------------- STATUS PICKER MODAL -----------------
 
 type ModalStatusPicker struct {
-	statuses []string
-	selected int
-	targetID string // empty if batch
+	statuses      []string
+	selected      int
+	targetID      string // empty if batch
+	isCustomInput bool
+	customInput   string
 }
 
 func NewModalStatusPicker(customStatuses []string, currentStatus, targetID string) *ModalStatusPicker {
@@ -60,8 +63,38 @@ func NewModalStatusPicker(customStatuses []string, currentStatus, targetID strin
 }
 
 func (m *ModalStatusPicker) Draw(s *Screen) {
+	if m.isCustomInput {
+		w := 44
+		h := 9
+		if w > s.Width-2 {
+			w = s.Width - 2
+		}
+		if h > s.Height-2 {
+			h = s.Height - 2
+		}
+		x := (s.Width - w) / 2
+		y := (s.Height - h) / 2
+		if x < 1 {
+			x = 1
+		}
+		if y < 1 {
+			y = 1
+		}
+
+		s.DrawBox(x, y, w, h, "Новый статус", FgCyan, BorderBright, BgModal, true)
+		s.DrawText(x+2, y+2, "Введите название статуса:", FgMuted, BgModal, w-4, false, false, false)
+
+		s.Fill(x+2, y+4, w-4, 1, ' ', FgWhite, BgInput)
+		s.DrawBox(x+1, y+3, w-2, 3, "", FgDim, BorderFocus, BgInput, false)
+		s.DrawText(x+3, y+4, m.customInput+"█", FgWhite, BgInput, w-6, true, false, false)
+
+		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Enter] Сохранить и применить  [Esc] Отмена", FgDim, BgModal)
+		return
+	}
+
+	totalItems := len(m.statuses) + 1
 	w := 38
-	h := len(m.statuses) + 6
+	h := totalItems + 6
 	if w > s.Width-2 {
 		w = s.Width - 2
 	}
@@ -101,26 +134,95 @@ func (m *ModalStatusPicker) Draw(s *Screen) {
 		s.DrawText(x+8, rowY, badgeText, bFg, bg, w-10, true, false, false)
 	}
 
-	hint := "[↑↓/1-9] Выбор  [Enter]  [Esc Отмена]"
+	// Option to enter a custom status
+	customIdx := len(m.statuses)
+	customY := y + 3 + customIdx
+	isCustomCur := m.selected == customIdx
+	customBg := BgModal
+	customFg := FgYellow
+	customPrefix := "  "
+	if isCustomCur {
+		customBg = BgSelected
+		customFg = FgWhite
+		customPrefix = "► "
+	}
+	s.Fill(x+2, customY, w-4, 1, ' ', customFg, customBg)
+	s.DrawText(x+2, customY, customPrefix+"+ Свой статус...", customFg, customBg, w-4, isCustomCur, false, false)
+
+	hint := fmt.Sprintf("[↑↓/1-%d] Выбор  [+] Свой статус  [Enter]  [Esc Отмена]", len(m.statuses))
 	s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, hint, FgDim, BgModal)
 }
 
 func (m *ModalStatusPicker) HandleKey(k Key, app *App) bool {
+	if m.isCustomInput {
+		switch {
+		case k.Type == KeyEsc:
+			m.isCustomInput = false
+			return true
+
+		case k.Type == KeyEnter:
+			val := strings.TrimSpace(m.customInput)
+			if val != "" {
+				if app.cfg != nil {
+					found := false
+					for _, st := range app.cfg.CustomStatuses {
+						if strings.EqualFold(st, val) {
+							found = true
+							break
+						}
+					}
+					if !found {
+						app.cfg.CustomStatuses = append(app.cfg.CustomStatuses, val)
+						if app.cfgPath != "" {
+							_ = config.Save(app.ctx, app.cfgPath, app.cfg)
+						}
+					}
+				}
+				m.applyStatus(app, val)
+				app.activeModal = nil
+			} else {
+				m.isCustomInput = false
+			}
+			return true
+
+		case k.Type == KeyBackspace:
+			if len(m.customInput) > 0 {
+				runes := []rune(m.customInput)
+				m.customInput = string(runes[:len(runes)-1])
+			}
+			return true
+
+		case k.Type == KeySpace:
+			m.customInput += " "
+			return true
+
+		case k.Type == KeyRune:
+			m.customInput += string(k.Rune)
+			return true
+		}
+		return true
+	}
+
 	switch {
 	case k.Type == KeyEsc:
 		app.activeModal = nil
+		return true
+
+	case k.Matches('+', '='):
+		m.isCustomInput = true
+		m.customInput = ""
 		return true
 
 	case k.Type == KeyUp || k.Matches('k', 'л'):
 		if m.selected > 0 {
 			m.selected--
 		} else {
-			m.selected = len(m.statuses) - 1
+			m.selected = len(m.statuses) // wrap to [+] Свой статус
 		}
 		return true
 
 	case k.Type == KeyDown || k.Matches('j', 'о'):
-		if m.selected < len(m.statuses)-1 {
+		if m.selected < len(m.statuses) {
 			m.selected++
 		} else {
 			m.selected = 0
@@ -128,6 +230,11 @@ func (m *ModalStatusPicker) HandleKey(k Key, app *App) bool {
 		return true
 
 	case k.Type == KeyEnter:
+		if m.selected == len(m.statuses) {
+			m.isCustomInput = true
+			m.customInput = ""
+			return true
+		}
 		m.applyStatus(app, m.statuses[m.selected])
 		app.activeModal = nil
 		return true
@@ -267,11 +374,11 @@ func (m *ModalQuickEditField) Draw(s *Screen) {
 		}
 
 		if m.pickerOpen {
-			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор из списка  [Enter] Применить  [Esc/←] Закрыть", FgDim, BgModal)
+			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор из списка  [Enter] Применить  [Esc/←] Ввести вручную", FgDim, BgModal)
 		} else if canHaveDropdown {
-			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Enter] Сохранить  [→] Выбрать из списка  [Esc] Назад", FgDim, BgModal)
+			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Ввод текста] Новое значение  [→] Выбрать из списка  [Enter] Сохранить  [Esc] Назад", FgDim, BgModal)
 		} else {
-			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Enter] Сохранить  [Esc] Назад", FgDim, BgModal)
+			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Ввод текста] Новое значение  [Enter] Сохранить  [Esc] Назад", FgDim, BgModal)
 		}
 
 		if m.pickerOpen && len(m.pickerList) > 0 {
@@ -819,17 +926,17 @@ func (m *ModalSessionForm) Draw(s *Screen) {
 	}
 
 	if m.pickerOpen {
-		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор из списка  [Enter] Выбрать  [Esc/←] Закрыть", FgDim, BgModal)
+		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор из списка  [Enter] Выбрать  [Esc/←] Ввести свой вручную", FgDim, BgModal)
 	} else {
 		switch m.fieldIdx {
 		case 1:
 			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab] Поля  [→] Выбрать время  [Enter] Сохранить  [Esc] Отмена", FgDim, BgModal)
 		case 2:
-			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab] Поля  [→] Выбрать из списка  [Enter] Сохранить  [Esc] Отмена", FgDim, BgModal)
+			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab] Поля  [→] Подсказки  [Enter] Сохранить  [Esc] Отмена", FgDim, BgModal)
 		case 3:
-			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab] Поля  [→] Выбрать из списка  [Enter] Сохранить  [Esc] Отмена", FgDim, BgModal)
+			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Ввод текста] Свой тип  [→] Список  [Tab] Далее  [Enter] Сохранить", FgDim, BgModal)
 		case 6:
-			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab] Поля  [→] Выбрать из списка  [Space] След. статус  [Enter] Сохранить  [Esc] Отмена", FgDim, BgModal)
+			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Ввод текста] Свой статус  [Space] След.  [→] Список  [Tab] Далее  [Enter] Сохранить", FgDim, BgModal)
 		case 8:
 			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab] Поля  [→/Space] Выбрать повтор  [Enter] Сохранить  [Esc] Отмена", FgDim, BgModal)
 		default:
