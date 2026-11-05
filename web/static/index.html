@@ -132,7 +132,7 @@
         </div>
       </div>
 
-      <!-- Feed Sub-Toolbar: Page size selector & Pager -->
+      <!-- Feed Sub-Toolbar: Page size selector & Pager & Mobile Sort -->
       <div class="feed-sub-toolbar" id="feedSubToolbar">
         <div class="page-size-selector">
           <span class="page-size-label">На странице:</span>
@@ -144,11 +144,67 @@
             <button type="button" class="size-pill active" data-size="all" onclick="setPageSize('all')">Все</button>
           </div>
         </div>
+        <div class="mobile-sort-wrap" id="mobileSortWrap">
+          <label for="mobileSortSelect" class="mobile-sort-label">⇅</label>
+          <select id="mobileSortSelect" class="mobile-sort-select" onchange="onMobileSortChange(this.value)">
+            <option value="date_desc">Дата ▼ (сначала новые)</option>
+            <option value="date_asc">Дата ▲ (сначала старые)</option>
+            <option value="time_asc">Время ▲</option>
+            <option value="time_desc">Время ▼</option>
+            <option value="name_asc">Название ▲ (А-Я)</option>
+            <option value="name_desc">Название ▼ (Я-А)</option>
+            <option value="type_asc">Категория ▲</option>
+            <option value="type_desc">Категория ▼</option>
+            <option value="dur_desc">Длительность ▼</option>
+            <option value="dur_asc">Длительность ▲</option>
+            <option value="cash_desc">Кэш ▼</option>
+            <option value="cash_asc">Кэш ▲</option>
+            <option value="status_asc">Статус ▲</option>
+            <option value="status_desc">Статус ▼</option>
+          </select>
+        </div>
         <div class="feed-pager" id="feedPager" style="display: none;">
           <button type="button" class="pager-nav-btn" id="pagerPrevBtn" onclick="changePage(-1)" title="Предыдущая страница">◄ Назад</button>
           <span class="pager-info" id="pagerInfo">Стр. 1 из 1</span>
           <button type="button" class="pager-nav-btn" id="pagerNextBtn" onclick="changePage(1)" title="Следующая страница">Вперёд ►</button>
         </div>
+      </div>
+
+      <!-- Feed Table Column Headers (Clickable for Sorting) -->
+      <div class="feed-table-header" id="feedTableHeader" role="row">
+        <label class="row-check-label" onclick="event.stopPropagation()" title="Выбрать все">
+          <input type="checkbox" id="headerSelectAll" onchange="toggleSelectAllFiltered()">
+        </label>
+        <span class="th-cursor" aria-hidden="true"></span>
+        <button type="button" class="th-col active" data-sort="date" onclick="setSort('date')" title="Сортировать по дате (внутри дня время всегда по возрастанию)">
+          <span>Дата</span>
+          <span class="th-arrow" id="sortArrow-date">▼</span>
+        </button>
+        <button type="button" class="th-col" data-sort="time" onclick="setSort('time')" title="Сортировать по времени">
+          <span>Время</span>
+          <span class="th-arrow" id="sortArrow-time"></span>
+        </button>
+        <button type="button" class="th-col" data-sort="name" onclick="setSort('name')" title="Сортировать по наименованию">
+          <span>Наименование</span>
+          <span class="th-arrow" id="sortArrow-name"></span>
+        </button>
+        <button type="button" class="th-col" data-sort="type" onclick="setSort('type')" title="Сортировать по категории">
+          <span>Категория</span>
+          <span class="th-arrow" id="sortArrow-type"></span>
+        </button>
+        <button type="button" class="th-col" data-sort="duration" onclick="setSort('duration')" title="Сортировать по длительности">
+          <span>Длит.</span>
+          <span class="th-arrow" id="sortArrow-duration"></span>
+        </button>
+        <button type="button" class="th-col" data-sort="cash" onclick="setSort('cash')" title="Сортировать по сумме / кэшу">
+          <span>Кэш</span>
+          <span class="th-arrow" id="sortArrow-cash"></span>
+        </button>
+        <button type="button" class="th-col" data-sort="status" onclick="setSort('status')" title="Сортировать по статусу">
+          <span>Статус</span>
+          <span class="th-arrow" id="sortArrow-status"></span>
+        </button>
+        <span class="th-actions" title="Действия">•••</span>
       </div>
 
       <!-- Session List Container -->

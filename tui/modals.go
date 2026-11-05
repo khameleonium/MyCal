@@ -2598,6 +2598,7 @@ func (m *ModalHelp) Draw(s *Screen) {
 		{"Home, t / е", "Возврат календаря на Сегодня"},
 		{"1 .. 4", "Быстрый выбор периода: Все / День / Неделя / Месяц"},
 		{"y / н", "Годовой календарь со всеми месяцами"},
+		{"l / д", "Сортировка записей (Дата, Время, Имя...)"},
 		{"o / щ", "Настройки (режим по умолчанию, служба, порт)"},
 		{"q / й, Ctrl+C", "Выход из полноэкранного режима TUI"},
 	}
@@ -2629,3 +2630,205 @@ func (m *ModalHelp) HandleKey(k Key, app *App) bool {
 	}
 	return false
 }
+
+// ----------------- SORT MODAL -----------------
+
+type ModalSortItem struct {
+	Key   string
+	Label string
+}
+
+type ModalSort struct {
+	items    []ModalSortItem
+	selected int
+	appRef   *App
+}
+
+func NewModalSort(app *App) *ModalSort {
+	items := []ModalSortItem{
+		{"date", "Дата"},
+		{"time", "Время"},
+		{"name", "Название"},
+		{"type", "Категория (Тип)"},
+		{"duration", "Длительность"},
+		{"cash", "Кэш (Сумма)"},
+		{"status", "Статус"},
+	}
+	sel := 0
+	curKey := "date"
+	if app != nil && app.sortField != "" {
+		curKey = app.sortField
+	}
+	for i, it := range items {
+		if it.Key == curKey {
+			sel = i
+			break
+		}
+	}
+	return &ModalSort{
+		items:    items,
+		selected: sel,
+		appRef:   app,
+	}
+}
+
+func (m *ModalSort) Draw(s *Screen) {
+	w := 54
+	h := len(m.items) + 6
+	if w > s.Width-2 {
+		w = s.Width - 2
+	}
+	if h > s.Height-2 {
+		h = s.Height - 2
+	}
+	x := (s.Width - w) / 2
+	y := (s.Height - h) / 2
+	if x < 1 {
+		x = 1
+	}
+	if y < 1 {
+		y = 1
+	}
+
+	s.DrawBox(x, y, w, h, "Сортировка записей", FgCyan, BorderBright, BgModal, true)
+	s.DrawText(x+2, y+1, "Выберите поле для сортировки записей:", FgMuted, BgModal, w-4, false, false, false)
+
+	for i, it := range m.items {
+		rowY := y + 3 + i
+		if rowY >= y+h-2 {
+			break
+		}
+		isCur := i == m.selected
+		bg := BgModal
+		fg := FgMain
+		prefix := "  "
+		if isCur {
+			bg = BgSelected
+			fg = FgWhite
+			prefix = "► "
+		}
+
+		s.Fill(x+2, rowY, w-4, 1, ' ', fg, bg)
+		numStr := fmt.Sprintf("[%d] ", i+1)
+		s.DrawText(x+2, rowY, prefix+numStr, FgCyan, bg, 8, isCur, false, false)
+
+		lbl := it.Label
+		s.DrawText(x+8, rowY, lbl, fg, bg, 18, isCur, false, false)
+
+		// Direction arrow & badge
+		if m.isFieldActive(it.Key) {
+			dirText := "▼ (сверху вниз)"
+			arrowFg := FgYellow
+			if m.isAscending() {
+				dirText = "▲ (снизу вверх)"
+				arrowFg = FgGreen
+			}
+			if it.Key == "date" {
+				if m.isAscending() {
+					dirText = "▲ сначала старые (время ↑)"
+				} else {
+					dirText = "▼ сначала новые (время ↑)"
+				}
+			}
+			dirX := x + 26
+			dirW := (x + w - 3) - dirX
+			if dirW > 0 {
+				s.DrawText(dirX, rowY, dirText, arrowFg, bg, dirW, isCur, false, false)
+			}
+		}
+	}
+
+	s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓/1-7] Выбор  [Enter/Space] Сменить порядок  [Esc] Отмена", FgDim, BgModal)
+}
+
+func (m *ModalSort) isFieldActive(key string) bool {
+	if m.appRef != nil {
+		return m.appRef.sortField == key
+	}
+	return false
+}
+
+func (m *ModalSort) isAscending() bool {
+	if m.appRef != nil {
+		return m.appRef.sortAsc
+	}
+	return false
+}
+
+func (m *ModalSort) HandleKey(k Key, app *App) bool {
+	m.appRef = app
+	switch {
+	case k.Type == KeyEsc:
+		app.activeModal = nil
+		return true
+
+	case k.Type == KeyUp || k.Matches('k', 'л'):
+		if m.selected > 0 {
+			m.selected--
+		} else {
+			m.selected = len(m.items) - 1
+		}
+		return true
+
+	case k.Type == KeyDown || k.Matches('j', 'о'):
+		if m.selected < len(m.items)-1 {
+			m.selected++
+		} else {
+			m.selected = 0
+		}
+		return true
+
+	case k.Type == KeyRune && k.Rune >= '1' && k.Rune <= '7':
+		idx := int(k.Rune - '1')
+		if idx >= 0 && idx < len(m.items) {
+			m.applySort(app, idx)
+		}
+		return true
+
+	case k.Type == KeyEnter || k.Type == KeySpace:
+		m.applySort(app, m.selected)
+		return true
+	}
+	return false
+}
+
+func (m *ModalSort) applySort(app *App, idx int) {
+	if idx < 0 || idx >= len(m.items) {
+		return
+	}
+	chosen := m.items[idx]
+	if app.sortField == chosen.Key {
+		// Toggle direction if same field is chosen again!
+		app.sortAsc = !app.sortAsc
+	} else {
+		app.sortField = chosen.Key
+		if chosen.Key == "date" || chosen.Key == "duration" || chosen.Key == "cash" {
+			app.sortAsc = false
+		} else {
+			app.sortAsc = true
+		}
+	}
+
+	if app.cfg != nil {
+		app.cfg.SortField = app.sortField
+		app.cfg.SortAsc = app.sortAsc
+		app.persistConfig()
+	}
+
+	dirText := "▼ (сверху вниз)"
+	if app.sortAsc {
+		dirText = "▲ (снизу вверх)"
+	}
+	if app.sortField == "date" {
+		if app.sortAsc {
+			dirText = "▲ (сначала старые, время ↑)"
+		} else {
+			dirText = "▼ сначала новые (время ↑)"
+		}
+	}
+
+	app.reloadSessions()
+	app.setStatusMsg(fmt.Sprintf("Сортировка: %s %s", chosen.Label, dirText))
+	app.activeModal = nil
+}
+

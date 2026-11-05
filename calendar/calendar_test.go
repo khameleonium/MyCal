@@ -215,3 +215,60 @@ func contains(xs []string, v string) bool {
 	}
 	return false
 }
+
+func TestSortSessions(t *testing.T) {
+	// Sample data spanning multiple dates and times
+	s1 := models.Session{ID: "20261105140000", Time: "14:00", Name: "Яблоко", Type: "Спорт", Duration: 30, Cash: 100, Status: "Активно"}
+	s2 := models.Session{ID: "20261105090000", Time: "09:00", Name: "Апельсин", Type: "Работа", Duration: 90, Cash: 500, Status: "Завершено"}
+	s3 := models.Session{ID: "20261104180000", Time: "18:00", Name: "Банан", Type: "Отдых", Duration: 60, Cash: -50, Status: "В процессе"}
+	s4 := models.Session{ID: "20261104100000", Time: "10:00", Name: "Груша", Type: "Учёба", Duration: 120, Cash: 0, Status: "Отменено"}
+
+	// 1. Sort by Date Descending:
+	// Dates should be 2026-11-05 before 2026-11-04.
+	// CRITICAL REQUIREMENT: inside 2026-11-05, time must be ascending (09:00 before 14:00).
+	// inside 2026-11-04, time must be ascending (10:00 before 18:00).
+	list := []models.Session{s1, s2, s3, s4}
+	SortSessions(list, "date", false)
+	if list[0].ID != s2.ID || list[1].ID != s1.ID || list[2].ID != s4.ID || list[3].ID != s3.ID {
+		t.Fatalf("date desc sort failed: got %s(%s), %s(%s), %s(%s), %s(%s)",
+			list[0].Date(), list[0].Time, list[1].Date(), list[1].Time, list[2].Date(), list[2].Time, list[3].Date(), list[3].Time)
+	}
+
+	// 2. Sort by Date Ascending:
+	// Dates: 2026-11-04 before 2026-11-05.
+	// Inside each date: time still ascending!
+	SortSessions(list, "date", true)
+	if list[0].ID != s4.ID || list[1].ID != s3.ID || list[2].ID != s2.ID || list[3].ID != s1.ID {
+		t.Fatalf("date asc sort failed: got %s(%s), %s(%s), %s(%s), %s(%s)",
+			list[0].Date(), list[0].Time, list[1].Date(), list[1].Time, list[2].Date(), list[2].Time, list[3].Date(), list[3].Time)
+	}
+
+	// 3. Sort by Name Ascending:
+	// Апельсин, Банан, Груша, Яблоко
+	SortSessions(list, "name", true)
+	if list[0].Name != "Апельсин" || list[1].Name != "Банан" || list[2].Name != "Груша" || list[3].Name != "Яблоко" {
+		t.Fatalf("name asc sort failed: %v, %v, %v, %v", list[0].Name, list[1].Name, list[2].Name, list[3].Name)
+	}
+
+	// 4. Sort by Name Descending:
+	// Яблоко, Груша, Банан, Апельсин
+	SortSessions(list, "name", false)
+	if list[0].Name != "Яблоко" || list[1].Name != "Груша" || list[2].Name != "Банан" || list[3].Name != "Апельсин" {
+		t.Fatalf("name desc sort failed: %v, %v, %v, %v", list[0].Name, list[1].Name, list[2].Name, list[3].Name)
+	}
+
+	// 5. Sort by Duration Descending:
+	// 120, 90, 60, 30
+	SortSessions(list, "duration", false)
+	if list[0].Duration != 120 || list[1].Duration != 90 || list[2].Duration != 60 || list[3].Duration != 30 {
+		t.Fatalf("duration desc sort failed: %d, %d, %d, %d", list[0].Duration, list[1].Duration, list[2].Duration, list[3].Duration)
+	}
+
+	// 6. Sort by Cash Descending:
+	// 500, 100, 0, -50
+	SortSessions(list, "cash", false)
+	if list[0].Cash != 500 || list[1].Cash != 100 || list[2].Cash != 0 || list[3].Cash != -50 {
+		t.Fatalf("cash desc sort failed: %v, %v, %v, %v", list[0].Cash, list[1].Cash, list[2].Cash, list[3].Cash)
+	}
+}
+

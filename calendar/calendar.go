@@ -601,3 +601,117 @@ func isDigits(s string) bool {
 	}
 	return s != ""
 }
+
+// SortSessions sorts sessions in place by the given field and order direction.
+// When sorting by "date", time within the same date is ALWAYS sorted ascending.
+func SortSessions(sessions []models.Session, field string, asc bool) {
+	sort.Slice(sessions, func(i, j int) bool {
+		return CompareSessions(sessions[i], sessions[j], field, asc)
+	})
+}
+
+// CompareSessions returns true if s1 should appear before s2.
+func CompareSessions(s1, s2 models.Session, field string, asc bool) bool {
+	d1 := s1.Date()
+	d2 := s2.Date()
+
+	switch field {
+	case "date":
+		// Requirement: time within same date is always ascending!
+		if d1 == d2 {
+			return s1.Time < s2.Time
+		}
+		if asc {
+			return d1 < d2
+		}
+		return d1 > d2
+
+	case "time":
+		if s1.Time != s2.Time {
+			if asc {
+				return s1.Time < s2.Time
+			}
+			return s1.Time > s2.Time
+		}
+		if d1 != d2 {
+			return d1 > d2
+		}
+		return strings.ToLower(s1.Name) < strings.ToLower(s2.Name)
+
+	case "name":
+		n1 := strings.ToLower(strings.TrimSpace(s1.Name))
+		n2 := strings.ToLower(strings.TrimSpace(s2.Name))
+		if n1 != n2 {
+			if asc {
+				return n1 < n2
+			}
+			return n1 > n2
+		}
+		if d1 != d2 {
+			return d1 > d2
+		}
+		return s1.Time < s2.Time
+
+	case "type":
+		t1 := strings.ToLower(strings.TrimSpace(s1.Type))
+		t2 := strings.ToLower(strings.TrimSpace(s2.Type))
+		if t1 != t2 {
+			if asc {
+				return t1 < t2
+			}
+			return t1 > t2
+		}
+		if d1 != d2 {
+			return d1 > d2
+		}
+		return s1.Time < s2.Time
+
+	case "duration":
+		if s1.Duration != s2.Duration {
+			if asc {
+				return s1.Duration < s2.Duration
+			}
+			return s1.Duration > s2.Duration
+		}
+		if d1 != d2 {
+			return d1 > d2
+		}
+		return s1.Time < s2.Time
+
+	case "cash":
+		if s1.Cash != s2.Cash {
+			if asc {
+				return s1.Cash < s2.Cash
+			}
+			return s1.Cash > s2.Cash
+		}
+		if d1 != d2 {
+			return d1 > d2
+		}
+		return s1.Time < s2.Time
+
+	case "status":
+		st1 := strings.ToLower(strings.TrimSpace(s1.Status))
+		st2 := strings.ToLower(strings.TrimSpace(s2.Status))
+		if st1 != st2 {
+			if asc {
+				return st1 < st2
+			}
+			return st1 > st2
+		}
+		if d1 != d2 {
+			return d1 > d2
+		}
+		return s1.Time < s2.Time
+
+	default: // fallback to date
+		if d1 == d2 {
+			return s1.Time < s2.Time
+		}
+		if asc {
+			return d1 < d2
+		}
+		return d1 > d2
+	}
+}
+
