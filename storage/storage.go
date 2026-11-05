@@ -357,12 +357,27 @@ func RemoveDataFiles(dir, baseName string) {
 	removeFiles(globFiles(dir, "????-??_"+baseName+".json"))
 }
 
+// ExpandPath expands a leading "~" or "~/" to the user's home directory.
+func ExpandPath(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "~" {
+		if home, err := os.UserHomeDir(); err == nil {
+			return home
+		}
+	} else if strings.HasPrefix(p, "~/") || strings.HasPrefix(p, "~\\") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, p[2:])
+		}
+	}
+	return p
+}
+
 // EnsureWritableDir creates dir if needed and verifies it can be written to,
 // so an unusable data path is reported when it is chosen rather than on the
 // next launch. The probe file is created and removed via the temp-file API, so
 // nothing is left behind if the process dies mid-check.
 func EnsureWritableDir(dir string) error {
-	dir = strings.TrimSpace(dir)
+	dir = ExpandPath(dir)
 	if dir == "" {
 		dir = "."
 	}

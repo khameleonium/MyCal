@@ -185,7 +185,9 @@ async function fetchConfig() {
     if (document.getElementById("cfgUseSystemDate")) {
       document.getElementById("cfgUseSystemDate").value = state.config.use_system_date !== false ? "true" : "false";
     }
-    document.getElementById("cfgDataPath").value = state.config.data_path || "~/.mycal";
+    if (document.getElementById("cfgDataPath")) {
+      document.getElementById("cfgDataPath").value = state.config.data_path || "";
+    }
   } catch (e) {
     console.warn("Could not load config:", e);
   }
@@ -2676,6 +2678,9 @@ function openSettingsModal() {
   if (document.getElementById("cfgUseSystemDate")) {
     document.getElementById("cfgUseSystemDate").value = state.config.use_system_date !== false ? "true" : "false";
   }
+  if (document.getElementById("cfgDataPath")) {
+    document.getElementById("cfgDataPath").value = state.config.data_path || "";
+  }
   openModal("modalSettings");
 }
 
@@ -2690,6 +2695,7 @@ async function saveSettings() {
   const silent_add_names = document.getElementById("cfgSilentAddNames") ? (document.getElementById("cfgSilentAddNames").value === "true") : false;
   const split_mode = document.getElementById("cfgSplitMode") ? document.getElementById("cfgSplitMode").value : "none";
   const use_system_date = document.getElementById("cfgUseSystemDate") ? (document.getElementById("cfgUseSystemDate").value === "true") : true;
+  const data_path = document.getElementById("cfgDataPath") ? document.getElementById("cfgDataPath").value.trim() : "";
 
   try {
     const updated = {
@@ -2704,12 +2710,14 @@ async function saveSettings() {
       silent_add_names,
       split_mode,
       use_system_date,
+      data_path,
     };
     await apiFetch("/api/config", {
       method: "POST",
       body: JSON.stringify(updated),
     });
-    state.config = updated;
+    await fetchConfig();
+    await refreshData();
     closeModal("modalSettings");
     renderFeed();
     alert("Настройки успешно сохранены!");

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -431,4 +432,84 @@ func containsStr(arr []string, s string) bool {
 		}
 	}
 	return false
+}
+
+func TestConfigDataPathPreservationAndSwitching(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	handler := srv.Routes()
+
+	// Initial data path
+	initDir := srv.svc.DataDir()
+	srv.cfg.DataPath = initDir
+
+	// 1. Send config update without data_path (e.g. from UI saving duration only)
+	body := bytes.NewBufferString(`{"default_duration": 45}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/config", body)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/config: got %d", rec.Code)
+	}
+
+	if srv.cfg.DataPath != initDir {
+		t.Fatalf("expected data_path preserved as %q, got %q", initDir, srv.cfg.DataPath)
+	}
+
+	// 2. Change data_path to a new directory with a session
+	newDir := t.TempDir()
+	newSvc, err := calendar.NewService(context.Background(), newDir, "mycal", models.SplitNone)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	err = newSvc.Add(models.Session{
+		ID:       "20261105120000",
+		Time:     "12:00",
+		Name:     "Второй каталог",
+		Type:     "Работа",
+		Duration: 60,
+		Status:   "Активно",
+	})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if err := newSvc.Save(context.Background()); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	body = bytes.NewBufferString(fmt.Sprintf(`{"data_path": %q}`, newDir))
+	req = httptest.NewRequest(http.MethodPost, "/api/config", body)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/config with new path: got %d", rec.Code)
+	}
+
+	if srv.cfg.DataPath != newDir {
+		t.Fatalf("expected srv.cfg.DataPath updated to %q, got %q", newDir, srv.cfg.DataPath)
+	}
+	if srv.svc.DataDir() != newDir {
+		t.Fatalf("expected srv.svc.DataDir() updated to %q, got %q", newDir, srv.svc.DataDir())
+	}
+
+	// Verify GET /api/sessions returns the session from newDir
+	req = httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/sessions: got %d", rec.Code)
+	}
+	var res struct {
+		Sessions []models.Session `json:"sessions"`
+	}
+	_ = json.NewDecoder(rec.Body).Decode(&res)
+	found := false
+	for _, s := range res.Sessions {
+		if s.Name == "Второй каталог" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected to find 'Второй каталог' session from new data path, got %v", res.Sessions)
+	}
 }

@@ -21,6 +21,7 @@ import (
 	"mycalendar/models"
 	"mycalendar/parser"
 	"mycalendar/service"
+	"mycalendar/storage"
 )
 
 // Server coordinates the web dashboard, providing a REST API and static frontend.
@@ -1021,12 +1022,38 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		respondJSON(w, http.StatusOK, map[string]interface{}{"config": s.cfg})
 	case http.MethodPut, http.MethodPost:
-		var updated models.Config
+		updated := *s.cfg
 		if err := json.NewDecoder(r.Body).Decode(&updated); err != nil {
 			respondError(w, http.StatusBadRequest, "Некорректный JSON конфигурации")
 			return
 		}
 		updated.Normalize()
+
+		oldDataPath := s.cfg.DataPath
+		newDataPath := strings.TrimSpace(updated.DataPath)
+		if newDataPath == "" {
+			newDataPath = oldDataPath
+		} else {
+			newDataPath = storage.ExpandPath(newDataPath)
+		}
+
+		if newDataPath != "" && newDataPath != oldDataPath {
+			if err := storage.EnsureWritableDir(newDataPath); err != nil {
+				respondError(w, http.StatusBadRequest, "Недопустимый каталог для хранения базы: "+err.Error())
+				return
+			}
+			updated.DataPath = newDataPath
+			if newSvc, err := calendar.NewService(r.Context(), newDataPath, updated.DataFileName, updated.SplitMode); err == nil {
+				s.svc = newSvc
+				s.lastDataMod = time.Time{}
+			} else {
+				respondError(w, http.StatusInternalServerError, "Не удалось переключить каталог записей: "+err.Error())
+				return
+			}
+		} else {
+			updated.DataPath = oldDataPath
+		}
+
 		oldSplit := s.cfg.SplitMode
 		*s.cfg = updated
 		if s.svc != nil && updated.SplitMode != "" && updated.SplitMode != oldSplit {

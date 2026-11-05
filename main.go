@@ -240,7 +240,7 @@ func handleServiceCmd(ctx context.Context, args []string, cfg *models.Config) er
 // prepareDataDir resolves the data directory, creating it if needed, and checks
 // that it is writable so problems are reported up front rather than on first save.
 func prepareDataDir(dataPath, defaultDir string) (string, error) {
-	dataPath = strings.TrimSpace(dataPath)
+	dataPath = storage.ExpandPath(dataPath)
 	if dataPath == "" {
 		dataPath = defaultDir
 	}
