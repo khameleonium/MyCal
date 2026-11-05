@@ -1597,5 +1597,150 @@ func TestModalSortSelectFieldAndToggleOrder(t *testing.T) {
 	}
 }
 
+func TestFooterAndHelpHotkeysSync(t *testing.T) {
+	app := newTestApp(t)
+
+	// Check wide mode footer hints
+	app.width = 120
+	app.height = 30
+	_, wideHintLines := app.layoutFooter()
+	var wideKeys []string
+	for _, line := range wideHintLines {
+		for _, item := range line {
+			wideKeys = append(wideKeys, item.key)
+		}
+	}
+
+	hasSettingsWide := false
+	for _, k := range wideKeys {
+		if k == "[o]" {
+			hasSettingsWide = true
+			break
+		}
+	}
+	if !hasSettingsWide {
+		t.Fatalf("expected '[o]' in wide footer hints, got %v", wideKeys)
+	}
+
+	// Check narrow mode footer hints
+	app.width = 80
+	app.height = 30
+	_, narrowHintLines := app.layoutFooter()
+	var narrowKeys []string
+	for _, line := range narrowHintLines {
+		for _, item := range line {
+			narrowKeys = append(narrowKeys, item.key)
+		}
+	}
+
+	hasSettingsNarrow := false
+	for _, k := range narrowKeys {
+		if k == "[o]" {
+			hasSettingsNarrow = true
+			break
+		}
+	}
+	if !hasSettingsNarrow {
+		t.Fatalf("expected '[o]' in narrow footer hints, got %v", narrowKeys)
+	}
+
+	// Check ModalHelp
+	help := NewModalHelp()
+	screen := NewScreen(100, 30)
+	help.Draw(screen)
+	// Key scrolling test
+	help.HandleKey(Key{Type: KeyDown}, app)
+	if help.scrollOffset != 1 {
+		t.Fatalf("expected scrollOffset=1 after KeyDown, got %d", help.scrollOffset)
+	}
+	help.HandleKey(Key{Type: KeyUp}, app)
+	if help.scrollOffset != 0 {
+		t.Fatalf("expected scrollOffset=0 after KeyUp, got %d", help.scrollOffset)
+	}
+}
+
+func TestModalSettingsComprehensive(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg.DefaultMode = "cli"
+	app.cfg.DateCheckMode = ""
+	app.cfg.AskOnConflict = false
+	app.cfg.SilentAddNames = false
+	app.cfg.SplitMode = models.SplitNone
+	app.cfg.UseSystemDate = true
+	app.cfg.DefaultType = "Встреча"
+
+	m := NewModalSettings(app.cfg)
+	app.activeModal = m
+
+	// Test field 0 (default mode): toggle to TUI
+	m.selectedIdx = 0
+	m.HandleKey(Key{Type: KeySpace}, app)
+	if m.defaultMode != models.ModeTUI {
+		t.Fatalf("expected defaultMode 'tui', got %q", m.defaultMode)
+	}
+
+	// Test field 4 (default type): toggle
+	m.selectedIdx = 4
+	m.HandleKey(Key{Type: KeySpace}, app)
+
+	// Test field 5 (date check mode): toggle from "" to "ask"
+	m.selectedIdx = 5
+	m.HandleKey(Key{Type: KeySpace}, app)
+	if m.dateCheckMode != "ask" {
+		t.Fatalf("expected dateCheckMode 'ask', got %q", m.dateCheckMode)
+	}
+
+	// Test field 6 (ask on conflict): toggle from false to true
+	m.selectedIdx = 6
+	m.HandleKey(Key{Type: KeySpace}, app)
+	if !m.askOnConflict {
+		t.Fatalf("expected askOnConflict true")
+	}
+
+	// Test field 7 (silent add names): toggle from false to true
+	m.selectedIdx = 7
+	m.HandleKey(Key{Type: KeySpace}, app)
+	if !m.silentAddNames {
+		t.Fatalf("expected silentAddNames true")
+	}
+
+	// Test field 8 (split mode): toggle from none to year
+	m.selectedIdx = 8
+	m.HandleKey(Key{Type: KeySpace}, app)
+	if m.splitMode != models.SplitYear {
+		t.Fatalf("expected splitMode 'year', got %q", m.splitMode)
+	}
+
+	// Test field 9 (use system date): toggle from true to false
+	m.selectedIdx = 9
+	m.HandleKey(Key{Type: KeySpace}, app)
+	if m.useSystemDate != false {
+		t.Fatalf("expected useSystemDate false")
+	}
+
+	// Save all via Enter
+	m.HandleKey(Key{Type: KeyEnter}, app)
+
+	if app.cfg.DefaultMode != models.ModeTUI {
+		t.Fatalf("expected app.cfg.DefaultMode 'tui', got %q", app.cfg.DefaultMode)
+	}
+	if app.cfg.DateCheckMode != "ask" {
+		t.Fatalf("expected app.cfg.DateCheckMode 'ask', got %q", app.cfg.DateCheckMode)
+	}
+	if !app.cfg.AskOnConflict {
+		t.Fatalf("expected app.cfg.AskOnConflict true")
+	}
+	if !app.cfg.SilentAddNames {
+		t.Fatalf("expected app.cfg.SilentAddNames true")
+	}
+	if app.cfg.SplitMode != models.SplitYear {
+		t.Fatalf("expected app.cfg.SplitMode 'year', got %q", app.cfg.SplitMode)
+	}
+	if app.cfg.UseSystemDate != false {
+		t.Fatalf("expected app.cfg.UseSystemDate false")
+	}
+}
+
+
 
 

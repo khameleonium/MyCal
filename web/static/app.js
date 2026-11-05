@@ -164,6 +164,27 @@ async function fetchConfig() {
     }
     document.getElementById("cfgDateCheckMode").value = state.config.date_check_mode || "";
     document.getElementById("cfgAskConflict").value = state.config.ask_on_conflict ? "true" : "false";
+    if (document.getElementById("cfgDefaultType")) {
+      const select = document.getElementById("cfgDefaultType");
+      const currentVal = state.config.default_type || "";
+      select.innerHTML = '<option value="">(Автоматически / первая доступная)</option>';
+      (state.types || []).forEach(t => {
+        const opt = document.createElement("option");
+        opt.value = t;
+        opt.textContent = t;
+        select.appendChild(opt);
+      });
+      select.value = currentVal;
+    }
+    if (document.getElementById("cfgSplitMode")) {
+      document.getElementById("cfgSplitMode").value = state.config.split_mode || "none";
+    }
+    if (document.getElementById("cfgSilentAddNames")) {
+      document.getElementById("cfgSilentAddNames").value = state.config.silent_add_names ? "true" : "false";
+    }
+    if (document.getElementById("cfgUseSystemDate")) {
+      document.getElementById("cfgUseSystemDate").value = state.config.use_system_date !== false ? "true" : "false";
+    }
     document.getElementById("cfgDataPath").value = state.config.data_path || "~/.mycal";
   } catch (e) {
     console.warn("Could not load config:", e);
@@ -2634,6 +2655,27 @@ function openSettingsModal() {
   if (document.getElementById("cfgDurationUnit")) {
     document.getElementById("cfgDurationUnit").value = state.config.duration_unit || "min";
   }
+  if (document.getElementById("cfgDefaultType")) {
+    const select = document.getElementById("cfgDefaultType");
+    const currentVal = state.config.default_type || "";
+    select.innerHTML = '<option value="">(Автоматически / первая доступная)</option>';
+    (state.types || []).forEach(t => {
+      const opt = document.createElement("option");
+      opt.value = t;
+      opt.textContent = t;
+      select.appendChild(opt);
+    });
+    select.value = currentVal;
+  }
+  if (document.getElementById("cfgSplitMode")) {
+    document.getElementById("cfgSplitMode").value = state.config.split_mode || "none";
+  }
+  if (document.getElementById("cfgSilentAddNames")) {
+    document.getElementById("cfgSilentAddNames").value = state.config.silent_add_names ? "true" : "false";
+  }
+  if (document.getElementById("cfgUseSystemDate")) {
+    document.getElementById("cfgUseSystemDate").value = state.config.use_system_date !== false ? "true" : "false";
+  }
   openModal("modalSettings");
 }
 
@@ -2642,8 +2684,12 @@ async function saveSettings() {
   const web_port = (document.getElementById("cfgWebPort") ? parseInt(document.getElementById("cfgWebPort").value, 10) : 8080) || 8080;
   const default_duration = parseInt(document.getElementById("cfgDefaultDuration").value, 10) || 60;
   const duration_unit = document.getElementById("cfgDurationUnit") ? document.getElementById("cfgDurationUnit").value : "min";
+  const default_type = document.getElementById("cfgDefaultType") ? document.getElementById("cfgDefaultType").value : "";
   const date_check_mode = document.getElementById("cfgDateCheckMode").value;
   const ask_on_conflict = document.getElementById("cfgAskConflict").value === "true";
+  const silent_add_names = document.getElementById("cfgSilentAddNames") ? (document.getElementById("cfgSilentAddNames").value === "true") : false;
+  const split_mode = document.getElementById("cfgSplitMode") ? document.getElementById("cfgSplitMode").value : "none";
+  const use_system_date = document.getElementById("cfgUseSystemDate") ? (document.getElementById("cfgUseSystemDate").value === "true") : true;
 
   try {
     const updated = {
@@ -2652,8 +2698,12 @@ async function saveSettings() {
       web_port,
       default_duration,
       duration_unit,
+      default_type,
       date_check_mode,
       ask_on_conflict,
+      silent_add_names,
+      split_mode,
+      use_system_date,
     };
     await apiFetch("/api/config", {
       method: "POST",
