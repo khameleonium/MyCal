@@ -1336,3 +1336,20 @@ func TestStatusPickerPopupWithinModalBounds(t *testing.T) {
 		t.Errorf("expected row 1 anchoring escape code")
 	}
 }
+
+func TestMultiNameSessionFormCreation(t *testing.T) {
+	app := newTestApp(t)
+	m := NewModalSessionForm(nil, "01.01.2026")
+	m.name = "Первая задача; Вторая задача; Третья задача"
+	m.save(app)
+
+	all := app.svc.All()
+	if len(all) != 3 {
+		t.Fatalf("expected 3 sessions created, got %d", len(all))
+	}
+	names := []string{all[0].Name, all[1].Name, all[2].Name}
+	if names[0] != "Первая задача" || names[1] != "Вторая задача" || names[2] != "Третья задача" {
+		t.Errorf("unexpected session names: %v", names)
+	}
+}
+

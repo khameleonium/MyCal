@@ -28,7 +28,7 @@ type ModalStatusPicker struct {
 }
 
 func NewModalStatusPicker(customStatuses []string, currentStatus, targetID string) *ModalStatusPicker {
-	defaults := []string{"Активно", "Завершено", "Запланировано", "В процессе", "Отменено"}
+	defaults := []string{"Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"}
 	var list []string
 	seen := map[string]bool{}
 	for _, st := range customStatuses {
@@ -1353,20 +1353,54 @@ func (m *ModalSessionForm) save(app *App) {
 			app.setStatusMsg("Запись успешно сохранена")
 		}
 	} else {
-		savedID = app.svc.GenerateID(d, tm)
-		sess := models.Session{
-			ID:       savedID,
-			Time:     parser.FormatTime(tm),
-			Name:     nameVal,
-			Type:     typeVal,
-			Duration: dur,
-			Cash:     cashVal,
-			Status:   statusVal,
-			Notes:    notesVal,
+		var names []string
+		for _, part := range strings.FieldsFunc(m.name, func(r rune) bool {
+			return r == '\n' || r == ';'
+		}) {
+			p := strings.TrimSpace(part)
+			if p != "" {
+				names = append(names, p)
+			}
 		}
-		_ = app.svc.Add(sess)
-		_ = app.svc.Save(app.ctx)
-		app.setStatusMsg("Запись успешно создана: ID " + savedID)
+		if len(names) == 0 {
+			names = []string{nameVal}
+		}
+
+		if len(names) > 1 {
+			createdCount := 0
+			for _, nameItem := range names {
+				savedID = app.svc.GenerateID(d, tm)
+				sess := models.Session{
+					ID:       savedID,
+					Time:     parser.FormatTime(tm),
+					Name:     nameItem,
+					Type:     typeVal,
+					Duration: dur,
+					Cash:     cashVal,
+					Status:   statusVal,
+					Notes:    notesVal,
+				}
+				_ = app.svc.Add(sess)
+				createdCount++
+			}
+			_ = app.svc.Save(app.ctx)
+			app.setStatusMsg(fmt.Sprintf("Успешно создано записей: %d", createdCount))
+		} else {
+			savedID = app.svc.GenerateID(d, tm)
+			sess := models.Session{
+				ID:       savedID,
+				Time:     parser.FormatTime(tm),
+				Name:     names[0],
+				Type:     typeVal,
+				Duration: dur,
+				Cash:     cashVal,
+				Status:   statusVal,
+				Notes:    notesVal,
+			}
+			_ = app.svc.Add(sess)
+			_ = app.svc.Save(app.ctx)
+			app.setStatusMsg("Запись успешно создана: ID " + savedID)
+		}
 
 		app.calYear = d.Year()
 		app.calMonth = int(d.Month())
