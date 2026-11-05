@@ -5,8 +5,11 @@ package calendar
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"mycalendar/models"
@@ -23,6 +26,7 @@ var (
 
 // Service holds the calendar in memory and persists it on demand.
 type Service struct {
+	mu       sync.RWMutex
 	sessions []models.Session
 	dir      string
 	baseName string
@@ -46,6 +50,34 @@ func NewService(ctx context.Context, dir, baseName, mode string) (*Service, erro
 	}, nil
 }
 
+// Reload reloads the calendar data from disk.
+func (s *Service) Reload(ctx context.Context) error {
+	cal, warnings, err := storage.Load(ctx, s.dir, s.baseName, s.mode)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessions = cal.Sessions
+	s.warnings = warnings
+	return nil
+}
+
+// DataFilesModTime returns the latest modification time of the calendar data files on disk.
+func (s *Service) DataFilesModTime() time.Time {
+	var latest time.Time
+	path := filepath.Join(s.dir, s.baseName+".json")
+	if fi, err := os.Stat(path); err == nil {
+		latest = fi.ModTime()
+	}
+	if s.mode != models.SplitNone {
+		if fi, err := os.Stat(s.dir); err == nil && fi.ModTime().After(latest) {
+			latest = fi.ModTime()
+		}
+	}
+	return latest
+}
+
 // Warnings returns (and clears) any recoverable problems noticed while loading.
 func (s *Service) Warnings() []string {
 	w := s.warnings
@@ -55,6 +87,8 @@ func (s *Service) Warnings() []string {
 
 // Save persists the calendar to disk.
 func (s *Service) Save(ctx context.Context) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return storage.Save(ctx, s.dir, s.baseName, &models.Calendar{Sessions: s.sessions}, s.mode)
 }
 
@@ -195,9 +229,43 @@ func (s *Service) Types(seed ...string) []string {
 	return merge(DefaultTypes, seed, s.distinct(func(x models.Session) string { return x.Type }))
 }
 
+// AvailableTypes returns all unique types (defaults + custom + sessions) excluding excludedTypes.
+func (s *Service) AvailableTypes(customTypes, excludedTypes []string) []string {
+	all := s.Types(customTypes...)
+	excluded := make(map[string]bool)
+	for _, ex := range excludedTypes {
+		excluded[strings.ToLower(strings.TrimSpace(ex))] = true
+	}
+	var res []string
+	for _, t := range all {
+		trimmed := strings.TrimSpace(t)
+		if trimmed != "" && !excluded[strings.ToLower(trimmed)] {
+			res = append(res, trimmed)
+		}
+	}
+	return res
+}
+
 // Statuses returns DefaultStatuses plus extra ones found in the data.
 func (s *Service) Statuses(seed ...string) []string {
 	return merge(DefaultStatuses, seed, s.distinct(func(x models.Session) string { return x.Status }))
+}
+
+// AvailableStatuses returns all unique statuses (defaults + custom + sessions) excluding excludedStatuses.
+func (s *Service) AvailableStatuses(customStatuses, excludedStatuses []string) []string {
+	all := s.Statuses(customStatuses...)
+	excluded := make(map[string]bool)
+	for _, ex := range excludedStatuses {
+		excluded[strings.ToLower(strings.TrimSpace(ex))] = true
+	}
+	var res []string
+	for _, st := range all {
+		trimmed := strings.TrimSpace(st)
+		if trimmed != "" && !excluded[strings.ToLower(trimmed)] {
+			res = append(res, trimmed)
+		}
+	}
+	return res
 }
 
 func (s *Service) distinct(field func(models.Session) string) []string {

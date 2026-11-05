@@ -2098,3 +2098,60 @@ dialog::backdrop {
   background: var(--bg-highlight);
   border-radius: 4px;
 }
+
+/* Manage tags & delete buttons */
+.btn-icon-subtle {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 2px 5px;
+  font-size: 0.78rem;
+  border-radius: var(--radius-sm);
+  line-height: 1;
+  transition: all 0.15s ease;
+}
+.btn-icon-subtle:hover {
+  color: var(--accent-red);
+  background: rgba(248, 113, 113, 0.18);
+}
+
+.status-del-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 0.78rem;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+.status-del-btn:hover {
+  color: var(--accent-red);
+  background: rgba(248, 113, 113, 0.2);
+}
+
+.manage-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-bright);
+  padding: 3px 8px;
+  border-radius: var(--radius-md);
+  font-size: 0.78rem;
+  color: var(--text-main);
+}
+.manage-tag-chip button {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 0.76rem;
+  line-height: 1;
+}
+.manage-tag-chip button:hover {
+  color: var(--accent-red);
+}
+

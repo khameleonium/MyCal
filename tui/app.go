@@ -70,11 +70,23 @@ type App struct {
 	activeModal Modal
 	statusMsg   string
 	statusTime  time.Time
+
+	lastDataMod time.Time
+	lastCfgMod  time.Time
 }
 
 // NewApp creates a new TUI application instance.
 func NewApp(svc *calendar.Service, cfg *models.Config, cfgPath, version string) *App {
 	now := time.Now()
+	var dataMod, cfgMod time.Time
+	if svc != nil {
+		dataMod = svc.DataFilesModTime()
+	}
+	if cfgPath != "" {
+		if fi, err := os.Stat(cfgPath); err == nil {
+			cfgMod = fi.ModTime()
+		}
+	}
 	app := &App{
 		svc:           svc,
 		cfg:           cfg,
@@ -90,6 +102,8 @@ func NewApp(svc *calendar.Service, cfg *models.Config, cfgPath, version string) 
 		calDay:        now.Day(),
 		sidebarIdx:    0, // "Все записи" (0-indexed)
 		activeTab:     TabFeed,
+		lastDataMod:   dataMod,
+		lastCfgMod:    cfgMod,
 	}
 	return app
 }
@@ -127,6 +141,30 @@ func (a *App) Run(ctx context.Context) error {
 			return nil
 
 		case <-ticker.C:
+			// Check if file on disk was modified by an external process (e.g. Web server!)
+			needRender := false
+			if a.svc != nil {
+				dataMod := a.svc.DataFilesModTime()
+				if !dataMod.IsZero() && dataMod.After(a.lastDataMod) {
+					if err := a.svc.Reload(a.ctx); err == nil {
+						a.lastDataMod = dataMod
+						a.reloadSessions()
+						needRender = true
+					}
+				}
+			}
+			if a.cfgPath != "" {
+				if fi, err := os.Stat(a.cfgPath); err == nil {
+					if fi.ModTime().After(a.lastCfgMod) {
+						if newCfg, err := config.Load(a.ctx, a.cfgPath); err == nil {
+							a.cfg = newCfg
+							a.lastCfgMod = fi.ModTime()
+							needRender = true
+						}
+					}
+				}
+			}
+
 			// Check if dimensions changed (for Windows or polling)
 			curW, curH := Size()
 			if curW != a.width || curH != a.height {
@@ -135,6 +173,8 @@ func (a *App) Run(ctx context.Context) error {
 				a.render()
 			} else if a.statusMsg != "" && time.Since(a.statusTime) > 4*time.Second {
 				a.statusMsg = ""
+				a.render()
+			} else if needRender && a.activeModal == nil {
 				a.render()
 			}
 
@@ -159,6 +199,9 @@ func (a *App) setStatusMsg(msg string) {
 func (a *App) persistConfig() {
 	if a.cfgPath != "" {
 		_ = config.Save(a.ctx, a.cfgPath, a.cfg)
+		if fi, err := os.Stat(a.cfgPath); err == nil {
+			a.lastCfgMod = fi.ModTime()
+		}
 	}
 }
 
@@ -1152,57 +1195,27 @@ func (a *App) cycleTypeFilter() {
 }
 
 func (a *App) getAvailableTypes() []string {
-	seen := map[string]bool{}
-	var res []string
-	if a != nil {
-		if a.cfg != nil && a.cfg.DefaultType != "" {
-			t := strings.TrimSpace(a.cfg.DefaultType)
-			if t != "" && !seen[t] {
-				seen[t] = true
-				res = append(res, t)
-			}
-		}
-		for _, s := range a.allSessions {
-			t := strings.TrimSpace(s.Type)
-			if t != "" && !seen[t] {
-				seen[t] = true
-				res = append(res, t)
-			}
-		}
+	if a == nil || a.svc == nil {
+		return nil
 	}
-	sort.Strings(res)
-	return res
+	var customTypes, excludedTypes []string
+	if a.cfg != nil {
+		customTypes = a.cfg.CustomTypes
+		excludedTypes = a.cfg.ExcludedTypes
+	}
+	return a.svc.AvailableTypes(customTypes, excludedTypes)
 }
 
 func (a *App) getAvailableStatuses() []string {
-	defaults := []string{"Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"}
-	seen := map[string]bool{}
-	var list []string
-	for _, st := range defaults {
-		if !seen[st] {
-			seen[st] = true
-			list = append(list, st)
-		}
+	if a == nil || a.svc == nil {
+		return []string{"Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"}
 	}
-	if a != nil {
-		if a.cfg != nil {
-			for _, st := range a.cfg.CustomStatuses {
-				st = strings.TrimSpace(st)
-				if st != "" && !seen[st] {
-					seen[st] = true
-					list = append(list, st)
-				}
-			}
-		}
-		for _, s := range a.allSessions {
-			st := strings.TrimSpace(s.Status)
-			if st != "" && !seen[st] {
-				seen[st] = true
-				list = append(list, st)
-			}
-		}
+	var customStatuses, excludedStatuses []string
+	if a.cfg != nil {
+		customStatuses = a.cfg.CustomStatuses
+		excludedStatuses = a.cfg.ExcludedStatuses
 	}
-	return list
+	return a.svc.AvailableStatuses(customStatuses, excludedStatuses)
 }
 
 func (a *App) getAvailableNames() []string {

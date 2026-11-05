@@ -1,7 +1,10 @@
 // Package models holds the persistent data types shared across the calendar.
 package models
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // SplitMode selects how data files are laid out on disk.
 const (
@@ -41,21 +44,114 @@ var DefaultConfig = Config{
 
 // Config mirrors config_mycal.json.
 type Config struct {
-	DefaultDuration int      `json:"default_duration"`
-	DefaultType     string   `json:"default_type"`
-	DataPath        string   `json:"data_path"`
-	SplitMode       string   `json:"split_mode"`
-	DataFileName    string   `json:"data_file_name"`
-	DateCheckMode   string   `json:"date_check_mode"`
-	UseSystemDate   bool     `json:"use_system_date"`
-	CustomDate      string   `json:"custom_date"`
-	CustomStatuses  []string `json:"custom_statuses"`
-	CustomNames     []string `json:"custom_names"`
-	SilentAddNames  bool     `json:"silent_add_names"`
-	AskOnConflict   bool     `json:"ask_on_conflict"`
-	ShowHints       bool     `json:"show_hints"`
-	DefaultMode     string   `json:"default_mode"`
-	WebPort         int      `json:"web_port"`
+	DefaultDuration  int      `json:"default_duration"`
+	DefaultType      string   `json:"default_type"`
+	DataPath         string   `json:"data_path"`
+	SplitMode        string   `json:"split_mode"`
+	DataFileName     string   `json:"data_file_name"`
+	DateCheckMode    string   `json:"date_check_mode"`
+	UseSystemDate    bool     `json:"use_system_date"`
+	CustomDate       string   `json:"custom_date"`
+	CustomStatuses   []string `json:"custom_statuses"`
+	CustomNames      []string `json:"custom_names"`
+	CustomTypes      []string `json:"custom_types,omitempty"`
+	ExcludedTypes    []string `json:"excluded_types,omitempty"`
+	ExcludedStatuses []string `json:"excluded_statuses,omitempty"`
+	SilentAddNames   bool     `json:"silent_add_names"`
+	AskOnConflict    bool     `json:"ask_on_conflict"`
+	ShowHints        bool     `json:"show_hints"`
+	DefaultMode      string   `json:"default_mode"`
+	WebPort          int      `json:"web_port"`
+}
+
+// AddCustomType adds a custom type and ensures it is not in ExcludedTypes.
+func (c *Config) AddCustomType(t string) {
+	t = strings.TrimSpace(t)
+	if t == "" {
+		return
+	}
+	// Remove from ExcludedTypes
+	var newExcluded []string
+	for _, ex := range c.ExcludedTypes {
+		if !strings.EqualFold(ex, t) {
+			newExcluded = append(newExcluded, ex)
+		}
+	}
+	c.ExcludedTypes = newExcluded
+
+	// Add to CustomTypes if not present
+	for _, ct := range c.CustomTypes {
+		if strings.EqualFold(ct, t) {
+			return
+		}
+	}
+	c.CustomTypes = append(c.CustomTypes, t)
+}
+
+// RemoveType removes a type from CustomTypes and marks it in ExcludedTypes.
+func (c *Config) RemoveType(t string) {
+	t = strings.TrimSpace(t)
+	if t == "" {
+		return
+	}
+	var newCustom []string
+	for _, ct := range c.CustomTypes {
+		if !strings.EqualFold(ct, t) {
+			newCustom = append(newCustom, ct)
+		}
+	}
+	c.CustomTypes = newCustom
+
+	for _, ex := range c.ExcludedTypes {
+		if strings.EqualFold(ex, t) {
+			return
+		}
+	}
+	c.ExcludedTypes = append(c.ExcludedTypes, t)
+}
+
+// AddCustomStatus adds a custom status and ensures it is not in ExcludedStatuses.
+func (c *Config) AddCustomStatus(s string) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return
+	}
+	var newExcluded []string
+	for _, ex := range c.ExcludedStatuses {
+		if !strings.EqualFold(ex, s) {
+			newExcluded = append(newExcluded, ex)
+		}
+	}
+	c.ExcludedStatuses = newExcluded
+
+	for _, cs := range c.CustomStatuses {
+		if strings.EqualFold(cs, s) {
+			return
+		}
+	}
+	c.CustomStatuses = append(c.CustomStatuses, s)
+}
+
+// RemoveStatus removes a status from CustomStatuses and marks it in ExcludedStatuses.
+func (c *Config) RemoveStatus(s string) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return
+	}
+	var newCustom []string
+	for _, cs := range c.CustomStatuses {
+		if !strings.EqualFold(cs, s) {
+			newCustom = append(newCustom, cs)
+		}
+	}
+	c.CustomStatuses = newCustom
+
+	for _, ex := range c.ExcludedStatuses {
+		if strings.EqualFold(ex, s) {
+			return
+		}
+	}
+	c.ExcludedStatuses = append(c.ExcludedStatuses, s)
 }
 
 // UnmarshalJSON overlays the JSON document onto a copy of DefaultConfig, so any

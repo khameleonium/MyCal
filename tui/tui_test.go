@@ -1402,3 +1402,90 @@ func TestModalStatusPickerCustomStatusInput(t *testing.T) {
 	}
 }
 
+func TestModalStatusPickerDeleteStatus(t *testing.T) {
+	app := newTestApp(t)
+	sess := models.Session{
+		ID:       "20260101100000",
+		Time:     "10:00",
+		Name:     "Сессия с кастомным статусом",
+		Status:   "СуперСтатус",
+		Duration: 60,
+	}
+	_ = app.svc.Add(sess)
+	app.cfg.AddCustomStatus("СуперСтатус")
+
+	p := NewModalStatusPicker(app.getAvailableStatuses(), "СуперСтатус", sess.ID)
+	idx := -1
+	for i, st := range p.statuses {
+		if st == "СуперСтатус" {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		t.Fatalf("СуперСтатус not found in picker: %v", p.statuses)
+	}
+	p.selected = idx
+
+	p.HandleKey(Key{Type: KeyRune, Rune: 'd'}, app)
+
+	avail := app.getAvailableStatuses()
+	for _, st := range avail {
+		if st == "СуперСтатус" {
+			t.Fatalf("expected 'СуперСтатус' to be removed from available statuses, got %v", avail)
+		}
+	}
+
+	saved, ok := app.svc.ByID(sess.ID)
+	if !ok || saved.Status != "СуперСтатус" {
+		t.Fatalf("existing session status was unexpectedly modified: %v", saved)
+	}
+}
+
+func TestModalSessionFormDeleteType(t *testing.T) {
+	app := newTestApp(t)
+	sess := models.Session{
+		ID:       "20260101110000",
+		Time:     "11:00",
+		Name:     "Сессия с типом",
+		Type:     "ОсобыйТип",
+		Status:   "Активно",
+		Duration: 60,
+	}
+	_ = app.svc.Add(sess)
+	app.cfg.AddCustomType("ОсобыйТип")
+
+	m := NewModalSessionForm(nil, "01.01.2026")
+	m.openCatPicker(app)
+	if !m.pickerOpen {
+		t.Fatalf("expected pickerOpen to be true")
+	}
+
+	idx := -1
+	for i, tp := range m.pickerList {
+		if tp == "ОсобыйТип" {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		t.Fatalf("ОсобыйТип not found in m.pickerList: %v", m.pickerList)
+	}
+	m.pickerIdx = idx
+
+	m.HandleKey(Key{Type: KeyRune, Rune: 'd'}, app)
+
+	avail := app.getAvailableTypes()
+	for _, tp := range avail {
+		if tp == "ОсобыйТип" {
+			t.Fatalf("expected 'ОсобыйТип' to be removed from available types, got %v", avail)
+		}
+	}
+
+	saved, ok := app.svc.ByID(sess.ID)
+	if !ok || saved.Type != "ОсобыйТип" {
+		t.Fatalf("existing session type was unexpectedly modified: %v", saved)
+	}
+}
+
+

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
+	"os"
 	"os/exec"
 	"runtime"
 	"sort"
@@ -23,11 +25,13 @@ import (
 
 // Server coordinates the web dashboard, providing a REST API and static frontend.
 type Server struct {
-	svc     *calendar.Service
-	cfg     *models.Config
-	cfgPath string
-	version string
-	mu      sync.RWMutex
+	svc         *calendar.Service
+	cfg         *models.Config
+	cfgPath     string
+	version     string
+	mu          sync.RWMutex
+	lastDataMod time.Time
+	lastCfgMod  time.Time
 }
 
 // NewServer creates a new web Server instance.
@@ -35,12 +39,58 @@ func NewServer(svc *calendar.Service, cfg *models.Config, cfgPath string, versio
 	if version == "" {
 		version = "dev"
 	}
-	return &Server{
-		svc:     svc,
-		cfg:     cfg,
-		cfgPath: cfgPath,
-		version: version,
+	var dataMod, cfgMod time.Time
+	if svc != nil {
+		dataMod = svc.DataFilesModTime()
 	}
+	if cfgPath != "" {
+		if fi, err := os.Stat(cfgPath); err == nil {
+			cfgMod = fi.ModTime()
+		}
+	}
+	return &Server{
+		svc:         svc,
+		cfg:         cfg,
+		cfgPath:     cfgPath,
+		version:     version,
+		lastDataMod: dataMod,
+		lastCfgMod:  cfgMod,
+	}
+}
+
+func (s *Server) checkAutoReload(ctx context.Context) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// 1. Check data file modification
+	if s.svc != nil {
+		dataMod := s.svc.DataFilesModTime()
+		if !dataMod.IsZero() && dataMod.After(s.lastDataMod) {
+			if err := s.svc.Reload(ctx); err == nil {
+				s.lastDataMod = dataMod
+			}
+		}
+	}
+
+	// 2. Check config file modification
+	if s.cfgPath != "" {
+		if fi, err := os.Stat(s.cfgPath); err == nil {
+			if fi.ModTime().After(s.lastCfgMod) {
+				if newCfg, err := config.Load(ctx, s.cfgPath); err == nil {
+					s.cfg = newCfg
+					s.lastCfgMod = fi.ModTime()
+				}
+			}
+		}
+	}
+}
+
+func (s *Server) saveService(ctx context.Context) error {
+	err := s.svc.Save(ctx)
+	if err == nil {
+		s.lastDataMod = s.svc.DataFilesModTime()
+	}
+	return err
 }
 
 // Start launches the HTTP server, listening on 127.0.0.1:port (or next free port).
@@ -112,7 +162,9 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/sessions", s.handleSessions)
 	mux.HandleFunc("/api/sessions/", s.handleSessionByID)
 	mux.HandleFunc("/api/types", s.handleTypes)
+	mux.HandleFunc("/api/types/", s.handleTypes)
 	mux.HandleFunc("/api/statuses", s.handleStatuses)
+	mux.HandleFunc("/api/statuses/", s.handleStatuses)
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/info", s.handleInfo)
@@ -141,6 +193,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 // --------------------------- REST API Handlers ---------------------------
 
 func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
+	s.checkAutoReload(r.Context())
 	switch r.Method {
 	case http.MethodGet:
 		s.getSessions(w, r)
@@ -334,7 +387,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.svc.Save(context.Background()); err != nil {
+	if err := s.saveService(context.Background()); err != nil {
 		respondError(w, http.StatusInternalServerError, "Не удалось записать файл данных: "+err.Error())
 		return
 	}
@@ -349,6 +402,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSessionByID(w http.ResponseWriter, r *http.Request) {
+	s.checkAutoReload(r.Context())
 	path := strings.TrimPrefix(r.URL.Path, "/api/sessions/")
 	parts := strings.Split(path, "/")
 	id := parts[0]
@@ -480,7 +534,7 @@ func (s *Server) updateSession(w http.ResponseWriter, r *http.Request, id string
 				sess.Cash = *cashPtr
 			}
 			_ = s.svc.Add(sess)
-			_ = s.svc.Save(context.Background())
+			_ = s.saveService(context.Background())
 			respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "session": sess})
 			return
 		}
@@ -488,7 +542,7 @@ func (s *Server) updateSession(w http.ResponseWriter, r *http.Request, id string
 
 	if req.UpdateSeries && sess.IsRepeat() {
 		n := s.svc.UpdateSeries(sess.SeriesID, patch)
-		_ = s.svc.Save(context.Background())
+		_ = s.saveService(context.Background())
 		respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "updated_count": n})
 		return
 	}
@@ -498,7 +552,7 @@ func (s *Server) updateSession(w http.ResponseWriter, r *http.Request, id string
 		return
 	}
 
-	_ = s.svc.Save(context.Background())
+	_ = s.saveService(context.Background())
 	updated, _ := s.svc.ByID(id)
 	respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "session": updated})
 }
@@ -527,7 +581,7 @@ func (s *Server) updateStatus(w http.ResponseWriter, r *http.Request, id string)
 		return
 	}
 
-	_ = s.svc.Save(context.Background())
+	_ = s.saveService(context.Background())
 	updated, _ := s.svc.ByID(id)
 	respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "session": updated})
 }
@@ -589,7 +643,7 @@ func (s *Server) updateField(w http.ResponseWriter, r *http.Request, id string) 
 		return
 	}
 
-	_ = s.svc.Save(context.Background())
+	_ = s.saveService(context.Background())
 	updated, _ := s.svc.ByID(id)
 	respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "session": updated})
 }
@@ -607,7 +661,7 @@ func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request, id string
 	deleteSeries := r.URL.Query().Get("series") == "true"
 	if deleteSeries && sess.IsRepeat() {
 		count := s.svc.DeleteSeries(sess.SeriesID)
-		_ = s.svc.Save(context.Background())
+		_ = s.saveService(context.Background())
 		respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "deleted": count, "series": true})
 		return
 	}
@@ -617,7 +671,7 @@ func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request, id string
 		return
 	}
 
-	_ = s.svc.Save(context.Background())
+	_ = s.saveService(context.Background())
 	respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "deleted": 1})
 }
 
@@ -660,31 +714,234 @@ func (s *Server) duplicateSession(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 
-	_ = s.svc.Save(context.Background())
+	_ = s.saveService(context.Background())
 	respondJSON(w, http.StatusCreated, map[string]interface{}{"ok": true, "session": dup})
 }
 
 func (s *Server) handleTypes(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.checkAutoReload(r.Context())
 
-	var seed []string
-	if s.cfg.DefaultType != "" {
-		seed = append(seed, s.cfg.DefaultType)
+	switch r.Method {
+	case http.MethodGet:
+		s.mu.RLock()
+		var customTypes, excludedTypes []string
+		if s.cfg != nil {
+			customTypes = s.cfg.CustomTypes
+			excludedTypes = s.cfg.ExcludedTypes
+		}
+		types := s.svc.AvailableTypes(customTypes, excludedTypes)
+		s.mu.RUnlock()
+		respondJSON(w, http.StatusOK, map[string]interface{}{"types": types})
+
+	case http.MethodPost:
+		var req struct {
+			Type  string   `json:"type"`
+			Name  string   `json:"name"`
+			Types []string `json:"types"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Некорректный JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		var toAdd []string
+		if req.Type != "" {
+			toAdd = append(toAdd, req.Type)
+		}
+		if req.Name != "" {
+			toAdd = append(toAdd, req.Name)
+		}
+		toAdd = append(toAdd, req.Types...)
+
+		s.mu.Lock()
+		if s.cfg != nil {
+			for _, t := range toAdd {
+				s.cfg.AddCustomType(t)
+			}
+			if s.cfgPath != "" {
+				_ = config.Save(r.Context(), s.cfgPath, s.cfg)
+				if fi, err := os.Stat(s.cfgPath); err == nil {
+					s.lastCfgMod = fi.ModTime()
+				}
+			}
+		}
+		var customTypes, excludedTypes []string
+		if s.cfg != nil {
+			customTypes = s.cfg.CustomTypes
+			excludedTypes = s.cfg.ExcludedTypes
+		}
+		types := s.svc.AvailableTypes(customTypes, excludedTypes)
+		s.mu.Unlock()
+
+		respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "types": types})
+
+	case http.MethodDelete:
+		target := strings.TrimPrefix(r.URL.Path, "/api/types/")
+		target = strings.TrimPrefix(target, "/")
+		if unescaped, err := url.PathUnescape(target); err == nil && unescaped != "" {
+			target = unescaped
+		}
+		if target == "" {
+			target = r.URL.Query().Get("name")
+		}
+		if target == "" {
+			target = r.URL.Query().Get("type")
+		}
+		if target == "" && r.Body != nil {
+			var bodyReq struct {
+				Name string `json:"name"`
+				Type string `json:"type"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&bodyReq)
+			if bodyReq.Name != "" {
+				target = bodyReq.Name
+			} else {
+				target = bodyReq.Type
+			}
+		}
+		target = strings.TrimSpace(target)
+		if target == "" {
+			http.Error(w, "Не указан тип для удаления", http.StatusBadRequest)
+			return
+		}
+
+		s.mu.Lock()
+		if s.cfg != nil {
+			s.cfg.RemoveType(target)
+			if s.cfgPath != "" {
+				_ = config.Save(r.Context(), s.cfgPath, s.cfg)
+				if fi, err := os.Stat(s.cfgPath); err == nil {
+					s.lastCfgMod = fi.ModTime()
+				}
+			}
+		}
+		var customTypes, excludedTypes []string
+		if s.cfg != nil {
+			customTypes = s.cfg.CustomTypes
+			excludedTypes = s.cfg.ExcludedTypes
+		}
+		types := s.svc.AvailableTypes(customTypes, excludedTypes)
+		s.mu.Unlock()
+
+		respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "types": types})
+
+	default:
+		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
 	}
-	types := s.svc.Types(seed...)
-	respondJSON(w, http.StatusOK, map[string]interface{}{"types": types})
 }
 
 func (s *Server) handleStatuses(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.checkAutoReload(r.Context())
 
-	statuses := s.svc.Statuses(s.cfg.CustomStatuses...)
-	respondJSON(w, http.StatusOK, map[string]interface{}{"statuses": statuses})
+	switch r.Method {
+	case http.MethodGet:
+		s.mu.RLock()
+		var customStatuses, excludedStatuses []string
+		if s.cfg != nil {
+			customStatuses = s.cfg.CustomStatuses
+			excludedStatuses = s.cfg.ExcludedStatuses
+		}
+		statuses := s.svc.AvailableStatuses(customStatuses, excludedStatuses)
+		s.mu.RUnlock()
+		respondJSON(w, http.StatusOK, map[string]interface{}{"statuses": statuses})
+
+	case http.MethodPost:
+		var req struct {
+			Status   string   `json:"status"`
+			Name     string   `json:"name"`
+			Statuses []string `json:"statuses"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "Некорректный JSON: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		var toAdd []string
+		if req.Status != "" {
+			toAdd = append(toAdd, req.Status)
+		}
+		if req.Name != "" {
+			toAdd = append(toAdd, req.Name)
+		}
+		toAdd = append(toAdd, req.Statuses...)
+
+		s.mu.Lock()
+		if s.cfg != nil {
+			for _, st := range toAdd {
+				s.cfg.AddCustomStatus(st)
+			}
+			if s.cfgPath != "" {
+				_ = config.Save(r.Context(), s.cfgPath, s.cfg)
+				if fi, err := os.Stat(s.cfgPath); err == nil {
+					s.lastCfgMod = fi.ModTime()
+				}
+			}
+		}
+		var customStatuses, excludedStatuses []string
+		if s.cfg != nil {
+			customStatuses = s.cfg.CustomStatuses
+			excludedStatuses = s.cfg.ExcludedStatuses
+		}
+		statuses := s.svc.AvailableStatuses(customStatuses, excludedStatuses)
+		s.mu.Unlock()
+
+		respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "statuses": statuses})
+
+	case http.MethodDelete:
+		target := strings.TrimPrefix(r.URL.Path, "/api/statuses/")
+		target = strings.TrimPrefix(target, "/")
+		if unescaped, err := url.PathUnescape(target); err == nil && unescaped != "" {
+			target = unescaped
+		}
+		if target == "" {
+			target = r.URL.Query().Get("name")
+		}
+		if target == "" {
+			target = r.URL.Query().Get("status")
+		}
+		if target == "" && r.Body != nil {
+			var bodyReq struct {
+				Name   string `json:"name"`
+				Status string `json:"status"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&bodyReq)
+			if bodyReq.Name != "" {
+				target = bodyReq.Name
+			} else {
+				target = bodyReq.Status
+			}
+		}
+		target = strings.TrimSpace(target)
+		if target == "" {
+			http.Error(w, "Не указан статус для удаления", http.StatusBadRequest)
+			return
+		}
+
+		s.mu.Lock()
+		if s.cfg != nil {
+			s.cfg.RemoveStatus(target)
+			if s.cfgPath != "" {
+				_ = config.Save(r.Context(), s.cfgPath, s.cfg)
+				if fi, err := os.Stat(s.cfgPath); err == nil {
+					s.lastCfgMod = fi.ModTime()
+				}
+			}
+		}
+		var customStatuses, excludedStatuses []string
+		if s.cfg != nil {
+			customStatuses = s.cfg.CustomStatuses
+			excludedStatuses = s.cfg.ExcludedStatuses
+		}
+		statuses := s.svc.AvailableStatuses(customStatuses, excludedStatuses)
+		s.mu.Unlock()
+
+		respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "statuses": statuses})
+
+	default:
+		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+	}
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+	s.checkAutoReload(r.Context())
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -748,6 +1005,7 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	s.checkAutoReload(r.Context())
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -763,7 +1021,10 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		updated.Normalize()
 		*s.cfg = updated
 		if s.cfgPath != "" {
-			_ = config.Save(context.Background(), s.cfgPath, s.cfg)
+			_ = config.Save(r.Context(), s.cfgPath, s.cfg)
+			if fi, err := os.Stat(s.cfgPath); err == nil {
+				s.lastCfgMod = fi.ModTime()
+			}
 		}
 		respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "config": s.cfg})
 	default:
@@ -772,6 +1033,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSessionsBatch(w http.ResponseWriter, r *http.Request) {
+	s.checkAutoReload(r.Context())
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -790,7 +1052,7 @@ func (s *Server) handleSessionsBatch(w http.ResponseWriter, r *http.Request) {
 				deleted++
 			}
 		}
-		_ = s.svc.Save(context.Background())
+		_ = s.saveService(context.Background())
 		respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "deleted_count": deleted})
 
 	case http.MethodPatch, http.MethodPost:
@@ -832,7 +1094,7 @@ func (s *Server) handleSessionsBatch(w http.ResponseWriter, r *http.Request) {
 				_ = s.svc.Add(sess)
 				updated++
 			}
-			_ = s.svc.Save(context.Background())
+			_ = s.saveService(context.Background())
 			respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "updated_count": updated})
 			return
 		}
@@ -879,7 +1141,7 @@ func (s *Server) handleSessionsBatch(w http.ResponseWriter, r *http.Request) {
 				updated++
 			}
 		}
-		_ = s.svc.Save(context.Background())
+		_ = s.saveService(context.Background())
 		respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "updated_count": updated})
 
 	default:

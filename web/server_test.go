@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"mycalendar/calendar"
@@ -344,4 +345,72 @@ func TestCashAndBatchOperationsAPI(t *testing.T) {
 	if _, ok := svc.ByID("20261104100000"); ok {
 		t.Errorf("session 1 was not batch deleted")
 	}
+}
+
+func TestTypesAndStatusesAPI(t *testing.T) {
+	server, _, _ := newTestServer(t)
+	handler := server.Routes()
+
+	// 1. Initial types
+	req := httptest.NewRequest(http.MethodGet, "/api/types", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/types: got %d", rec.Code)
+	}
+
+	// 2. Add custom type
+	body := bytes.NewBufferString(`{"types": ["Шахматы", "Йога"]}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/types", body)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/types: got %d", rec.Code)
+	}
+	if !containsStr(server.svc.AvailableTypes(server.cfg.CustomTypes, server.cfg.ExcludedTypes), "Шахматы") {
+		t.Errorf("expected 'Шахматы' in available types")
+	}
+
+	// 3. Delete type
+	req = httptest.NewRequest(http.MethodDelete, "/api/types/Шахматы", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE /api/types/Шахматы: got %d", rec.Code)
+	}
+	if containsStr(server.svc.AvailableTypes(server.cfg.CustomTypes, server.cfg.ExcludedTypes), "Шахматы") {
+		t.Errorf("expected 'Шахматы' to be excluded from available types")
+	}
+
+	// 4. Add custom status
+	stBody := bytes.NewBufferString(`{"statuses": ["В ожидании"]}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/statuses", stBody)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/statuses: got %d", rec.Code)
+	}
+	if !containsStr(server.svc.AvailableStatuses(server.cfg.CustomStatuses, server.cfg.ExcludedStatuses), "В ожидании") {
+		t.Errorf("expected 'В ожидании' in available statuses")
+	}
+
+	// 5. Delete status
+	req = httptest.NewRequest(http.MethodDelete, "/api/statuses/В%20ожидании", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE /api/statuses: got %d", rec.Code)
+	}
+	if containsStr(server.svc.AvailableStatuses(server.cfg.CustomStatuses, server.cfg.ExcludedStatuses), "В ожидании") {
+		t.Errorf("expected 'В ожидании' to be excluded from available statuses")
+	}
+}
+
+func containsStr(arr []string, s string) bool {
+	for _, x := range arr {
+		if strings.EqualFold(x, s) {
+			return true
+		}
+	}
+	return false
 }
