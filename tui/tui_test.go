@@ -1830,6 +1830,82 @@ func TestModalSettingsDropdownPickers(t *testing.T) {
 	m.Draw(s)
 }
 
+func TestKeyTNavigatesToCategoriesThenCycles(t *testing.T) {
+	app := newTestApp(t)
+	// Ensure we have multiple types/categories available
+	app.allSessions = []models.Session{
+		{ID: "20261105100000", Time: "10:00", Name: "Запись 1", Type: "Стрельба из лука"},
+		{ID: "20261105120000", Time: "12:00", Name: "Запись 2", Type: "Метание ножей"},
+	}
+
+	// 1. Initial state: focus on Feed
+	app.focusPanel = PanelFeed
+	if app.hasActiveTypeFilters() {
+		t.Fatalf("expected no active type filters initially")
+	}
+
+	// 2. First press of 't': moves focus to PanelSidebar, cursor on category (sidebarIdx >= 5)
+	app.handleKey(Key{Type: KeyRune, Rune: 't'})
+	if app.focusPanel != PanelSidebar {
+		t.Fatalf("expected focusPanel to be PanelSidebar on first 't', got %d", app.focusPanel)
+	}
+	if app.sidebarIdx < 5 {
+		t.Fatalf("expected sidebarIdx >= 5 (categories block), got %d", app.sidebarIdx)
+	}
+	if app.hasActiveTypeFilters() {
+		t.Fatalf("expected filter NOT cycled on first 't'")
+	}
+
+	// 3. Second press of 't' (already in Categories block): cycles type filter to first category
+	app.handleKey(Key{Type: KeyRune, Rune: 't'})
+	if !app.hasActiveTypeFilters() {
+		t.Fatalf("expected active type filter after second 't'")
+	}
+	types := app.getAvailableTypes()
+	if !app.isTypeFilterActive(types[0]) {
+		t.Fatalf("expected type %q active, got filters: %v", types[0], app.typeFilters)
+	}
+	if app.sidebarIdx != 5 {
+		t.Fatalf("expected cursor on first category (5), got %d", app.sidebarIdx)
+	}
+
+	// 4. Third press of 't': cycles to next category
+	app.handleKey(Key{Type: KeyRune, Rune: 't'})
+	if !app.isTypeFilterActive(types[1]) {
+		t.Fatalf("expected type %q active, got filters: %v", types[1], app.typeFilters)
+	}
+	if app.sidebarIdx != 6 {
+		t.Fatalf("expected cursor on second category (6), got %d", app.sidebarIdx)
+	}
+
+	// 5. When in PanelCalendar, press 't': moves focus to PanelSidebar and categories
+	app.focusPanel = PanelCalendar
+	app.handleKey(Key{Type: KeyRune, Rune: 't'})
+	if app.focusPanel != PanelSidebar {
+		t.Fatalf("expected focusPanel to be PanelSidebar when pressing 't' from Calendar, got %d", app.focusPanel)
+	}
+	if app.sidebarIdx < 5 {
+		t.Fatalf("expected sidebarIdx >= 5, got %d", app.sidebarIdx)
+	}
+
+	// 6. Check footer hints have "[t]" labeled as "Категории"
+	app.width = 120
+	app.height = 30
+	_, wideHints := app.layoutFooter()
+	foundCategoryHint := false
+	for _, line := range wideHints {
+		for _, item := range line {
+			if item.key == "[t]" && item.desc == "Категории" {
+				foundCategoryHint = true
+				break
+			}
+		}
+	}
+	if !foundCategoryHint {
+		t.Fatalf("expected '[t] Категории' in footer hints")
+	}
+}
+
 
 
 
