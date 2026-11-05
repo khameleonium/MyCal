@@ -404,6 +404,24 @@ func TestTypesAndStatusesAPI(t *testing.T) {
 	if containsStr(server.svc.AvailableStatuses(server.cfg.CustomStatuses, server.cfg.ExcludedStatuses), "В ожидании") {
 		t.Errorf("expected 'В ожидании' to be excluded from available statuses")
 	}
+
+	// 6. Test Sessions sorting API (?sort=name&order=asc)
+	req = httptest.NewRequest(http.MethodGet, "/api/sessions?sort=name&order=asc", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/sessions?sort=name: got %d", rec.Code)
+	}
+	var resp struct {
+		Sessions []models.Session `json:"sessions"`
+	}
+	_ = json.NewDecoder(rec.Body).Decode(&resp)
+	if len(resp.Sessions) >= 2 {
+		// "Метание" should come before "Утренняя тренировка"
+		if resp.Sessions[0].Name != "Метание" {
+			t.Errorf("expected sorted session 'Метание' first, got %q", resp.Sessions[0].Name)
+		}
+	}
 }
 
 func containsStr(arr []string, s string) bool {

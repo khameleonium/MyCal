@@ -285,6 +285,14 @@ func (s *Server) getSessions(w http.ResponseWriter, r *http.Request) {
 		sessions = matched
 	}
 
+	// Sort if requested via query params (?sort=date&order=desc)
+	sortField := r.URL.Query().Get("sort")
+	if sortField != "" {
+		sortOrder := strings.ToLower(r.URL.Query().Get("order"))
+		asc := (sortOrder == "asc")
+		calendar.SortSessions(sessions, sortField, asc)
+	}
+
 	totalMin := calendar.TotalMinutes(sessions)
 	totalCash := calendar.TotalCash(sessions)
 	respondJSON(w, http.StatusOK, map[string]interface{}{

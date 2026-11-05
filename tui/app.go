@@ -73,6 +73,9 @@ type App struct {
 
 	lastDataMod time.Time
 	lastCfgMod  time.Time
+
+	sortField string
+	sortAsc   bool
 }
 
 // NewApp creates a new TUI application instance.
@@ -86,6 +89,14 @@ func NewApp(svc *calendar.Service, cfg *models.Config, cfgPath, version string) 
 		if fi, err := os.Stat(cfgPath); err == nil {
 			cfgMod = fi.ModTime()
 		}
+	}
+	sortField := "date"
+	sortAsc := false
+	if cfg != nil {
+		if cfg.SortField != "" {
+			sortField = cfg.SortField
+		}
+		sortAsc = cfg.SortAsc
 	}
 	app := &App{
 		svc:           svc,
@@ -104,6 +115,8 @@ func NewApp(svc *calendar.Service, cfg *models.Config, cfgPath, version string) 
 		activeTab:     TabFeed,
 		lastDataMod:   dataMod,
 		lastCfgMod:    cfgMod,
+		sortField:     sortField,
+		sortAsc:       sortAsc,
 	}
 	return app
 }
@@ -336,15 +349,8 @@ func (a *App) reloadSessions() {
 		filtered = append(filtered, s)
 	}
 
-	// Sort chronologically (newest first for quick glance)
-	sort.Slice(filtered, func(i, j int) bool {
-		d1, _ := parser.ParseDate(filtered[i].Date(), now)
-		d2, _ := parser.ParseDate(filtered[j].Date(), now)
-		if d1.Equal(d2) {
-			return filtered[i].Time > filtered[j].Time
-		}
-		return d1.After(d2)
-	})
+	// Sort sessions according to sortField and sortAsc
+	calendar.SortSessions(filtered, a.sortField, a.sortAsc)
 
 	a.sessions = filtered
 
@@ -511,13 +517,8 @@ func (a *App) handleKey(k Key) bool {
 		}
 		return false
 
-	case k.Matches('l', 'д'):
-		if a.width < 115 {
-			a.activeTab = TabFeed
-			a.focusPanel = PanelFeed
-		} else {
-			a.focusPanel = PanelFeed
-		}
+	case k.Matches('l', 'д') || k.Matches('L', 'Д'):
+		a.activeModal = NewModalSort(a)
 		return false
 
 	case k.Matches('c', 'к'):
@@ -1783,22 +1784,76 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 	colY := y + 1
 	s.Fill(x+1, colY, w-2, 1, ' ', FgDim, BgCard)
 	s.DrawText(colCheck, colY, "[✓]", FgDim, BgCard, 4, false, false, false)
-	s.DrawText(colDate, colY, "Дата", FgMuted, BgCard, 10, true, false, false)
+
+	sortArrow := "▼"
+	if a.sortAsc {
+		sortArrow = "▲"
+	}
+
+	dateHdr := "Дата"
+	dateFg := FgMuted
+	if a.sortField == "date" {
+		dateHdr += " " + sortArrow
+		dateFg = FgCyan
+	}
+	s.DrawText(colDate, colY, dateHdr, dateFg, BgCard, 10, true, false, false)
+
 	if showTime {
-		s.DrawText(colTime, colY, "Время", FgMuted, BgCard, 5, true, false, false)
+		timeHdr := "Время"
+		timeFg := FgMuted
+		if a.sortField == "time" {
+			timeHdr += " " + sortArrow
+			timeFg = FgCyan
+		}
+		s.DrawText(colTime, colY, timeHdr, timeFg, BgCard, 7, true, false, false)
 	}
-	s.DrawText(colName, colY, "Название", FgMuted, BgCard, wName, true, false, false)
+
+	nameHdr := "Название"
+	nameFg := FgMuted
+	if a.sortField == "name" {
+		nameHdr += " " + sortArrow
+		nameFg = FgCyan
+	}
+	s.DrawText(colName, colY, nameHdr, nameFg, BgCard, wName, true, false, false)
+
 	if wType > 0 {
-		s.DrawText(colType, colY, "Категория", FgMuted, BgCard, wType, true, false, false)
+		typeHdr := "Категория"
+		typeFg := FgMuted
+		if a.sortField == "type" {
+			typeHdr += " " + sortArrow
+			typeFg = FgCyan
+		}
+		s.DrawText(colType, colY, typeHdr, typeFg, BgCard, wType, true, false, false)
 	}
+
 	if showDur {
-		s.DrawText(colDur, colY, "Длит.", FgMuted, BgCard, 6, true, false, false)
+		durHdr := "Длит."
+		durFg := FgMuted
+		if a.sortField == "duration" {
+			durHdr += " " + sortArrow
+			durFg = FgCyan
+		}
+		s.DrawText(colDur, colY, durHdr, durFg, BgCard, 7, true, false, false)
 	}
+
 	if showCash {
-		s.DrawText(colCash, colY, "Кэш", FgMuted, BgCard, 8, true, false, false)
+		cashHdr := "Кэш"
+		cashFg := FgMuted
+		if a.sortField == "cash" {
+			cashHdr += " " + sortArrow
+			cashFg = FgCyan
+		}
+		s.DrawText(colCash, colY, cashHdr, cashFg, BgCard, 8, true, false, false)
 	}
+
 	if wStatusHdr > 0 {
-		s.DrawText(colStatus, colY, "Статус", FgMuted, BgCard, wStatusHdr, true, false, false)
+		statusHdr := "Статус"
+		statusFg := FgMuted
+		if a.sortField == "status" {
+			statusHdr += " " + sortArrow
+			statusFg = FgCyan
+		}
+		s.DrawText(colStatus, colY, statusHdr, statusFg, BgCard, wStatusHdr, true, false, false)
 	}
 
 	// Rows viewport
@@ -2170,6 +2225,7 @@ func (a *App) layoutFooter() (statusLines []string, hintLines [][]footerHintItem
 			{"[p]", "Период"},
 			{"[t]", "Сегодня"},
 			{"[s]", "Статус"},
+			{"[l]", "Сортировка"},
 			{"[a]", "Создать"},
 			{"[e]", "Правка"},
 			{"[f]", "Поле"},
@@ -2189,6 +2245,7 @@ func (a *App) layoutFooter() (statusLines []string, hintLines [][]footerHintItem
 			{"[p]", "Период"},
 			{"[t]", "Сегодня"},
 			{"[s]", "Статус"},
+			{"[l]", "Сортировка"},
 			{"[a]", "Создать"},
 			{"[e]", "Правка"},
 			{"[f]", "Поле"},

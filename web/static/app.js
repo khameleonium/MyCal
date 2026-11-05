@@ -39,6 +39,10 @@ const state = {
   // Batch Selection & Operations state
   selectedBatchIds: new Set(),
   isBatchStatusPicker: false,
+
+  // Sorting state
+  sortField: localStorage.getItem("mycal_sort_field") || "date",
+  sortAsc: localStorage.getItem("mycal_sort_asc") === "true",
 };
 
 // ======================== INITIALIZATION ========================
@@ -222,7 +226,203 @@ async function refreshData() {
   }
 }
 
-// ======================== RENDER FUNCTIONS ========================
+// ======================== RENDER FUNCTIONS & SORTING ========================
+
+function formatRowDate(id) {
+  if (!id || id.length < 8) return "";
+  const yyyy = id.slice(0, 4);
+  const mm = id.slice(4, 6);
+  const dd = id.slice(6, 8);
+  return `${dd}.${mm}.${yyyy}`;
+}
+
+function sortSessionsList(sessions, field, asc) {
+  const list = [...sessions];
+  list.sort((a, b) => {
+    const dA = a.id && a.id.length >= 8 ? `${a.id.slice(0,4)}-${a.id.slice(4,6)}-${a.id.slice(6,8)}` : (a.date || "");
+    const dB = b.id && b.id.length >= 8 ? `${b.id.slice(0,4)}-${b.id.slice(4,6)}-${b.id.slice(6,8)}` : (b.date || "");
+    const tA = a.time || "";
+    const tB = b.time || "";
+
+    switch (field) {
+      case "date":
+        // Rule: Time within date is ALWAYS ascending!
+        if (dA === dB) {
+          return tA.localeCompare(tB);
+        }
+        return asc ? dA.localeCompare(dB) : dB.localeCompare(dA);
+
+      case "time":
+        if (tA !== tB) {
+          return asc ? tA.localeCompare(tB) : tB.localeCompare(tA);
+        }
+        if (dA !== dB) return dB.localeCompare(dA);
+        return (a.name || "").localeCompare(b.name || "", "ru");
+
+      case "name": {
+        const nA = (a.name || "").trim().toLowerCase();
+        const nB = (b.name || "").trim().toLowerCase();
+        if (nA !== nB) {
+          return asc ? nA.localeCompare(nB, "ru") : nB.localeCompare(nA, "ru");
+        }
+        if (dA !== dB) return dB.localeCompare(dA);
+        return tA.localeCompare(tB);
+      }
+
+      case "type": {
+        const tpA = (a.type || "").trim().toLowerCase();
+        const tpB = (b.type || "").trim().toLowerCase();
+        if (tpA !== tpB) {
+          return asc ? tpA.localeCompare(tpB, "ru") : tpB.localeCompare(tpA, "ru");
+        }
+        if (dA !== dB) return dB.localeCompare(dA);
+        return tA.localeCompare(tB);
+      }
+
+      case "duration": {
+        const durA = a.duration || 0;
+        const durB = b.duration || 0;
+        if (durA !== durB) {
+          return asc ? durA - durB : durB - durA;
+        }
+        if (dA !== dB) return dB.localeCompare(dA);
+        return tA.localeCompare(tB);
+      }
+
+      case "cash": {
+        const cA = a.cash || 0;
+        const cB = b.cash || 0;
+        if (cA !== cB) {
+          return asc ? cA - cB : cB - cA;
+        }
+        if (dA !== dB) return dB.localeCompare(dA);
+        return tA.localeCompare(tB);
+      }
+
+      case "status": {
+        const sA = (a.status || "").trim().toLowerCase();
+        const sB = (b.status || "").trim().toLowerCase();
+        if (sA !== sB) {
+          return asc ? sA.localeCompare(sB, "ru") : sB.localeCompare(sA, "ru");
+        }
+        if (dA !== dB) return dB.localeCompare(dA);
+        return tA.localeCompare(tB);
+      }
+
+      default:
+        if (dA === dB) return tA.localeCompare(tB);
+        return asc ? dA.localeCompare(dB) : dB.localeCompare(dA);
+    }
+  });
+  return list;
+}
+
+function setSort(field) {
+  if (state.sortField === field) {
+    state.sortAsc = !state.sortAsc;
+  } else {
+    state.sortField = field;
+    if (field === "date" || field === "duration" || field === "cash") {
+      state.sortAsc = false;
+    } else {
+      state.sortAsc = true;
+    }
+  }
+  localStorage.setItem("mycal_sort_field", state.sortField);
+  localStorage.setItem("mycal_sort_asc", String(state.sortAsc));
+  renderFeed();
+}
+
+function onMobileSortChange(val) {
+  if (!val) return;
+  const parts = val.split("_");
+  const field = parts[0] === "dur" ? "duration" : parts[0];
+  const asc = parts[1] === "asc";
+  state.sortField = field;
+  state.sortAsc = asc;
+  localStorage.setItem("mycal_sort_field", state.sortField);
+  localStorage.setItem("mycal_sort_asc", String(state.sortAsc));
+  renderFeed();
+}
+
+function updateSortHeadersUI() {
+  const fields = ["date", "time", "name", "type", "duration", "cash", "status"];
+  for (const f of fields) {
+    const btn = document.querySelector(`.th-col[data-sort="${f}"]`);
+    const arrow = document.getElementById(`sortArrow-${f}`);
+    if (btn) {
+      if (state.sortField === f) {
+        btn.classList.add("active");
+        if (arrow) {
+          arrow.textContent = state.sortAsc ? "▲" : "▼";
+          arrow.style.opacity = "1";
+        }
+      } else {
+        btn.classList.remove("active");
+        if (arrow) {
+          arrow.textContent = "";
+          arrow.style.opacity = "0.3";
+        }
+      }
+    }
+  }
+
+  const mobileSelect = document.getElementById("mobileSortSelect");
+  if (mobileSelect) {
+    const val = `${state.sortField === "duration" ? "dur" : state.sortField}_${state.sortAsc ? "asc" : "desc"}`;
+    for (const opt of mobileSelect.options) {
+      if (opt.value === val) {
+        mobileSelect.value = val;
+        break;
+      }
+    }
+  }
+}
+
+function renderSessionRowHTML(s) {
+  const isSelected = s.id === state.focusedId;
+  const isBatchChecked = state.selectedBatchIds.has(s.id);
+  const statusClass = getStatusClass(s.status);
+  const statusLabel = s.status ? s.status : "<пусто>";
+  const repeatIcon = s.series_id ? '<span class="row-repeat-icon" title="Повторяющаяся серия">↻</span>' : '';
+  const isNegative = s.cash < 0;
+  const cashBadge = (s.cash !== undefined && s.cash !== 0)
+    ? `<span class="row-cash ${isNegative ? 'cash-negative' : ''}" title="Кэш: ${formatCash(s.cash)}">${formatCash(s.cash)}</span>`
+    : `<span class="row-cash row-cash-empty" aria-hidden="true"></span>`;
+  const dateStr = formatRowDate(s.id);
+
+  return `
+    <div class="session-row ${isSelected ? 'selected' : ''} ${isBatchChecked ? 'batch-selected' : ''}" 
+         data-id="${s.id}" 
+         onclick="onRowClick('${s.id}')"
+         ondblclick="onRowDblClick('${s.id}')"
+         oncontextmenu="onRowContextMenu(event, '${s.id}')">
+      <label class="row-check-label" onclick="event.stopPropagation()">
+        <input type="checkbox" class="row-check" data-id="${s.id}" ${isBatchChecked ? 'checked' : ''} onchange="onToggleRowSelect(event, '${s.id}')">
+      </label>
+      <span class="row-cursor">${isSelected ? '▶' : ''}</span>
+      <span class="row-date" title="${dateStr}">${dateStr}</span>
+      <span class="row-time">${s.time || '--:--'}</span>
+      <span class="row-name" title="${escapeHtml(s.name)}">
+        ${escapeHtml(s.name)}
+        ${repeatIcon}
+      </span>
+      <span class="row-type" title="${escapeHtml(s.type || '(без типа)')}">
+        ${escapeHtml(s.type || '—')}
+      </span>
+      <span class="row-duration">${s.duration || 0} мин</span>
+      ${cashBadge}
+      <div class="row-status-wrap">
+        <span class="status-pill ${statusClass}" 
+              onclick="onStatusPillClick(event, '${s.id}')" 
+              title="Нажмите, чтобы изменить статус">
+          ${escapeHtml(statusLabel)}
+        </span>
+      </div>
+      <button type="button" class="row-more-btn" onclick="onRowContextMenu(event, '${s.id}')" title="Меню действий">⋮</button>
+    </div>
+  `;
+}
 
 function renderFeed() {
   const feed = document.getElementById("sessionFeed");
@@ -252,34 +452,7 @@ function renderFeed() {
     }
   }
 
-  const totalItems = state.sessions.length;
-  let itemsToRender = state.sessions;
-  const pagerEl = document.getElementById("feedPager");
-  const pagerInfo = document.getElementById("pagerInfo");
-  const pagerPrev = document.getElementById("pagerPrevBtn");
-  const pagerNext = document.getElementById("pagerNextBtn");
-
-  if (state.pageSize !== "all" && totalItems > 0) {
-    const size = parseInt(state.pageSize, 10);
-    const totalPages = Math.max(1, Math.ceil(totalItems / size));
-    if (state.currentPage > totalPages) state.currentPage = totalPages;
-    if (state.currentPage < 1) state.currentPage = 1;
-
-    const startIdx = (state.currentPage - 1) * size;
-    const endIdx = Math.min(startIdx + size, totalItems);
-    itemsToRender = state.sessions.slice(startIdx, endIdx);
-
-    if (pagerEl) {
-      pagerEl.style.display = "flex";
-      pagerInfo.textContent = `Стр. ${state.currentPage} из ${totalPages} (${startIdx + 1}–${endIdx} из ${totalItems})`;
-      pagerPrev.disabled = state.currentPage <= 1;
-      pagerNext.disabled = state.currentPage >= totalPages;
-    }
-  } else {
-    if (pagerEl) {
-      pagerEl.style.display = "none";
-    }
-  }
+  updateSortHeadersUI();
 
   if (state.sessions.length === 0) {
     feed.innerHTML = `
@@ -294,73 +467,70 @@ function renderFeed() {
     return;
   }
 
-  // Group sessions by Date (YYYY-MM-DD)
-  const groups = new Map();
-  for (const s of itemsToRender) {
-    const d = s.id && s.id.length >= 8 ? `${s.id.slice(0,4)}-${s.id.slice(4,6)}-${s.id.slice(6,8)}` : "Без даты";
-    if (!groups.has(d)) {
-      groups.set(d, []);
+  // 1. Sort sessions according to current sortField and sortAsc
+  const sortedSessions = sortSessionsList(state.sessions, state.sortField, state.sortAsc);
+
+  // 2. Paginate over sorted list
+  const totalItems = sortedSessions.length;
+  let itemsToRender = sortedSessions;
+  const pagerEl = document.getElementById("feedPager");
+  const pagerInfo = document.getElementById("pagerInfo");
+  const pagerPrev = document.getElementById("pagerPrevBtn");
+  const pagerNext = document.getElementById("pagerNextBtn");
+
+  if (state.pageSize !== "all" && totalItems > 0) {
+    const size = parseInt(state.pageSize, 10);
+    const totalPages = Math.max(1, Math.ceil(totalItems / size));
+    if (state.currentPage > totalPages) state.currentPage = totalPages;
+    if (state.currentPage < 1) state.currentPage = 1;
+
+    const startIdx = (state.currentPage - 1) * size;
+    const endIdx = Math.min(startIdx + size, totalItems);
+    itemsToRender = sortedSessions.slice(startIdx, endIdx);
+
+    if (pagerEl) {
+      pagerEl.style.display = "flex";
+      pagerInfo.textContent = `Стр. ${state.currentPage} из ${totalPages} (${startIdx + 1}–${endIdx} из ${totalItems})`;
+      pagerPrev.disabled = state.currentPage <= 1;
+      pagerNext.disabled = state.currentPage >= totalPages;
     }
-    groups.get(d).push(s);
+  } else {
+    if (pagerEl) {
+      pagerEl.style.display = "none";
+    }
   }
 
+  // 3. Render items: if sorted by Date, show date group headers; otherwise render in pure sorted order
   let html = "";
-  let rowIdx = 1;
+  if (state.sortField === "date") {
+    const groups = new Map();
+    for (const s of itemsToRender) {
+      const d = s.id && s.id.length >= 8 ? `${s.id.slice(0,4)}-${s.id.slice(4,6)}-${s.id.slice(6,8)}` : "Без даты";
+      if (!groups.has(d)) {
+        groups.set(d, []);
+      }
+      groups.get(d).push(s);
+    }
 
-  for (const [dateStr, list] of groups.entries()) {
-    const dayTotalMin = list.reduce((sum, item) => sum + (item.duration || 0), 0);
-    const dayHours = (dayTotalMin / 60).toFixed(1);
-
-    html += `
-      <div class="date-header">
-        <span>${formatDateHeader(dateStr)}</span>
-        <div class="date-header-line"></div>
-        <span class="date-header-summary">${list.length} зап. • ${dayHours} ч</span>
-      </div>
-    `;
-
-    for (const s of list) {
-      const isSelected = s.id === state.focusedId;
-      const isBatchChecked = state.selectedBatchIds.has(s.id);
-      const statusClass = getStatusClass(s.status);
-      const statusLabel = s.status ? s.status : "<пусто>";
-      const repeatIcon = s.series_id ? '<span class="row-repeat-icon" title="Повторяющаяся серия">↻</span>' : '';
-      const isNegative = s.cash < 0;
-      const cashBadge = (s.cash !== undefined && s.cash !== 0)
-        ? `<span class="row-cash ${isNegative ? 'cash-negative' : ''}" title="Кэш: ${formatCash(s.cash)}">${formatCash(s.cash)}</span>`
-        : `<span class="row-cash row-cash-empty" aria-hidden="true"></span>`;
+    for (const [dateStr, list] of groups.entries()) {
+      const dayTotalMin = list.reduce((sum, item) => sum + (item.duration || 0), 0);
+      const dayHours = (dayTotalMin / 60).toFixed(1);
 
       html += `
-        <div class="session-row ${isSelected ? 'selected' : ''} ${isBatchChecked ? 'batch-selected' : ''}" 
-             data-id="${s.id}" 
-             onclick="onRowClick('${s.id}')"
-             ondblclick="onRowDblClick('${s.id}')"
-             oncontextmenu="onRowContextMenu(event, '${s.id}')">
-          <label class="row-check-label" onclick="event.stopPropagation()">
-            <input type="checkbox" class="row-check" data-id="${s.id}" ${isBatchChecked ? 'checked' : ''} onchange="onToggleRowSelect(event, '${s.id}')">
-          </label>
-          <span class="row-cursor">${isSelected ? '▶' : ''}</span>
-          <span class="row-time">${s.time || '--:--'}</span>
-          <span class="row-name" title="${escapeHtml(s.name)}">
-            ${escapeHtml(s.name)}
-            ${repeatIcon}
-          </span>
-          <span class="row-type" title="${escapeHtml(s.type || '(без типа)')}">
-            ${escapeHtml(s.type || '—')}
-          </span>
-          <span class="row-duration">${s.duration || 0} мин</span>
-          ${cashBadge}
-          <div class="row-status-wrap">
-            <span class="status-pill ${statusClass}" 
-                  onclick="onStatusPillClick(event, '${s.id}')" 
-                  title="Нажмите, чтобы изменить статус">
-              ${escapeHtml(statusLabel)}
-            </span>
-          </div>
-          <button type="button" class="row-more-btn" onclick="onRowContextMenu(event, '${s.id}')" title="Меню действий">⋮</button>
+        <div class="date-header">
+          <span>${formatDateHeader(dateStr)}</span>
+          <div class="date-header-line"></div>
+          <span class="date-header-summary">${list.length} зап. • ${dayHours} ч</span>
         </div>
       `;
-      rowIdx++;
+
+      for (const s of list) {
+        html += renderSessionRowHTML(s);
+      }
+    }
+  } else {
+    for (const s of itemsToRender) {
+      html += renderSessionRowHTML(s);
     }
   }
 

@@ -40,6 +40,8 @@ var DefaultConfig = Config{
 	ShowHints:       false,
 	DefaultMode:     ModeCLI,
 	WebPort:         8080,
+	SortField:       "date",
+	SortAsc:         false,
 }
 
 // Config mirrors config_mycal.json.
@@ -62,6 +64,8 @@ type Config struct {
 	ShowHints        bool     `json:"show_hints"`
 	DefaultMode      string   `json:"default_mode"`
 	WebPort          int      `json:"web_port"`
+	SortField        string   `json:"sort_field,omitempty"`
+	SortAsc          bool     `json:"sort_asc,omitempty"`
 }
 
 // AddCustomType adds a custom type and ensures it is not in ExcludedTypes.

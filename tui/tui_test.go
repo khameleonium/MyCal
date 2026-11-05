@@ -1488,4 +1488,83 @@ func TestModalSessionFormDeleteType(t *testing.T) {
 	}
 }
 
+func TestModalSortKeyLOpensModal(t *testing.T) {
+	app := newTestApp(t)
+
+	// Press 'l'
+	app.handleKey(Key{Type: KeyRune, Rune: 'l'})
+	if app.activeModal == nil {
+		t.Fatalf("expected modal to open after pressing 'l'")
+	}
+	sortModal, ok := app.activeModal.(*ModalSort)
+	if !ok {
+		t.Fatalf("expected activeModal to be *ModalSort, got %T", app.activeModal)
+	}
+
+	// Press Esc to close
+	sortModal.HandleKey(Key{Type: KeyEsc}, app)
+	if app.activeModal != nil {
+		t.Fatalf("expected modal to close after Esc")
+	}
+
+	// Press 'д' (Russian keyboard)
+	app.handleKey(Key{Type: KeyRune, Rune: 'д'})
+	if app.activeModal == nil {
+		t.Fatalf("expected modal to open after pressing 'д'")
+	}
+}
+
+func TestModalSortSelectFieldAndToggleOrder(t *testing.T) {
+	app := newTestApp(t)
+	// Add two sessions
+	_ = app.svc.Add(models.Session{ID: "20261105140000", Time: "14:00", Name: "Яблоко", Duration: 30})
+	_ = app.svc.Add(models.Session{ID: "20261105090000", Time: "09:00", Name: "Апельсин", Duration: 90})
+	app.reloadSessions()
+
+	// 1. Initial sort is date descending, time ascending
+	if app.sortField != "date" || app.sortAsc != false {
+		t.Fatalf("expected initial sort date desc, got %s (asc=%v)", app.sortField, app.sortAsc)
+	}
+	if app.sessions[0].Time != "09:00" || app.sessions[1].Time != "14:00" {
+		t.Fatalf("expected time ascending within same date: %v, %v", app.sessions[0].Time, app.sessions[1].Time)
+	}
+
+	// 2. Open Sort Modal by pressing 'l'
+	app.handleKey(Key{Type: KeyRune, Rune: 'l'})
+	m, ok := app.activeModal.(*ModalSort)
+	if !ok {
+		t.Fatalf("expected ModalSort")
+	}
+
+	// Select [3] Название
+	m.HandleKey(Key{Type: KeyRune, Rune: '3'}, app)
+
+	// Modal closed and sort applied
+	if app.activeModal != nil {
+		t.Fatalf("expected modal closed after selection")
+	}
+	if app.sortField != "name" || app.sortAsc != true {
+		t.Fatalf("expected sortField=name asc=true, got %s (asc=%v)", app.sortField, app.sortAsc)
+	}
+	if app.sessions[0].Name != "Апельсин" || app.sessions[1].Name != "Яблоко" {
+		t.Fatalf("expected Апельсин before Яблоко: %s, %s", app.sessions[0].Name, app.sessions[1].Name)
+	}
+
+	// 3. Open Sort Modal again and select [3] Название again -> should TOGGLE order!
+	app.handleKey(Key{Type: KeyRune, Rune: 'l'})
+	m, ok = app.activeModal.(*ModalSort)
+	if !ok {
+		t.Fatalf("expected ModalSort")
+	}
+	m.HandleKey(Key{Type: KeyRune, Rune: '3'}, app)
+
+	if app.sortField != "name" || app.sortAsc != false {
+		t.Fatalf("expected sortField=name asc=false (toggled), got %s (asc=%v)", app.sortField, app.sortAsc)
+	}
+	if app.sessions[0].Name != "Яблоко" || app.sessions[1].Name != "Апельсин" {
+		t.Fatalf("expected Яблоко before Апельсин: %s, %s", app.sessions[0].Name, app.sessions[1].Name)
+	}
+}
+
+
 
