@@ -619,6 +619,13 @@
       </div>
 
       <div class="form-group">
+        <label for="cfgDefaultType" class="form-label">Категория события по умолчанию:</label>
+        <select id="cfgDefaultType" class="form-select">
+          <option value="">(Автоматически / первая доступная)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
         <label for="cfgDateCheckMode" class="form-label">Реакция на опечатки в дате (32.01):</label>
         <select id="cfgDateCheckMode" class="form-select">
           <option value="">Выключена (автоматический сдвиг на след. месяц)</option>
@@ -633,6 +640,31 @@
         <select id="cfgAskConflict" class="form-select">
           <option value="false">Выкл (добавлять сразу без лишних вопросов)</option>
           <option value="true">Вкл (предупреждать о пересечении времени)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="cfgSilentAddNames" class="form-label">Автосохранение частых имён:</label>
+        <select id="cfgSilentAddNames" class="form-select">
+          <option value="false">Выкл (спрашивать подтверждение)</option>
+          <option value="true">Вкл (сохранять автоматически)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="cfgSplitMode" class="form-label">Режим хранения данных на диске:</label>
+        <select id="cfgSplitMode" class="form-select">
+          <option value="none">Один файл (mycal.json)</option>
+          <option value="year">По годам (mycal_YYYY.json)</option>
+          <option value="month">По месяцам (mycal_YYYY-MM.json)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="cfgUseSystemDate" class="form-label">Использовать системное время:</label>
+        <select id="cfgUseSystemDate" class="form-select">
+          <option value="true">Вкл (текущее системное время)</option>
+          <option value="false">Выкл (ручной ввод / фиксированная дата)</option>
         </select>
       </div>
 

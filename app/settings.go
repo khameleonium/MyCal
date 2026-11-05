@@ -54,6 +54,8 @@ func (a *App) settingsMenu() {
 		a.hint("Что открывать при запуске 'mycal' без параметров (CLI / TUI / Web)")
 		fmt.Println(" s | 13. Служба автозапуска (Сервис)")
 		a.hint("Управление работой MyCal как фоновой системной службы")
+		fmt.Printf(" f | 14. Формат длительности         [%s]\n", durationUnitDisplay(a.cfg.DurationUnit))
+		a.hint("Отображение продолжительности (в минутах или часах)")
 		fmt.Println(" q | 0. Сохранить и выйти")
 		a.hint("Применить изменения и вернуться в главное меню")
 
@@ -112,11 +114,17 @@ func (a *App) settingsMenu() {
 			a.cfg.DefaultMode = nextInCycle(defaultModeOrder, a.cfg.DefaultMode)
 		case match(choice, "13", "s"):
 			a.serviceSettings()
+		case match(choice, "14", "f"):
+			if a.cfg.DurationUnit == "hours" {
+				a.cfg.DurationUnit = "min"
+			} else {
+				a.cfg.DurationUnit = "hours"
+			}
 		case match(choice, "0", "q"):
 			a.persistSettings(startMode, startName, startPath)
 			return
 		default:
-			fmt.Println(color.Red(errMark + " Некорректный выбор (0–13)"))
+			fmt.Println(color.Red(errMark + " Некорректный выбор (0–14)"))
 		}
 	}
 }
@@ -386,6 +394,13 @@ func onOff(v bool) string {
 		return "Вкл"
 	}
 	return "Выкл"
+}
+
+func durationUnitDisplay(u string) string {
+	if u == "hours" {
+		return "Часы (1 ч / 1.5 ч)"
+	}
+	return "Минуты (мин)"
 }
 
 func nextInCycle(order []string, current string) string {

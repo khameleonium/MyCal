@@ -1027,7 +1027,12 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		updated.Normalize()
+		oldSplit := s.cfg.SplitMode
 		*s.cfg = updated
+		if s.svc != nil && updated.SplitMode != "" && updated.SplitMode != oldSplit {
+			s.svc.SetMode(updated.SplitMode)
+			_ = s.svc.Save(r.Context())
+		}
 		if s.cfgPath != "" {
 			_ = config.Save(r.Context(), s.cfgPath, s.cfg)
 			if fi, err := os.Stat(s.cfgPath); err == nil {

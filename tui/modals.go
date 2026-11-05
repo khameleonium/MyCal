@@ -2170,42 +2170,83 @@ func (m *ModalYearCalendar) HandleKey(k Key, app *App) bool {
 // ----------------- SETTINGS MODAL -----------------
 
 type ModalSettings struct {
-	defaultMode  string // "cli", "tui", "web"
-	portStr      string
-	durationStr  string
-	durationUnit string // "min" or "hours"
-	selectedIdx  int
-	svcStatus    *service.StatusInfo
+	defaultMode    string // "cli", "tui", "web"
+	portStr        string
+	durationStr    string
+	durationUnit   string // "min" or "hours"
+	defaultType    string
+	dateCheckMode  string // "", "ask", "fix", "reask"
+	askOnConflict  bool
+	silentAddNames bool
+	splitMode      string // "none", "year", "month"
+	useSystemDate  bool
+	dataPath       string
+	svcStatus      *service.StatusInfo
+	selectedIdx    int
+	scrollOffset   int
 }
 
 func NewModalSettings(cfg *models.Config) *ModalSettings {
 	mgr := service.NewManager()
 	st, _ := mgr.Status(context.Background())
 	durUnit := "min"
-	if cfg != nil && cfg.DurationUnit == "hours" {
-		durUnit = "hours"
-	}
 	defaultMode := models.ModeCLI
 	portStr := "8080"
 	durStr := "60"
+	defaultType := ""
+	dateCheckMode := ""
+	askOnConflict := false
+	silentAddNames := false
+	splitMode := models.SplitNone
+	useSystemDate := true
+	dataPath := "~/.mycal"
+
 	if cfg != nil {
-		defaultMode = cfg.DefaultMode
-		portStr = strconv.Itoa(cfg.WebPort)
-		durStr = strconv.Itoa(cfg.DefaultDuration)
+		if cfg.DurationUnit == "hours" {
+			durUnit = "hours"
+		}
+		if cfg.DefaultMode != "" {
+			defaultMode = cfg.DefaultMode
+		}
+		if cfg.WebPort > 0 {
+			portStr = strconv.Itoa(cfg.WebPort)
+		}
+		if cfg.DefaultDuration > 0 {
+			durStr = strconv.Itoa(cfg.DefaultDuration)
+		}
+		defaultType = cfg.DefaultType
+		dateCheckMode = cfg.DateCheckMode
+		askOnConflict = cfg.AskOnConflict
+		silentAddNames = cfg.SilentAddNames
+		if cfg.SplitMode != "" {
+			splitMode = cfg.SplitMode
+		}
+		useSystemDate = cfg.UseSystemDate
+		if cfg.DataPath != "" {
+			dataPath = cfg.DataPath
+		}
 	}
 	return &ModalSettings{
-		defaultMode:  defaultMode,
-		portStr:      portStr,
-		durationStr:  durStr,
-		durationUnit: durUnit,
-		selectedIdx:  0,
-		svcStatus:    st,
+		defaultMode:    defaultMode,
+		portStr:        portStr,
+		durationStr:    durStr,
+		durationUnit:   durUnit,
+		defaultType:    defaultType,
+		dateCheckMode:  dateCheckMode,
+		askOnConflict:  askOnConflict,
+		silentAddNames: silentAddNames,
+		splitMode:      splitMode,
+		useSystemDate:  useSystemDate,
+		dataPath:       dataPath,
+		selectedIdx:    0,
+		scrollOffset:   0,
+		svcStatus:      st,
 	}
 }
 
 func (m *ModalSettings) Draw(s *Screen) {
-	w := 56
-	h := 20
+	w := 68
+	h := 22
 	if w > s.Width-2 {
 		w = s.Width - 2
 	}
@@ -2235,36 +2276,101 @@ func (m *ModalSettings) Draw(s *Screen) {
 		unitDisplay = "Часы (1 ч / 1.5 ч)"
 	}
 
+	typeDisplay := m.defaultType
+	if typeDisplay == "" {
+		typeDisplay = "(по умолчанию / первая)"
+	}
+
+	dateCheckDisplay := "Выкл (автосдвиг)"
+	switch m.dateCheckMode {
+	case "ask":
+		dateCheckDisplay = "Спрашивать (подтверждение)"
+	case "fix":
+		dateCheckDisplay = "Исправлять (автосдвиг)"
+	case "reask":
+		dateCheckDisplay = "Переспрашивать (повтор ввода)"
+	}
+
+	conflictDisplay := "Выкл (добавлять сразу)"
+	if m.askOnConflict {
+		conflictDisplay = "Вкл (предупреждать)"
+	}
+
+	silentDisplay := "Выкл (спрашивать)"
+	if m.silentAddNames {
+		silentDisplay = "Вкл (автосохранение)"
+	}
+
+	splitDisplay := "Один файл (mycal.json)"
+	switch m.splitMode {
+	case models.SplitYear:
+		splitDisplay = "По годам (mycal_YYYY.json)"
+	case models.SplitMonth:
+		splitDisplay = "По месяцам (mycal_YYYY-MM.json)"
+	}
+
+	dateDisplay := "Вкл (системное время)"
+	if !m.useSystemDate {
+		dateDisplay = "Фиксированная (ручной ввод)"
+	}
+
+	pathDisplay := m.dataPath
+	if pathDisplay == "" || pathDisplay == "." {
+		pathDisplay = "~/.mycal"
+	}
+
 	fields := []struct {
 		lbl string
 		val string
 	}{
-		{"1. Режим запуска по умолч.:", modeDisplay},
+		{"1. Режим запуска:           ", modeDisplay},
 		{"2. Порт веб-сервера:        ", m.portStr},
 		{"3. Длительность по умолч.:  ", m.durationStr + " мин"},
 		{"4. Формат длительности:     ", unitDisplay},
-		{"5. Фоновая служба (сервис): ", m.svcStatusText()},
+		{"5. Категория по умолчанию:  ", typeDisplay},
+		{"6. Проверка даты (опечатки):", dateCheckDisplay},
+		{"7. Конфликт времени:        ", conflictDisplay},
+		{"8. Автосохранение имён:     ", silentDisplay},
+		{"9. Режим хранения записей:  ", splitDisplay},
+		{"10. Системная дата:         ", dateDisplay},
+		{"11. Путь к данным:          ", pathDisplay},
+		{"12. Фоновая служба:         ", m.svcStatusText()},
+		{"13. Свои списки (категории):", "Управление: [+] добавить, [d] удалить"},
 	}
 
-	rowStep := 3
-	if h < 20 {
-		rowStep = 2
+	availRows := h - 4
+	if availRows < 1 {
+		availRows = 1
 	}
 
-	for i, f := range fields {
-		rowY := y + 2 + (i * rowStep)
-		isCur := i == m.selectedIdx
+	// Adjust scroll offset
+	if m.selectedIdx < m.scrollOffset {
+		m.scrollOffset = m.selectedIdx
+	} else if m.selectedIdx >= m.scrollOffset+availRows {
+		m.scrollOffset = m.selectedIdx - availRows + 1
+	}
+	if m.scrollOffset < 0 {
+		m.scrollOffset = 0
+	}
+
+	lblW := 28
+	if lblW > w-16 {
+		lblW = w - 16
+	}
+	if lblW < 8 {
+		lblW = 8
+	}
+
+	for i := 0; i < availRows && (i+m.scrollOffset) < len(fields); i++ {
+		fieldIdx := i + m.scrollOffset
+		f := fields[fieldIdx]
+		rowY := y + 2 + i
+		isCur := fieldIdx == m.selectedIdx
 		fg := FgMuted
 		if isCur {
 			fg = FgYellow
 		}
-		lblW := 26
-		if lblW > w-12 {
-			lblW = w - 12
-		}
-		if lblW < 8 {
-			lblW = 8
-		}
+
 		s.DrawText(x+2, rowY, f.lbl, fg, BgModal, lblW, isCur, false, false)
 
 		valBg := BgInput
@@ -2277,14 +2383,22 @@ func (m *ModalSettings) Draw(s *Screen) {
 		if valW > 0 {
 			s.Fill(valX, rowY, valW, 1, ' ', valFg, valBg)
 			disp := f.val
-			if isCur && (i == 1 || i == 2) {
+			if isCur && (fieldIdx == 1 || fieldIdx == 2) {
 				disp += "█"
 			}
 			s.DrawText(valX+1, rowY, disp, valFg, valBg, valW-2, isCur, false, false)
 		}
 	}
 
-	s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор  [Space] Изменить  [Enter] Сохранить  [Esc]", FgDim, BgModal)
+	// Scroll indicators
+	if m.scrollOffset > 0 {
+		s.DrawText(x+w-3, y+1, "▲", FgYellow, BgModal, 1, false, false, false)
+	}
+	if m.scrollOffset+availRows < len(fields) {
+		s.DrawText(x+w-3, y+h-2, "▼", FgYellow, BgModal, 1, false, false, false)
+	}
+
+	s.DrawBottomWrappedHint(x+2, y+h-2, w-5, 2, "[↑↓] Выбор  [Space] Изменить  [Enter] Сохранить  [Esc]", FgDim, BgModal)
 }
 
 func (m *ModalSettings) svcStatusText() string {
@@ -2297,6 +2411,7 @@ func (m *ModalSettings) svcStatusText() string {
 }
 
 func (m *ModalSettings) HandleKey(k Key, app *App) bool {
+	totalFields := 13
 	switch {
 	case k.Type == KeyEsc:
 		app.activeModal = nil
@@ -2306,12 +2421,12 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 		if m.selectedIdx > 0 {
 			m.selectedIdx--
 		} else {
-			m.selectedIdx = 4
+			m.selectedIdx = totalFields - 1
 		}
 		return true
 
 	case k.Type == KeyDown || k.Matches('j', 'о'):
-		if m.selectedIdx < 4 {
+		if m.selectedIdx < totalFields-1 {
 			m.selectedIdx++
 		} else {
 			m.selectedIdx = 0
@@ -2357,6 +2472,64 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 			}
 			return true
 		case 4:
+			// Cycle default type
+			var types []string
+			if app != nil {
+				types = app.getAvailableTypes()
+			}
+			if len(types) > 0 {
+				curIdx := -1
+				for idx, t := range types {
+					if strings.EqualFold(t, m.defaultType) {
+						curIdx = idx
+						break
+					}
+				}
+				nextIdx := (curIdx + 1) % len(types)
+				m.defaultType = types[nextIdx]
+			}
+			return true
+		case 5:
+			// Cycle date check mode
+			switch m.dateCheckMode {
+			case "":
+				m.dateCheckMode = "ask"
+			case "ask":
+				m.dateCheckMode = "fix"
+			case "fix":
+				m.dateCheckMode = "reask"
+			case "reask":
+				m.dateCheckMode = ""
+			default:
+				m.dateCheckMode = ""
+			}
+			return true
+		case 6:
+			// Toggle ask on conflict
+			m.askOnConflict = !m.askOnConflict
+			return true
+		case 7:
+			// Toggle silent add names
+			m.silentAddNames = !m.silentAddNames
+			return true
+		case 8:
+			// Cycle split mode
+			switch m.splitMode {
+			case models.SplitNone, "":
+				m.splitMode = models.SplitYear
+			case models.SplitYear:
+				m.splitMode = models.SplitMonth
+			case models.SplitMonth:
+				m.splitMode = models.SplitNone
+			default:
+				m.splitMode = models.SplitNone
+			}
+			return true
+		case 9:
+			// Toggle use system date
+			m.useSystemDate = !m.useSystemDate
+			return true
+		case 11:
 			// Toggle service
 			mgr := service.NewManager()
 			if m.svcStatus != nil && m.svcStatus.Running {
@@ -2372,10 +2545,13 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 			}
 			m.svcStatus, _ = mgr.Status(app.ctx)
 			return true
+		case 12:
+			app.setStatusMsg("Категории и статусы добавляются через [+] и удаляются через [d] при выборе")
+			return true
 		}
 
 	case k.Type == KeyEnter:
-		if m.selectedIdx == 4 {
+		if m.selectedIdx == 11 {
 			// Trigger service action on Enter
 			mgr := service.NewManager()
 			if m.svcStatus != nil && m.svcStatus.Running {
@@ -2391,6 +2567,9 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 			}
 			m.svcStatus, _ = mgr.Status(app.ctx)
 			return true
+		} else if m.selectedIdx == 12 {
+			app.setStatusMsg("Категории и статусы добавляются через [+] и удаляются через [d] при выборе")
+			return true
 		}
 
 		app.cfg.DefaultMode = m.defaultMode
@@ -2401,6 +2580,17 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 			app.cfg.DefaultDuration = d
 		}
 		app.cfg.DurationUnit = m.durationUnit
+		app.cfg.DefaultType = m.defaultType
+		app.cfg.DateCheckMode = m.dateCheckMode
+		app.cfg.AskOnConflict = m.askOnConflict
+		app.cfg.SilentAddNames = m.silentAddNames
+		oldSplit := app.cfg.SplitMode
+		app.cfg.SplitMode = m.splitMode
+		app.cfg.UseSystemDate = m.useSystemDate
+		if app.svc != nil && oldSplit != m.splitMode {
+			app.svc.SetMode(m.splitMode)
+			_ = app.svc.Save(app.ctx)
+		}
 		app.persistConfig()
 		app.reloadSessions()
 		app.setStatusMsg("Настройки сохранены")
@@ -2607,15 +2797,19 @@ func (m *ModalDateRange) HandleKey(k Key, app *App) bool {
 
 // ----------------- HELP MODAL -----------------
 
-type ModalHelp struct{}
+type ModalHelp struct {
+	scrollOffset int
+}
 
 func NewModalHelp() *ModalHelp {
-	return &ModalHelp{}
+	return &ModalHelp{
+		scrollOffset: 0,
+	}
 }
 
 func (m *ModalHelp) Draw(s *Screen) {
-	w := 64
-	h := 22
+	w := 66
+	h := 23
 	if w > s.Width-2 {
 		w = s.Width - 2
 	}
@@ -2641,26 +2835,35 @@ func (m *ModalHelp) Draw(s *Screen) {
 		{"Space (Пробел)", "Выбор записи [✓] / фиксация периода в календаре"},
 		{"Enter", "Карточка записи / применить выбор дня"},
 		{"s / ы", "Быстрая смена статуса (Активно/Завершено/...) [1-5]"},
+		{"l / д", "Сортировка записей (Дата, Время, Имя, Тип...)"},
 		{"a / ф", "Создать новую запись"},
 		{"e / у", "Редактировать выбранную запись"},
 		{"f / а", "Быстрая правка любого поля (одиночно или пачкой)"},
 		{"d / в", "Удалить выбранную запись (или все отмеченные)"},
 		{"Tab / Shift+Tab", "Переключение блоков: Календарь / Периоды / Записи / Карточка"},
 		{"< / >, б / ю", "Листание месяцев календаря назад/вперёд"},
-		{"p / з", "Ввод периода дат (От и До)"},
+		{"p / з", "Ввод произвольного периода дат (От и До)"},
 		{"Home, t / е", "Возврат календаря на Сегодня"},
 		{"1 .. 4", "Быстрый выбор периода: Все / День / Неделя / Месяц"},
 		{"y / н", "Годовой календарь со всеми месяцами"},
-		{"l / д", "Сортировка записей (Дата, Время, Имя...)"},
-		{"o / щ", "Настройки (режим по умолчанию, служба, порт)"},
+		{"o / щ", "Настройки MyCal (режим, служба, порт, хранение...)"},
+		{"? / F1", "Справка по горячим клавишам (это окно)"},
 		{"q / й, Ctrl+C", "Выход из полноэкранного режима TUI"},
 	}
 
 	maxRows := h - 4
-	for i, item := range lines {
-		if i >= maxRows {
-			break
-		}
+	if maxRows < 1 {
+		maxRows = 1
+	}
+	if m.scrollOffset > len(lines)-maxRows {
+		m.scrollOffset = len(lines) - maxRows
+	}
+	if m.scrollOffset < 0 {
+		m.scrollOffset = 0
+	}
+
+	for i := 0; i < maxRows && (i+m.scrollOffset) < len(lines); i++ {
+		item := lines[i+m.scrollOffset]
 		rowY := y + 2 + i
 		keyW := 18
 		if w < 50 {
@@ -2673,12 +2876,28 @@ func (m *ModalHelp) Draw(s *Screen) {
 		}
 	}
 
-	s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Esc / Enter / q] Закрыть справку", FgDim, BgModal)
+	if m.scrollOffset > 0 {
+		s.DrawText(x+w-3, y+1, "▲", FgYellow, BgModal, 1, false, false, false)
+	}
+	if m.scrollOffset+maxRows < len(lines) {
+		s.DrawText(x+w-3, y+h-2, "▼", FgYellow, BgModal, 1, false, false, false)
+	}
+
+	s.DrawBottomWrappedHint(x+2, y+h-2, w-5, 2, "[↑↓] Прокрутка  [Esc / Enter / q / ?] Закрыть", FgDim, BgModal)
 }
 
 func (m *ModalHelp) HandleKey(k Key, app *App) bool {
-	if k.Type == KeyEsc || k.Type == KeyEnter || k.Matches('q', 'й') || k.Matches('h', 'р') || k.Matches('?', '?') {
+	switch {
+	case k.Type == KeyEsc || k.Type == KeyEnter || k.Matches('q', 'й') || k.Matches('h', 'р') || k.Matches('?', '?'):
 		app.activeModal = nil
+		return true
+	case k.Type == KeyUp || k.Matches('k', 'л'):
+		if m.scrollOffset > 0 {
+			m.scrollOffset--
+		}
+		return true
+	case k.Type == KeyDown || k.Matches('j', 'о'):
+		m.scrollOffset++
 		return true
 	}
 	return false
