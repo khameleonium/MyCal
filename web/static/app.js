@@ -4,20 +4,22 @@
  */
 
 // Application State
+const savedPeriodState = getSavedPeriodState();
+
 const state = {
   sessions: [],
   types: [],
   statuses: ["Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"],
   config: {},
-  currentPeriod: "month", // "today", "week", "month", "all", "range", or "day"
-  selectedDate: null,    // ISO date string if a single day is selected (YYYY-MM-DD), otherwise null
-  rangeStart: null,      // ISO date string (YYYY-MM-DD) for week / month / range
-  rangeEnd: null,        // ISO date string (YYYY-MM-DD) for week / month / range
+  currentPeriod: (savedPeriodState && savedPeriodState.period) ? savedPeriodState.period : "month", // "today", "week", "month", "all", "range", or "day"
+  selectedDate: (savedPeriodState && savedPeriodState.selectedDate) ? savedPeriodState.selectedDate : null,    // ISO date string if a single day is selected (YYYY-MM-DD), otherwise null
+  rangeStart: (savedPeriodState && savedPeriodState.rangeStart) ? savedPeriodState.rangeStart : null,      // ISO date string (YYYY-MM-DD) for week / month / range
+  rangeEnd: (savedPeriodState && savedPeriodState.rangeEnd) ? savedPeriodState.rangeEnd : null,        // ISO date string (YYYY-MM-DD) for week / month / range
   selectedTypes: new Set(),
   searchQuery: "",
   focusedId: null,
-  calYear: new Date().getFullYear(),
-  calMonth: new Date().getMonth(), // 0-based (0 = Jan, 10 = Nov)
+  calYear: (savedPeriodState && Number.isInteger(savedPeriodState.calYear)) ? savedPeriodState.calYear : new Date().getFullYear(),
+  calMonth: (savedPeriodState && Number.isInteger(savedPeriodState.calMonth)) ? savedPeriodState.calMonth : new Date().getMonth(), // 0-based (0 = Jan, 10 = Nov)
   mobileTab: "feed",
   statusPopupTargetId: null,
   contextTargetId: null,
@@ -52,6 +54,7 @@ document.addEventListener("DOMContentLoaded", () => {
   initGlobalKeyboard();
   initOutsideClickDismiss();
   initPaginationUI();
+  initPeriodUI();
   initFormHotkeys();
   loadInitialData();
 
@@ -92,15 +95,20 @@ function initPaginationUI() {
   });
 }
 
+function initPeriodUI() {
+  syncPeriodButtons();
+}
+
 async function loadInitialData() {
   await Promise.all([fetchTypes(), fetchStatuses(), fetchConfig()]);
-  setPeriod("month");
+  restoreSavedPeriod();
 }
 
 async function reloadAll() {
   state.searchQuery = "";
-  document.getElementById("topSearchInput").value = "";
-  setPeriod("month");
+  const searchInput = document.getElementById("topSearchInput");
+  if (searchInput) searchInput.value = "";
+  restoreSavedPeriod();
 }
 
 // ======================== API CLIENT ========================
@@ -1475,6 +1483,7 @@ function prevMonth() {
     state.rangeStart = toISODate(bounds.first);
     state.rangeEnd = toISODate(bounds.last);
     refreshData();
+    savePeriodState();
   } else {
     renderMiniCalendar();
   }
@@ -1491,6 +1500,7 @@ function nextMonth() {
     state.rangeStart = toISODate(bounds.first);
     state.rangeEnd = toISODate(bounds.last);
     refreshData();
+    savePeriodState();
   } else {
     renderMiniCalendar();
   }
@@ -1527,6 +1537,7 @@ function selectCalendarDate(iso) {
   syncPeriodButtons();
   renderMiniCalendar();
   refreshData();
+  savePeriodState();
 }
 
 function selectCalendarWeek(monISO, sunISO) {
@@ -1545,6 +1556,92 @@ function selectCalendarWeek(monISO, sunISO) {
     syncPeriodButtons();
     renderMiniCalendar();
     refreshData();
+    savePeriodState();
+  }
+}
+
+function savePeriodState() {
+  try {
+    const data = {
+      period: state.currentPeriod,
+      selectedDate: state.selectedDate,
+      rangeStart: state.rangeStart,
+      rangeEnd: state.rangeEnd,
+      calYear: state.calYear,
+      calMonth: state.calMonth,
+    };
+    localStorage.setItem("mycal_period_state", JSON.stringify(data));
+  } catch (e) {
+    console.warn("Could not save period state:", e);
+  }
+}
+
+function getSavedPeriodState() {
+  try {
+    const raw = localStorage.getItem("mycal_period_state");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.period === "string") {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.warn("Could not parse saved period state:", e);
+  }
+  return null;
+}
+
+function restoreSavedPeriod() {
+  const saved = getSavedPeriodState();
+  if (!saved) {
+    setPeriod("month");
+    return;
+  }
+
+  const validPeriods = ["all", "today", "week", "month", "day", "range"];
+  if (!validPeriods.includes(saved.period)) {
+    setPeriod("month");
+    return;
+  }
+
+  if (saved.period === "all") {
+    setPeriod("all");
+  } else if (saved.period === "today") {
+    setPeriod("today");
+  } else if (saved.period === "week") {
+    setPeriod("week");
+  } else if (saved.period === "month") {
+    if (Number.isInteger(saved.calYear) && Number.isInteger(saved.calMonth) && saved.calMonth >= 0 && saved.calMonth <= 11) {
+      state.calYear = saved.calYear;
+      state.calMonth = saved.calMonth;
+    }
+    setPeriod("month");
+  } else if (saved.period === "day" && saved.selectedDate && /^\d{4}-\d{2}-\d{2}$/.test(saved.selectedDate)) {
+    const y = parseInt(saved.selectedDate.slice(0, 4), 10);
+    const m = parseInt(saved.selectedDate.slice(5, 7), 10) - 1;
+    if (!isNaN(y) && !isNaN(m)) {
+      state.calYear = y;
+      state.calMonth = m;
+    }
+    state.currentPeriod = "day";
+    state.selectedDate = saved.selectedDate;
+    state.rangeStart = null;
+    state.rangeEnd = null;
+    state.currentPage = 1;
+    syncPeriodButtons();
+    renderMiniCalendar();
+    refreshData();
+    savePeriodState();
+  } else if (saved.period === "range" && saved.rangeStart && saved.rangeEnd && /^\d{4}-\d{2}-\d{2}$/.test(saved.rangeStart) && /^\d{4}-\d{2}-\d{2}$/.test(saved.rangeEnd)) {
+    const y = parseInt(saved.rangeStart.slice(0, 4), 10);
+    const m = parseInt(saved.rangeStart.slice(5, 7), 10) - 1;
+    if (!isNaN(y) && !isNaN(m)) {
+      state.calYear = y;
+      state.calMonth = m;
+    }
+    setPeriod("range", { start: saved.rangeStart, end: saved.rangeEnd });
+  } else {
+    setPeriod("month");
   }
 }
 
@@ -1589,6 +1686,7 @@ function setPeriod(p, options = {}) {
   syncPeriodButtons();
   renderMiniCalendar();
   refreshData();
+  savePeriodState();
 }
 
 function syncPeriodButtons() {

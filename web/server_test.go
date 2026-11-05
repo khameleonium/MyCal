@@ -87,6 +87,15 @@ func TestStaticFrontendServed(t *testing.T) {
 	if !bytes.Contains(rec.Body.Bytes(), []byte("selectNewStatus")) {
 		t.Errorf("GET /app.js: response does not contain client functions")
 	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("savePeriodState")) {
+		t.Errorf("GET /app.js: response does not contain savePeriodState")
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("restoreSavedPeriod")) {
+		t.Errorf("GET /app.js: response does not contain restoreSavedPeriod")
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("mycal_period_state")) {
+		t.Errorf("GET /app.js: response does not contain mycal_period_state localStorage key")
+	}
 }
 
 func TestGetSessionsAPI(t *testing.T) {
