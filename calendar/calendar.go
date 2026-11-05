@@ -715,3 +715,16 @@ func CompareSessions(s1, s2 models.Session, field string, asc bool) bool {
 	}
 }
 
+// FormatDuration formats duration in minutes according to the configured unit ("min" or "hours").
+func FormatDuration(duration int, unit string) string {
+	if unit == "hours" {
+		if duration%60 == 0 {
+			return fmt.Sprintf("%d ч", duration/60)
+		}
+		hours := float64(duration) / 60.0
+		return fmt.Sprintf("%.1f ч", hours)
+	}
+	return fmt.Sprintf("%d мин", duration)
+}
+
+

@@ -159,6 +159,9 @@ async function fetchConfig() {
       document.getElementById("cfgWebPort").value = state.config.web_port || 8080;
     }
     document.getElementById("cfgDefaultDuration").value = state.config.default_duration || 60;
+    if (document.getElementById("cfgDurationUnit")) {
+      document.getElementById("cfgDurationUnit").value = state.config.duration_unit || "min";
+    }
     document.getElementById("cfgDateCheckMode").value = state.config.date_check_mode || "";
     document.getElementById("cfgAskConflict").value = state.config.ask_on_conflict ? "true" : "false";
     document.getElementById("cfgDataPath").value = state.config.data_path || "~/.mycal";
@@ -234,6 +237,19 @@ function formatRowDate(id) {
   const mm = id.slice(4, 6);
   const dd = id.slice(6, 8);
   return `${dd}.${mm}.${yyyy}`;
+}
+
+function formatDuration(duration, unit) {
+  const dur = duration || 0;
+  const u = unit || (state.config && state.config.duration_unit) || "min";
+  if (u === "hours") {
+    if (dur % 60 === 0) {
+      return `${dur / 60} ч`;
+    }
+    const h = dur / 60;
+    return `${h.toFixed(1)} ч`;
+  }
+  return `${dur} мин`;
 }
 
 function sortSessionsList(sessions, field, asc) {
@@ -410,7 +426,7 @@ function renderSessionRowHTML(s) {
       <span class="row-type" title="${escapeHtml(s.type || '(без типа)')}">
         ${escapeHtml(s.type || '—')}
       </span>
-      <span class="row-duration">${s.duration || 0} мин</span>
+      <span class="row-duration">${formatDuration(s.duration)}</span>
       ${cashBadge}
       <div class="row-status-wrap">
         <span class="status-pill ${statusClass}" 
@@ -2521,7 +2537,7 @@ function deleteFocusedSession() {
   if (!s) return;
 
   document.getElementById("delItemName").textContent = s.name;
-  document.getElementById("delItemMeta").textContent = `${formatISODate(sessionDate(s))} ${s.time} • ${s.duration} мин • ${s.type || '(без типа)'}`;
+  document.getElementById("delItemMeta").textContent = `${formatISODate(sessionDate(s))} ${s.time} • ${formatDuration(s.duration)} • ${s.type || '(без типа)'}`;
   document.getElementById("delSeriesOptions").style.display = s.series_id ? "block" : "none";
 
   openModal("modalDelete");
@@ -2615,6 +2631,9 @@ function applyModalTypes() {
 function openSettingsModal() {
   fetchServiceStatus();
   renderSettingsManageLists();
+  if (document.getElementById("cfgDurationUnit")) {
+    document.getElementById("cfgDurationUnit").value = state.config.duration_unit || "min";
+  }
   openModal("modalSettings");
 }
 
@@ -2622,6 +2641,7 @@ async function saveSettings() {
   const default_mode = document.getElementById("cfgDefaultMode") ? document.getElementById("cfgDefaultMode").value : "cli";
   const web_port = (document.getElementById("cfgWebPort") ? parseInt(document.getElementById("cfgWebPort").value, 10) : 8080) || 8080;
   const default_duration = parseInt(document.getElementById("cfgDefaultDuration").value, 10) || 60;
+  const duration_unit = document.getElementById("cfgDurationUnit") ? document.getElementById("cfgDurationUnit").value : "min";
   const date_check_mode = document.getElementById("cfgDateCheckMode").value;
   const ask_on_conflict = document.getElementById("cfgAskConflict").value === "true";
 
@@ -2631,6 +2651,7 @@ async function saveSettings() {
       default_mode,
       web_port,
       default_duration,
+      duration_unit,
       date_check_mode,
       ask_on_conflict,
     };
@@ -2640,6 +2661,7 @@ async function saveSettings() {
     });
     state.config = updated;
     closeModal("modalSettings");
+    renderFeed();
     alert("Настройки успешно сохранены!");
   } catch (err) {
     alert("Ошибка сохранения настроек: " + err.message);
