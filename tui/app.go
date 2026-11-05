@@ -547,17 +547,48 @@ func (a *App) handleKey(k Key) bool {
 		return false
 
 	case k.Matches('t', 'е'):
-		if a.focusPanel == PanelCalendar {
-			now := time.Now()
-			a.calYear = now.Year()
-			a.calMonth = int(now.Month())
-			a.calDay = now.Day()
-			a.calHeaderFocus = false
-			a.rangeAnchor = nil
-			a.syncCalendarSelection()
-			a.setStatusMsg("Календарь возвращён на Сегодня")
+		types := a.getAvailableTypes()
+		catStart := 5
+		isCategoriesFocused := a.focusPanel == PanelSidebar && a.sidebarIdx >= catStart
+
+		if len(types) == 0 {
+			a.focusPanel = PanelSidebar
+			a.lastLeftPanel = PanelSidebar
+			if a.width < 115 {
+				a.activeTab = TabCalendar
+			}
+			a.setStatusMsg("Список категорий пуст")
+			return false
+		}
+
+		if !isCategoriesFocused {
+			a.focusPanel = PanelSidebar
+			a.lastLeftPanel = PanelSidebar
+			if a.width < 115 {
+				a.activeTab = TabCalendar
+			}
+			targetIdx := catStart
+			for i, t := range types {
+				if a.isTypeFilterActive(t) {
+					targetIdx = catStart + i
+					break
+				}
+			}
+			a.sidebarIdx = targetIdx
+			a.setStatusMsg("Блок «Категории»: навигация [↑↓], выбор [Space], повтор [t] для перебора")
 		} else {
 			a.cycleTypeFilter()
+			found := false
+			for i, t := range types {
+				if a.isTypeFilterActive(t) {
+					a.sidebarIdx = catStart + i
+					found = true
+					break
+				}
+			}
+			if !found {
+				a.sidebarIdx = catStart
+			}
 		}
 		return false
 
@@ -2233,7 +2264,7 @@ func (a *App) layoutFooter() (statusLines []string, hintLines [][]footerHintItem
 			{"[< >]", "Месяц"},
 			{"[y]", "Год"},
 			{"[p]", "Период"},
-			{"[t]", "Сегодня"},
+			{"[t]", "Категории"},
 			{"[s]", "Статус"},
 			{"[l]", "Сортировка"},
 			{"[a]", "Создать"},
@@ -2261,7 +2292,7 @@ func (a *App) layoutFooter() (statusLines []string, hintLines [][]footerHintItem
 			{"[Tab]", "Блок"},
 			{"[< >]", "Месяц"},
 			{"[p]", "Период"},
-			{"[t]", "Сегодня"},
+			{"[t]", "Категории"},
 			{"[1-4]", "Период"},
 			{"[y]", "Год"},
 			{"[o]", "Настройки"},
