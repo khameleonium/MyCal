@@ -2169,6 +2169,11 @@ func (m *ModalYearCalendar) HandleKey(k Key, app *App) bool {
 
 // ----------------- SETTINGS MODAL -----------------
 
+type ModalSettingsOption struct {
+	Code  string
+	Label string
+}
+
 type ModalSettings struct {
 	defaultMode    string // "cli", "tui", "web"
 	portStr        string
@@ -2184,6 +2189,14 @@ type ModalSettings struct {
 	svcStatus      *service.StatusInfo
 	selectedIdx    int
 	scrollOffset   int
+
+	// Dropdown picker state
+	pickerOpen   bool
+	pickerField  int
+	pickerTitle  string
+	pickerList   []ModalSettingsOption
+	pickerIdx    int
+	pickerScroll int
 }
 
 func NewModalSettings(cfg *models.Config) *ModalSettings {
@@ -2241,6 +2254,182 @@ func NewModalSettings(cfg *models.Config) *ModalSettings {
 		selectedIdx:    0,
 		scrollOffset:   0,
 		svcStatus:      st,
+	}
+}
+
+func (m *ModalSettings) canHavePicker(fieldIdx int) bool {
+	switch fieldIdx {
+	case 0, 2, 3, 4, 5, 6, 7, 8, 9, 11:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *ModalSettings) openPicker(fieldIdx int, app *App) {
+	var list []ModalSettingsOption
+	title := ""
+	curCode := ""
+
+	switch fieldIdx {
+	case 0:
+		title = " Режим запуска [Enter] "
+		list = []ModalSettingsOption{
+			{Code: models.ModeCLI, Label: "Классическое меню (CLI)"},
+			{Code: models.ModeTUI, Label: "Полноэкранный TUI (-tui)"},
+			{Code: models.ModeWeb, Label: "Веб-интерфейс (Web)"},
+		}
+		curCode = m.defaultMode
+
+	case 2:
+		title = " Длительность [Enter] "
+		list = []ModalSettingsOption{
+			{Code: "15", Label: "15 мин"},
+			{Code: "30", Label: "30 мин"},
+			{Code: "45", Label: "45 мин"},
+			{Code: "60", Label: "60 мин (1 час)"},
+			{Code: "90", Label: "90 мин (1.5 часа)"},
+			{Code: "120", Label: "120 мин (2 часа)"},
+			{Code: "180", Label: "180 мин (3 часа)"},
+		}
+		curCode = m.durationStr
+
+	case 3:
+		title = " Формат длительности [Enter] "
+		list = []ModalSettingsOption{
+			{Code: "min", Label: "Минуты (мин) — по умолч."},
+			{Code: "hours", Label: "Часы (1 ч / 1.5 ч)"},
+		}
+		curCode = m.durationUnit
+
+	case 4:
+		title = " Категория по умолчанию [Enter] "
+		list = append(list, ModalSettingsOption{Code: "", Label: "(по умолчанию / первая)"})
+		if app != nil {
+			for _, t := range app.getAvailableTypes() {
+				t = strings.TrimSpace(t)
+				if t != "" {
+					list = append(list, ModalSettingsOption{Code: t, Label: t})
+				}
+			}
+		}
+		curCode = m.defaultType
+
+	case 5:
+		title = " Проверка даты [Enter] "
+		list = []ModalSettingsOption{
+			{Code: "", Label: "Выкл (автосдвиг на след. месяц)"},
+			{Code: "ask", Label: "Спрашивать (подтверждение автосдвига)"},
+			{Code: "fix", Label: "Исправлять авто (сдвиг с предупреждением)"},
+			{Code: "reask", Label: "Переспрашивать (повторный ввод даты)"},
+		}
+		curCode = m.dateCheckMode
+
+	case 6:
+		title = " Конфликт времени [Enter] "
+		list = []ModalSettingsOption{
+			{Code: "false", Label: "Выкл (добавлять сразу без лишних вопросов)"},
+			{Code: "true", Label: "Вкл (предупреждать о пересечении времени)"},
+		}
+		curCode = strconv.FormatBool(m.askOnConflict)
+
+	case 7:
+		title = " Автосохранение имён [Enter] "
+		list = []ModalSettingsOption{
+			{Code: "false", Label: "Выкл (спрашивать подтверждение)"},
+			{Code: "true", Label: "Вкл (сохранять автоматически)"},
+		}
+		curCode = strconv.FormatBool(m.silentAddNames)
+
+	case 8:
+		title = " Режим хранения на диске [Enter] "
+		list = []ModalSettingsOption{
+			{Code: models.SplitNone, Label: "Один файл (mycal.json)"},
+			{Code: models.SplitYear, Label: "По годам (mycal_YYYY.json)"},
+			{Code: models.SplitMonth, Label: "По месяцам (mycal_YYYY-MM.json)"},
+		}
+		curCode = m.splitMode
+
+	case 9:
+		title = " Системная дата [Enter] "
+		list = []ModalSettingsOption{
+			{Code: "true", Label: "Вкл (текущее системное время)"},
+			{Code: "false", Label: "Фиксированная (ручной ввод даты)"},
+		}
+		curCode = strconv.FormatBool(m.useSystemDate)
+
+	case 11:
+		title = " Фоновая служба [Enter] "
+		list = []ModalSettingsOption{
+			{Code: "start", Label: "Запустить службу"},
+			{Code: "stop", Label: "Остановить службу"},
+			{Code: "restart", Label: "Перезапустить службу"},
+			{Code: "install", Label: "Установить службу (systemd)"},
+		}
+	}
+
+	if len(list) == 0 {
+		return
+	}
+
+	selIdx := 0
+	for i, opt := range list {
+		if strings.EqualFold(opt.Code, curCode) {
+			selIdx = i
+			break
+		}
+	}
+
+	m.pickerOpen = true
+	m.pickerField = fieldIdx
+	m.pickerTitle = title
+	m.pickerList = list
+	m.pickerIdx = selIdx
+	m.pickerScroll = 0
+	if m.pickerIdx >= 6 {
+		m.pickerScroll = m.pickerIdx - 5
+	}
+}
+
+func (m *ModalSettings) applyPickerOption(opt ModalSettingsOption, app *App) {
+	switch m.pickerField {
+	case 0:
+		m.defaultMode = opt.Code
+	case 2:
+		m.durationStr = opt.Code
+	case 3:
+		m.durationUnit = opt.Code
+	case 4:
+		m.defaultType = opt.Code
+	case 5:
+		m.dateCheckMode = opt.Code
+	case 6:
+		m.askOnConflict = (opt.Code == "true")
+	case 7:
+		m.silentAddNames = (opt.Code == "true")
+	case 8:
+		m.splitMode = opt.Code
+	case 9:
+		m.useSystemDate = (opt.Code == "true")
+	case 11:
+		if app != nil {
+			mgr := service.NewManager()
+			switch opt.Code {
+			case "start":
+				_ = mgr.Start(app.ctx)
+			case "stop":
+				_ = mgr.Stop(app.ctx)
+			case "restart":
+				_ = mgr.Restart(app.ctx)
+			case "install":
+				p, _ := strconv.Atoi(m.portStr)
+				if p <= 0 {
+					p = 8080
+				}
+				_ = mgr.Install(app.ctx, p)
+			}
+			m.svcStatus, _ = mgr.Status(app.ctx)
+		}
 	}
 }
 
@@ -2387,6 +2576,10 @@ func (m *ModalSettings) Draw(s *Screen) {
 				disp += "█"
 			}
 			s.DrawText(valX+1, rowY, disp, valFg, valBg, valW-2, isCur, false, false)
+
+			if isCur && m.canHavePicker(fieldIdx) && !m.pickerOpen && valW > 12 {
+				s.DrawText(valX+valW-10, rowY, "[→ список]", FgCyan, valBg, 10, false, false, false)
+			}
 		}
 	}
 
@@ -2398,7 +2591,74 @@ func (m *ModalSettings) Draw(s *Screen) {
 		s.DrawText(x+w-3, y+h-2, "▼", FgYellow, BgModal, 1, false, false, false)
 	}
 
-	s.DrawBottomWrappedHint(x+2, y+h-2, w-5, 2, "[↑↓] Выбор  [Space] Изменить  [Enter] Сохранить  [Esc]", FgDim, BgModal)
+	if m.pickerOpen {
+		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор  [Enter/Space] Применить  [Esc/←] Закрыть список", FgDim, BgModal)
+	} else {
+		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор  [Space/→] Изменить  [Enter] Сохранить  [Esc]", FgDim, BgModal)
+	}
+
+	// Draw dropdown popup if open
+	if m.pickerOpen && len(m.pickerList) > 0 {
+		popW := 42
+		if popW > w-4 {
+			popW = w - 4
+		}
+		if popW < 20 {
+			popW = 20
+		}
+		valX := x + 2 + lblW
+		popX := valX - 4
+		if popX+popW > x+w-2 {
+			popX = x + w - 2 - popW
+		}
+		if popX < x+2 {
+			popX = x + 2
+		}
+
+		visibleRows := 6
+		if len(m.pickerList) < visibleRows {
+			visibleRows = len(m.pickerList)
+		}
+		popH := visibleRows + 2
+
+		fieldScreenRow := y + 2 + (m.pickerField - m.scrollOffset)
+		popY := fieldScreenRow + 1
+		if popY+popH > y+h-1 || popY+popH > s.Height-1 {
+			popY = fieldScreenRow - popH
+			if popY < y+1 {
+				popY = y + 1
+			}
+		}
+
+		s.DrawBox(popX, popY, popW, popH, m.pickerTitle, FgCyan, BorderFocus, BgCard, true)
+		for i := 0; i < visibleRows; i++ {
+			itemIdx := m.pickerScroll + i
+			if itemIdx >= len(m.pickerList) {
+				break
+			}
+			opt := m.pickerList[itemIdx]
+			itemY := popY + 1 + i
+			isSel := itemIdx == m.pickerIdx
+
+			bg := BgCard
+			fg := FgWhite
+			prefix := "  "
+			if isSel {
+				bg = BgHighlight
+				fg = FgWhite
+				prefix = "► "
+			}
+			s.Fill(popX+1, itemY, popW-2, 1, ' ', fg, bg)
+			s.DrawText(popX+1, itemY, prefix+opt.Label, fg, bg, popW-2, isSel, false, false)
+		}
+
+		if m.pickerScroll > 0 {
+			s.DrawText(popX+popW-2, popY+1, "▲", FgYellow, BgCard, 1, false, false, false)
+		}
+		if m.pickerScroll+visibleRows < len(m.pickerList) {
+			s.DrawText(popX+popW-2, popY+popH-2, "▼", FgYellow, BgCard, 1, false, false, false)
+		}
+	}
 }
 
 func (m *ModalSettings) svcStatusText() string {
@@ -2411,11 +2671,53 @@ func (m *ModalSettings) svcStatusText() string {
 }
 
 func (m *ModalSettings) HandleKey(k Key, app *App) bool {
+	if m.pickerOpen {
+		switch {
+		case k.Type == KeyEsc || k.Type == KeyLeft:
+			m.pickerOpen = false
+			return true
+
+		case k.Type == KeyUp || k.Matches('k', 'л'):
+			if m.pickerIdx > 0 {
+				m.pickerIdx--
+				if m.pickerIdx < m.pickerScroll {
+					m.pickerScroll = m.pickerIdx
+				}
+			}
+			return true
+
+		case k.Type == KeyDown || k.Matches('j', 'о'):
+			if m.pickerIdx < len(m.pickerList)-1 {
+				m.pickerIdx++
+				visibleRows := 6
+				if m.pickerIdx >= m.pickerScroll+visibleRows {
+					m.pickerScroll = m.pickerIdx - visibleRows + 1
+				}
+			}
+			return true
+
+		case k.Type == KeyEnter || k.Type == KeySpace:
+			if m.pickerIdx >= 0 && m.pickerIdx < len(m.pickerList) {
+				opt := m.pickerList[m.pickerIdx]
+				m.applyPickerOption(opt, app)
+			}
+			m.pickerOpen = false
+			return true
+		}
+		return false
+	}
+
 	totalFields := 13
 	switch {
 	case k.Type == KeyEsc:
 		app.activeModal = nil
 		return true
+
+	case k.Type == KeyRight || k.Matches('l', 'д'):
+		if m.canHavePicker(m.selectedIdx) {
+			m.openPicker(m.selectedIdx, app)
+			return true
+		}
 
 	case k.Type == KeyUp || k.Matches('k', 'л'):
 		if m.selectedIdx > 0 {

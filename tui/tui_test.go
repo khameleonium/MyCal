@@ -1741,6 +1741,95 @@ func TestModalSettingsComprehensive(t *testing.T) {
 	}
 }
 
+func TestModalSettingsDropdownPickers(t *testing.T) {
+	app := newTestApp(t)
+	app.cfg.DefaultMode = "cli"
+	app.cfg.DurationUnit = "min"
+	app.cfg.DateCheckMode = ""
+	app.cfg.SplitMode = models.SplitNone
+
+	m := NewModalSettings(app.cfg)
+	app.activeModal = m
+
+	// 1. On field 0 (DefaultMode), press Right arrow -> should open dropdown picker
+	m.selectedIdx = 0
+	m.HandleKey(Key{Type: KeyRight}, app)
+	if !m.pickerOpen {
+		t.Fatalf("expected pickerOpen true on field 0 after KeyRight")
+	}
+	if len(m.pickerList) != 3 {
+		t.Fatalf("expected 3 options for DefaultMode, got %d", len(m.pickerList))
+	}
+	if m.pickerIdx != 0 {
+		t.Fatalf("expected pickerIdx 0 ('cli'), got %d", m.pickerIdx)
+	}
+
+	// Press Down to select TUI
+	m.HandleKey(Key{Type: KeyDown}, app)
+	if m.pickerIdx != 1 {
+		t.Fatalf("expected pickerIdx 1 ('tui'), got %d", m.pickerIdx)
+	}
+
+	// Press Enter to confirm
+	m.HandleKey(Key{Type: KeyEnter}, app)
+	if m.pickerOpen {
+		t.Fatalf("expected pickerOpen false after Enter")
+	}
+	if m.defaultMode != models.ModeTUI {
+		t.Fatalf("expected defaultMode 'tui', got %q", m.defaultMode)
+	}
+
+	// 2. On field 3 (DurationUnit), press Right arrow -> opens picker
+	m.selectedIdx = 3
+	m.HandleKey(Key{Type: KeyRight}, app)
+	if !m.pickerOpen {
+		t.Fatalf("expected pickerOpen true on field 3")
+	}
+	if len(m.pickerList) != 2 {
+		t.Fatalf("expected 2 options for DurationUnit, got %d", len(m.pickerList))
+	}
+	// Press Down to select 'hours'
+	m.HandleKey(Key{Type: KeyDown}, app)
+	m.HandleKey(Key{Type: KeyEnter}, app)
+	if m.durationUnit != "hours" {
+		t.Fatalf("expected durationUnit 'hours', got %q", m.durationUnit)
+	}
+
+	// 3. Test Esc closes picker without applying changes
+	m.selectedIdx = 5 // DateCheckMode
+	m.HandleKey(Key{Type: KeyRight}, app)
+	if !m.pickerOpen {
+		t.Fatalf("expected pickerOpen true on field 5")
+	}
+	m.HandleKey(Key{Type: KeyDown}, app) // moves to "ask"
+	m.HandleKey(Key{Type: KeyEsc}, app)  // cancel
+	if m.pickerOpen {
+		t.Fatalf("expected pickerOpen false after Esc")
+	}
+	if m.dateCheckMode != "" {
+		t.Fatalf("expected dateCheckMode unchanged (''), got %q", m.dateCheckMode)
+	}
+
+	// 4. Test Left arrow closes picker without applying changes
+	m.HandleKey(Key{Type: KeyRight}, app)
+	if !m.pickerOpen {
+		t.Fatalf("expected pickerOpen true on field 5")
+	}
+	m.HandleKey(Key{Type: KeyDown}, app)
+	m.HandleKey(Key{Type: KeyLeft}, app) // cancel with Left arrow
+	if m.pickerOpen {
+		t.Fatalf("expected pickerOpen false after KeyLeft")
+	}
+	if m.dateCheckMode != "" {
+		t.Fatalf("expected dateCheckMode unchanged (''), got %q", m.dateCheckMode)
+	}
+
+	// 5. Test Screen Draw with open picker doesn't panic
+	m.HandleKey(Key{Type: KeyRight}, app)
+	s := NewScreen(80, 25)
+	m.Draw(s)
+}
+
 
 
 
