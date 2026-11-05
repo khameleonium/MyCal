@@ -343,6 +343,37 @@ func TestModalSettingsEditNumber(t *testing.T) {
 	}
 }
 
+func TestModalSettingsDurationUnitToggle(t *testing.T) {
+	app := newTestApp(t)
+	m := NewModalSettings(app.cfg)
+	if m.durationUnit != "min" {
+		t.Fatalf("expected default durationUnit 'min', got %q", m.durationUnit)
+	}
+
+	// Move to field 3 (duration unit)
+	m.selectedIdx = 3
+
+	// Press Space to toggle to hours
+	m.HandleKey(Key{Type: KeySpace}, app)
+	if m.durationUnit != "hours" {
+		t.Fatalf("expected durationUnit 'hours' after Space, got %q", m.durationUnit)
+	}
+
+	// Press Space again to toggle back to min
+	m.HandleKey(Key{Type: KeySpace}, app)
+	if m.durationUnit != "min" {
+		t.Fatalf("expected durationUnit 'min' after second Space, got %q", m.durationUnit)
+	}
+
+	// Toggle to hours and save with Enter
+	m.HandleKey(Key{Type: KeySpace}, app)
+	m.HandleKey(Key{Type: KeyEnter}, app)
+
+	if app.cfg.DurationUnit != "hours" {
+		t.Fatalf("expected app.cfg.DurationUnit 'hours' after save, got %q", app.cfg.DurationUnit)
+	}
+}
+
 func newTestApp(t *testing.T) *App {
 	dir := t.TempDir()
 	svc, err := calendar.NewService(context.Background(), dir, "mycal", models.SplitNone)

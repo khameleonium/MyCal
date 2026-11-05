@@ -1741,7 +1741,7 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 
 	colStatus := x + w - 16
 	colCash := colStatus - 9
-	colDur := colCash - 7
+	colDur := colCash - 9
 
 	var colName, wName, colType, wType int
 
@@ -1833,7 +1833,7 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 			durHdr += " " + sortArrow
 			durFg = FgCyan
 		}
-		s.DrawText(colDur, colY, durHdr, durFg, BgCard, 7, true, false, false)
+		s.DrawText(colDur, colY, durHdr, durFg, BgCard, 8, true, false, false)
 	}
 
 	if showCash {
@@ -1937,8 +1937,12 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 
 		// Duration
 		if showDur {
-			durStr := fmt.Sprintf("%02d:%02d", sess.Duration/60, sess.Duration%60)
-			s.DrawText(colDur, rowY, durStr, FgDim, rowBg, 6, false, false, false)
+			unit := "min"
+			if a.cfg != nil && a.cfg.DurationUnit == "hours" {
+				unit = "hours"
+			}
+			durStr := calendar.FormatDuration(sess.Duration, unit)
+			s.DrawText(colDur, rowY, durStr, FgDim, rowBg, 8, false, false, false)
 		}
 
 		// Cash (pure number!)
@@ -2008,13 +2012,18 @@ func (a *App) renderInspector(s *Screen, x, y, w, h int) {
 	curY += 2
 
 	// Details list
+	durDisp := fmt.Sprintf("%d мин (%.1f ч)", sess.Duration, float64(sess.Duration)/60.0)
+	if a.cfg != nil && a.cfg.DurationUnit == "hours" {
+		durDisp = fmt.Sprintf("%.1f ч (%d мин)", float64(sess.Duration)/60.0, sess.Duration)
+	}
+
 	details := []struct {
 		lbl string
 		val string
 	}{
 		{"Дата:     ", sess.Date()},
 		{"Время:    ", sess.Time},
-		{"Длит.:    ", fmt.Sprintf("%d мин (%02d:%02d)", sess.Duration, sess.Duration/60, sess.Duration%60)},
+		{"Длит.:    ", durDisp},
 		{"Кэш:      ", strconv.FormatFloat(sess.Cash, 'f', -1, 64)},
 		{"Категория:", sess.Type},
 		{"ID:       ", sess.ID},

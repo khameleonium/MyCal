@@ -2170,28 +2170,42 @@ func (m *ModalYearCalendar) HandleKey(k Key, app *App) bool {
 // ----------------- SETTINGS MODAL -----------------
 
 type ModalSettings struct {
-	defaultMode string // "cli", "tui", "web"
-	portStr     string
-	durationStr string
-	selectedIdx int
-	svcStatus   *service.StatusInfo
+	defaultMode  string // "cli", "tui", "web"
+	portStr      string
+	durationStr  string
+	durationUnit string // "min" or "hours"
+	selectedIdx  int
+	svcStatus    *service.StatusInfo
 }
 
 func NewModalSettings(cfg *models.Config) *ModalSettings {
 	mgr := service.NewManager()
 	st, _ := mgr.Status(context.Background())
+	durUnit := "min"
+	if cfg != nil && cfg.DurationUnit == "hours" {
+		durUnit = "hours"
+	}
+	defaultMode := models.ModeCLI
+	portStr := "8080"
+	durStr := "60"
+	if cfg != nil {
+		defaultMode = cfg.DefaultMode
+		portStr = strconv.Itoa(cfg.WebPort)
+		durStr = strconv.Itoa(cfg.DefaultDuration)
+	}
 	return &ModalSettings{
-		defaultMode: cfg.DefaultMode,
-		portStr:     strconv.Itoa(cfg.WebPort),
-		durationStr: strconv.Itoa(cfg.DefaultDuration),
-		selectedIdx: 0,
-		svcStatus:   st,
+		defaultMode:  defaultMode,
+		portStr:      portStr,
+		durationStr:  durStr,
+		durationUnit: durUnit,
+		selectedIdx:  0,
+		svcStatus:    st,
 	}
 }
 
 func (m *ModalSettings) Draw(s *Screen) {
-	w := 54
-	h := 18
+	w := 56
+	h := 20
 	if w > s.Width-2 {
 		w = s.Width - 2
 	}
@@ -2216,6 +2230,11 @@ func (m *ModalSettings) Draw(s *Screen) {
 		modeDisplay = "Веб-интерфейс (Web)"
 	}
 
+	unitDisplay := "Минуты (мин) — по умолч."
+	if m.durationUnit == "hours" {
+		unitDisplay = "Часы (1 ч / 1.5 ч)"
+	}
+
 	fields := []struct {
 		lbl string
 		val string
@@ -2223,11 +2242,17 @@ func (m *ModalSettings) Draw(s *Screen) {
 		{"1. Режим запуска по умолч.:", modeDisplay},
 		{"2. Порт веб-сервера:        ", m.portStr},
 		{"3. Длительность по умолч.:  ", m.durationStr + " мин"},
-		{"4. Фоновая служба (сервис): ", m.svcStatusText()},
+		{"4. Формат длительности:     ", unitDisplay},
+		{"5. Фоновая служба (сервис): ", m.svcStatusText()},
+	}
+
+	rowStep := 3
+	if h < 20 {
+		rowStep = 2
 	}
 
 	for i, f := range fields {
-		rowY := y + 2 + (i * 3)
+		rowY := y + 2 + (i * rowStep)
 		isCur := i == m.selectedIdx
 		fg := FgMuted
 		if isCur {
@@ -2259,7 +2284,7 @@ func (m *ModalSettings) Draw(s *Screen) {
 		}
 	}
 
-	s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор  [Space/0-9] Изменить  [Enter] Сохранить  [Esc]", FgDim, BgModal)
+	s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор  [Space] Изменить  [Enter] Сохранить  [Esc]", FgDim, BgModal)
 }
 
 func (m *ModalSettings) svcStatusText() string {
@@ -2281,12 +2306,12 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 		if m.selectedIdx > 0 {
 			m.selectedIdx--
 		} else {
-			m.selectedIdx = 3
+			m.selectedIdx = 4
 		}
 		return true
 
 	case k.Type == KeyDown || k.Matches('j', 'о'):
-		if m.selectedIdx < 3 {
+		if m.selectedIdx < 4 {
 			m.selectedIdx++
 		} else {
 			m.selectedIdx = 0
@@ -2311,7 +2336,7 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 			return true
 		}
 
-	case k.Type == KeySpace || (k.Type == KeyEnter && (m.selectedIdx == 0 || m.selectedIdx == 3)):
+	case k.Type == KeySpace:
 		switch m.selectedIdx {
 		case 0:
 			// Toggle default mode
@@ -2324,6 +2349,14 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 			}
 			return true
 		case 3:
+			// Toggle duration unit
+			if m.durationUnit == "hours" {
+				m.durationUnit = "min"
+			} else {
+				m.durationUnit = "hours"
+			}
+			return true
+		case 4:
 			// Toggle service
 			mgr := service.NewManager()
 			if m.svcStatus != nil && m.svcStatus.Running {
@@ -2342,6 +2375,24 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 		}
 
 	case k.Type == KeyEnter:
+		if m.selectedIdx == 4 {
+			// Trigger service action on Enter
+			mgr := service.NewManager()
+			if m.svcStatus != nil && m.svcStatus.Running {
+				_ = mgr.Stop(app.ctx)
+			} else if m.svcStatus != nil && m.svcStatus.Installed {
+				_ = mgr.Start(app.ctx)
+			} else {
+				p, _ := strconv.Atoi(m.portStr)
+				if p <= 0 {
+					p = 8080
+				}
+				_ = mgr.Install(app.ctx, p)
+			}
+			m.svcStatus, _ = mgr.Status(app.ctx)
+			return true
+		}
+
 		app.cfg.DefaultMode = m.defaultMode
 		if p, err := strconv.Atoi(m.portStr); err == nil && p > 0 {
 			app.cfg.WebPort = p
@@ -2349,7 +2400,9 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 		if d, err := strconv.Atoi(m.durationStr); err == nil && d > 0 {
 			app.cfg.DefaultDuration = d
 		}
+		app.cfg.DurationUnit = m.durationUnit
 		app.persistConfig()
+		app.reloadSessions()
 		app.setStatusMsg("Настройки сохранены")
 		app.activeModal = nil
 		return true

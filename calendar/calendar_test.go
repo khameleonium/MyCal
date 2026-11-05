@@ -272,3 +272,31 @@ func TestSortSessions(t *testing.T) {
 	}
 }
 
+func TestFormatDuration(t *testing.T) {
+	// Minutes (default)
+	if got := FormatDuration(60, "min"); got != "60 мин" {
+		t.Errorf("FormatDuration(60, min) = %q, want '60 мин'", got)
+	}
+	if got := FormatDuration(45, "min"); got != "45 мин" {
+		t.Errorf("FormatDuration(45, min) = %q, want '45 мин'", got)
+	}
+	if got := FormatDuration(90, ""); got != "90 мин" {
+		t.Errorf("FormatDuration(90, '') = %q, want '90 мин'", got)
+	}
+
+	// Hours
+	if got := FormatDuration(60, "hours"); got != "1 ч" {
+		t.Errorf("FormatDuration(60, hours) = %q, want '1 ч'", got)
+	}
+	if got := FormatDuration(120, "hours"); got != "2 ч" {
+		t.Errorf("FormatDuration(120, hours) = %q, want '2 ч'", got)
+	}
+	if got := FormatDuration(90, "hours"); got != "1.5 ч" {
+		t.Errorf("FormatDuration(90, hours) = %q, want '1.5 ч'", got)
+	}
+	if got := FormatDuration(45, "hours"); got != "0.8 ч" {
+		t.Errorf("FormatDuration(45, hours) = %q, want '0.8 ч'", got)
+	}
+}
+
+

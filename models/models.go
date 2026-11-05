@@ -42,6 +42,7 @@ var DefaultConfig = Config{
 	WebPort:         8080,
 	SortField:       "date",
 	SortAsc:         false,
+	DurationUnit:    "min",
 }
 
 // Config mirrors config_mycal.json.
@@ -66,6 +67,7 @@ type Config struct {
 	WebPort          int      `json:"web_port"`
 	SortField        string   `json:"sort_field,omitempty"`
 	SortAsc          bool     `json:"sort_asc,omitempty"`
+	DurationUnit     string   `json:"duration_unit,omitempty"`
 }
 
 // AddCustomType adds a custom type and ensures it is not in ExcludedTypes.
@@ -196,6 +198,11 @@ func (c *Config) Normalize() {
 	}
 	if c.WebPort <= 0 {
 		c.WebPort = 8080
+	}
+	switch c.DurationUnit {
+	case "hours", "min":
+	default:
+		c.DurationUnit = "min"
 	}
 }
 
