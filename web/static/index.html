@@ -673,6 +673,17 @@
         <input type="text" id="cfgDataPath" class="form-input" placeholder="~/Sync/myCal или ~/.mycal" style="font-family: var(--font-mono);">
         <p class="settings-hint">Путь к каталогу, где хранятся файлы mycal.json (поддерживает тильду ~, напр. ~/Sync/myCal)</p>
       </div>
+
+      <div class="form-group">
+        <label for="cfgTUIDefaultPeriod" class="form-label">Период запуска по умолчанию в TUI:</label>
+        <select id="cfgTUIDefaultPeriod" class="form-select">
+          <option value="today">Сегодня (по умолч.)</option>
+          <option value="all">Все записи</option>
+          <option value="week">Неделя</option>
+          <option value="month">Месяц</option>
+        </select>
+        <p class="settings-hint">Основной период выборки, отображаемый при запуске полноэкранного TUI</p>
+      </div>
     </div>
     <div class="modal-footer">
       <button type="button" class="btn btn-secondary" onclick="closeModal('modalSettings')">Отмена</button>

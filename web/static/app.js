@@ -196,6 +196,9 @@ async function fetchConfig() {
     if (document.getElementById("cfgDataPath")) {
       document.getElementById("cfgDataPath").value = state.config.data_path || "";
     }
+    if (document.getElementById("cfgTUIDefaultPeriod")) {
+      document.getElementById("cfgTUIDefaultPeriod").value = state.config.tui_default_period || "today";
+    }
   } catch (e) {
     console.warn("Could not load config:", e);
   }
@@ -2779,6 +2782,9 @@ function openSettingsModal() {
   if (document.getElementById("cfgDataPath")) {
     document.getElementById("cfgDataPath").value = state.config.data_path || "";
   }
+  if (document.getElementById("cfgTUIDefaultPeriod")) {
+    document.getElementById("cfgTUIDefaultPeriod").value = state.config.tui_default_period || "today";
+  }
   openModal("modalSettings");
 }
 
@@ -2794,6 +2800,7 @@ async function saveSettings() {
   const split_mode = document.getElementById("cfgSplitMode") ? document.getElementById("cfgSplitMode").value : "none";
   const use_system_date = document.getElementById("cfgUseSystemDate") ? (document.getElementById("cfgUseSystemDate").value === "true") : true;
   const data_path = document.getElementById("cfgDataPath") ? document.getElementById("cfgDataPath").value.trim() : "";
+  const tui_default_period = document.getElementById("cfgTUIDefaultPeriod") ? document.getElementById("cfgTUIDefaultPeriod").value : "today";
 
   try {
     const updated = {
@@ -2809,6 +2816,7 @@ async function saveSettings() {
       split_mode,
       use_system_date,
       data_path,
+      tui_default_period,
     };
     await apiFetch("/api/config", {
       method: "POST",
