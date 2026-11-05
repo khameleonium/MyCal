@@ -2524,7 +2524,6 @@ func (m *ModalSettings) Draw(s *Screen) {
 		{"10. Системная дата:         ", dateDisplay},
 		{"11. Путь к данным:          ", pathDisplay},
 		{"12. Фоновая служба:         ", m.svcStatusText()},
-		{"13. Свои списки (категории):", "Управление: [+] добавить, [d] удалить"},
 	}
 
 	availRows := h - 4
@@ -2707,7 +2706,7 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 		return false
 	}
 
-	totalFields := 13
+	totalFields := 12
 	switch {
 	case k.Type == KeyEsc:
 		app.activeModal = nil
@@ -2847,9 +2846,6 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 			}
 			m.svcStatus, _ = mgr.Status(app.ctx)
 			return true
-		case 12:
-			app.setStatusMsg("Категории и статусы добавляются через [+] и удаляются через [d] при выборе")
-			return true
 		}
 
 	case k.Type == KeyEnter:
@@ -2868,9 +2864,6 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 				_ = mgr.Install(app.ctx, p)
 			}
 			m.svcStatus, _ = mgr.Status(app.ctx)
-			return true
-		} else if m.selectedIdx == 12 {
-			app.setStatusMsg("Категории и статусы добавляются через [+] и удаляются через [d] при выборе")
 			return true
 		}
 
