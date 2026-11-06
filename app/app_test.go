@@ -51,10 +51,10 @@ func TestMainMenuExitsOnEOF(t *testing.T) {
 }
 
 func TestAddThenDeleteInteractive(t *testing.T) {
-	// add: date, time, name, type(1), duration, notes(empty), status(0), no repeat
+	// add: date, time, name, type(1), duration, cash(empty), notes(empty), status(0), no repeat
 	// then main menu: 8 to quit
 	script := lines(
-		"1", "15.06.2026", "14:30", "Совещание", "1", "45", "", "0", "",
+		"1", "15.06.2026", "14:30", "Совещание", "1", "45", "", "", "0", "",
 		"8",
 	)
 	a, dir := newTestApp(t, script)
@@ -81,9 +81,9 @@ func TestAddThenDeleteInteractive(t *testing.T) {
 }
 
 func TestRepeatSeriesAddEditDelete(t *testing.T) {
-	// daily repeat 06->08 Jan (3 sessions), all defaults
+	// daily repeat 06->08 Jan (3 sessions), all defaults (cash empty)
 	script := lines(
-		"1", "06.01.2026", "09:00", "Зарядка", "1", "15", "", "0",
+		"1", "06.01.2026", "09:00", "Зарядка", "1", "15", "", "", "0",
 		"d", "08.01.2026", "",
 		"8",
 	)
@@ -125,7 +125,7 @@ func TestRepeatSeriesAddEditDelete(t *testing.T) {
 
 func TestRunCLIView(t *testing.T) {
 	a, dir := newTestApp(t, lines(
-		"1", "10.03.2026", "10:00", "X", "1", "30", "", "0", "", "8",
+		"1", "10.03.2026", "10:00", "X", "1", "30", "", "", "0", "", "8",
 	))
 	a.mainMenu()
 
@@ -242,3 +242,78 @@ func TestDateCheckHint(t *testing.T) {
 		}
 	}
 }
+
+func TestCLICashAddEditViewExport(t *testing.T) {
+	// 1. Add session with cash "1500,50" (comma decimal)
+	scriptAdd := lines(
+		"1", "17.10.2026", "10:00", "Платное занятие", "1", "60", "1500,50", "Заметка", "0", "",
+		"8",
+	)
+	a, dir := newTestApp(t, scriptAdd)
+	a.mainMenu()
+
+	if a.svc.Count() != 1 {
+		t.Fatalf("expected 1 session, got %d", a.svc.Count())
+	}
+	s := a.svc.All()[0]
+	if s.Cash != 1500.5 {
+		t.Fatalf("expected cash 1500.5, got %v", s.Cash)
+	}
+
+	// 2. Edit cash to 2000 via field 7
+	scriptEdit := lines(
+		"2", "4", "\\1", "7", "2000", "", "8",
+	)
+	a2, _ := newTestAppInDir(t, dir, scriptEdit)
+	a2.mainMenu()
+	s = a2.svc.All()[0]
+	if s.Cash != 2000 {
+		t.Fatalf("expected cash 2000 after edit, got %v", s.Cash)
+	}
+
+	// 3. Clear cash to 0 via "-"
+	scriptClear := lines(
+		"2", "4", "\\1", "7", "-", "", "8",
+	)
+	a3, _ := newTestAppInDir(t, dir, scriptClear)
+	a3.mainMenu()
+	s = a3.svc.All()[0]
+	if s.Cash != 0 {
+		t.Fatalf("expected cash 0 after '-' clear, got %v", s.Cash)
+	}
+
+	// 4. Edit cash via fullEdit (choice 8) to negative cash -350
+	scriptFullEdit := lines(
+		"2", "4", "\\1", "8", "", "", "", "", "-350", "", "", "", "8",
+	)
+	a4, _ := newTestAppInDir(t, dir, scriptFullEdit)
+	a4.mainMenu()
+	s = a4.svc.All()[0]
+	if s.Cash != -350 {
+		t.Fatalf("expected cash -350 after fullEdit, got %v", s.Cash)
+	}
+
+	// 5. Verify showSessionDetail, printSummary, printStats
+	a4.showSessionDetail(s)
+	a4.printSummary(a4.svc.All())
+	a4.printStats(a4.svc.All())
+
+	// 6. Verify CSV export includes Cash column and value
+	a4.exportCSV(a4.svc.All())
+	matches, _ := filepath.Glob(filepath.Join(dir, "export_*.csv"))
+	if len(matches) == 0 {
+		t.Fatal("expected CSV export")
+	}
+	content, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	csvStr := string(content)
+	if !strings.Contains(csvStr, "Кэш") {
+		t.Fatalf("expected 'Кэш' in CSV header, got:\n%s", csvStr)
+	}
+	if !strings.Contains(csvStr, "-350") {
+		t.Fatalf("expected '-350' in CSV content, got:\n%s", csvStr)
+	}
+}
+

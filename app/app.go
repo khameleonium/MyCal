@@ -26,7 +26,7 @@ const (
 	warnMark = "[!]"
 	askMark  = "[?]"
 
-	listFmt = "  %2d. %-8s %-18s %-20s %-8s [%s]"
+	listFmt = "  %2d. %-8s %-18s %-20s %-8s%s [%s]"
 	statFmt = "  %-24s %s"
 )
 

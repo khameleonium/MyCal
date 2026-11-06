@@ -1547,6 +1547,7 @@ func TestModalSortKeyLOpensModal(t *testing.T) {
 
 func TestModalSortSelectFieldAndToggleOrder(t *testing.T) {
 	app := newTestApp(t)
+	app.periodMode = "all"
 	// Add two sessions
 	_ = app.svc.Add(models.Session{ID: "20261105140000", Time: "14:00", Name: "Яблоко", Duration: 30})
 	_ = app.svc.Add(models.Session{ID: "20261105090000", Time: "09:00", Name: "Апельсин", Duration: 90})
