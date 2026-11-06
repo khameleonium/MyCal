@@ -104,6 +104,18 @@ func (a *App) addOne(presetDate *time.Time) bool {
 		}
 	}
 
+	cash := 0.0
+	if !skipRest {
+		c, ok, skip := a.askCashAdd()
+		if !ok {
+			return false
+		}
+		cash = c
+		if skip {
+			skipRest = true
+		}
+	}
+
 	notes := ""
 	if !skipRest {
 		n, ok, skip := a.askNotesAdd()
@@ -141,7 +153,7 @@ func (a *App) addOne(presetDate *time.Time) bool {
 
 	base := models.Session{
 		Time: hhmm, Name: name, Type: typ,
-		Duration: duration, Notes: notes, Status: status,
+		Duration: duration, Cash: cash, Notes: notes, Status: status,
 	}
 
 	dates := []time.Time{date}
@@ -259,6 +271,32 @@ func (a *App) askDurationAdd(def int) (int, bool, bool) {
 	return d, true, false
 }
 
+func (a *App) askCashAdd() (float64, bool, bool) {
+	promptMsg := "Кэш [0.0]:"
+	helpMsg := "Enter — 0, число (напр. 1500, -300); 8 — пропустить остальные вопросы и добавить; 0 — отмена"
+	if a.cfg.ShowHints {
+		helpMsg += "\n" + color.Cyan("  → Сумма в рублях / валюте (напр. 1500, -500 или 0.0)")
+	}
+	val := a.dialog(promptMsg, helpMsg)
+	switch {
+	case isCancel(val) || a.stdinClosed:
+		fmt.Println(color.Yellow(warnMark + " Добавление отменено"))
+		return 0, false, false
+	case val == "8":
+		return 0, true, true
+	case val == "" || val == "0" || val == "0.0" || val == "0,0":
+		return 0, true, false
+	default:
+		val = strings.ReplaceAll(val, ",", ".")
+		c, err := strconv.ParseFloat(val, 64)
+		if err != nil {
+			fmt.Println(color.Red(errMark + " Некорректная сумма (введите число, напр. 1500 или -300)"))
+			return a.askCashAdd()
+		}
+		return c, true, false
+	}
+}
+
 func (a *App) askNotesAdd() (string, bool, bool) {
 	helpMsg := "Enter — пропустить; 8 — пропустить остальные вопросы и добавить; 0 — отмена"
 	if a.cfg.ShowHints {
@@ -342,8 +380,16 @@ func (a *App) resolveConflicts(iso, hhmm string) bool {
 		if c.IsRepeat() {
 			t = "* " + t
 		}
+		durStr := calendar.FormatDuration(c.Duration, a.cfg.DurationUnit)
+		extra := ""
+		if c.Cash != 0 {
+			extra += " Кэш: " + formatCashDetail(c.Cash)
+		}
+		if c.Status != "" {
+			extra += " [" + c.Status + "]"
+		}
 		fmt.Printf(listFmt+"\n", i+1, t, color.Green(c.Name), c.Type,
-			color.Orange(fmt.Sprintf("%d мин", c.Duration)), color.Yellow(c.ID))
+			color.Orange(durStr), extra, color.Yellow(c.ID))
 	}
 	fmt.Println()
 	fmt.Println("  1. Редактировать существующую")

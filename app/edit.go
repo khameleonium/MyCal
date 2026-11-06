@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"mycalendar/calendar"
 	"mycalendar/color"
@@ -40,11 +41,11 @@ func (a *App) editSession(id string) {
 	a.showSessionDetail(session)
 	fmt.Println()
 	fmt.Println("Что редактируем?")
-	fmt.Println("1. Наименование   4. Продолжительность   7. Полностью")
-	fmt.Println("2. Тип            5. Комментарий          0. Отмена")
-	fmt.Println("3. Время          6. Статус")
+	fmt.Println("1. Наименование   4. Продолжительность   7. Кэш")
+	fmt.Println("2. Тип            5. Комментарий          8. Полностью")
+	fmt.Println("3. Время          6. Статус              0. Отмена")
 	if a.cfg.ShowHints {
-		fmt.Println(color.Cyan("  → Номер поля (1–7) для изменения, Enter без ввода — оставить, '-' очистить, 0 отмена"))
+		fmt.Println(color.Cyan("  → Номер поля (1–8) для изменения, Enter без ввода — оставить, '-' очистить, 0 отмена"))
 	}
 
 	choice := a.prompt("")
@@ -89,10 +90,14 @@ func (a *App) editSession(id string) {
 		if st, ok := a.askStatus(session.Status); set(ok) && st != session.Status {
 			patch.Status = &st
 		}
-	case "7":
+	case "7", "к", "k", "c", "cash", "кэш":
+		if c, ok, changed := a.askCashChange(session.Cash); set(ok) && changed {
+			patch.Cash = &c
+		}
+	case "8", "full", "все", "всё", "all", "f", "п":
 		a.fullEdit(session, &patch, &cancelled)
 	default:
-		fmt.Println(color.Red(errMark + " Некорректный выбор (0–7)"))
+		fmt.Println(color.Red(errMark + " Некорректный выбор (0–8)"))
 		return
 	}
 
@@ -156,11 +161,11 @@ func (a *App) fullEdit(s models.Session, patch *calendar.Patch, cancelled *bool)
 		patch.Duration = &d
 	}
 
-	if v, ok, changed := a.askNotesChange(s.Notes); !ok {
+	if c, okc, changed := a.askCashChange(s.Cash); !okc {
 		*cancelled = true
 		return
 	} else if changed {
-		patch.Notes = &v
+		patch.Cash = &c
 	}
 
 	if st, ok := a.askStatus(s.Status); !ok {
@@ -168,6 +173,36 @@ func (a *App) fullEdit(s models.Session, patch *calendar.Patch, cancelled *bool)
 		return
 	} else if st != s.Status {
 		patch.Status = &st
+	}
+
+	if v, ok, changed := a.askNotesChange(s.Notes); !ok {
+		*cancelled = true
+		return
+	} else if changed {
+		patch.Notes = &v
+	}
+}
+
+// askCashChange returns (value, ok, changed).
+func (a *App) askCashChange(current float64) (float64, bool, bool) {
+	curStr := strconv.FormatFloat(current, 'f', -1, 64)
+	v := a.dialog("Кэш ["+color.Yellow(curStr)+"]:",
+		"Enter — без изменений, '-' — сбросить в 0, 0 — отмена")
+	switch {
+	case isCancel(v) || a.stdinClosed:
+		return 0, false, false
+	case v == "":
+		return current, true, false
+	case v == "-" || v == "0.0" || v == "0,0":
+		return 0, true, current != 0
+	default:
+		v = strings.ReplaceAll(v, ",", ".")
+		c, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			fmt.Println(color.Red(errMark + " Некорректная сумма (введите число, напр. 1500 или -300)"))
+			return a.askCashChange(current)
+		}
+		return c, true, c != current
 	}
 }
 

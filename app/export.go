@@ -131,11 +131,11 @@ func (a *App) exportCSV(sessions []models.Session) {
 	}
 
 	w := csv.NewWriter(f)
-	rows := [][]string{{"ID", "Дата", "Время", "Имя", "Тип", "Продолжительность (мин)", "Комментарий", "Статус", "Серия"}}
+	rows := [][]string{{"ID", "Дата", "Время", "Имя", "Тип", "Продолжительность (мин)", "Кэш", "Комментарий", "Статус", "Серия"}}
 	for _, s := range sessions {
 		rows = append(rows, []string{
 			s.ID, parser.FormatDate(mustISO(s.Date())), s.Time, s.Name, s.Type,
-			strconv.Itoa(s.Duration), s.Notes, s.Status, s.SeriesID,
+			strconv.Itoa(s.Duration), strconv.FormatFloat(s.Cash, 'f', -1, 64), s.Notes, s.Status, s.SeriesID,
 		})
 	}
 	if err := w.WriteAll(rows); err != nil {
