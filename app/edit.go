@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"mycalendar/calendar"
@@ -41,11 +42,11 @@ func (a *App) editSession(id string) {
 	a.showSessionDetail(session)
 	fmt.Println()
 	fmt.Println("Что редактируем?")
-	fmt.Println("1. Наименование   4. Продолжительность   7. Кэш         9. Дата")
-	fmt.Println("2. Тип            5. Комментарий          8. Полностью")
-	fmt.Println("3. Время          6. Статус              0. Отмена")
+	fmt.Println("1. Наименование   4. Продолжительность   7. Кэш         10. Дублировать")
+	fmt.Println("2. Тип            5. Комментарий          8. Полностью   11. В др. календарь")
+	fmt.Println("3. Время          6. Статус              9. Дата         0. Отмена")
 	if a.cfg.ShowHints {
-		fmt.Println(color.Cyan("  → Номер поля (1–9) для изменения, Enter без ввода — оставить, '-' очистить, 0 отмена"))
+		fmt.Println(color.Cyan("  → Номер поля (1–11) для действия, Enter без ввода — оставить, '-' очистить, 0 отмена"))
 	}
 
 	choice := a.prompt("")
@@ -101,8 +102,14 @@ func (a *App) editSession(id string) {
 		if d, ok, changed := a.askDateChange(session.Date()); set(ok) && changed {
 			newDate = &d
 		}
+	case "10", "dup", "clone", "дубль":
+		a.duplicateSessionCLI(session)
+		return
+	case "11", "move", "m", "м":
+		a.moveSessionCLI(session)
+		return
 	default:
-		fmt.Println(color.Red(errMark + " Некорректный выбор (0–9)"))
+		fmt.Println(color.Red(errMark + " Некорректный выбор (0–11)"))
 		return
 	}
 
@@ -277,4 +284,129 @@ func (a *App) askDurationChange(current int) (int, bool, bool) {
 		return 0, false, false
 	}
 	return d, true, true
+}
+
+func (a *App) duplicateSessionCLI(s models.Session) {
+	curDate := mustISO(s.Date())
+	curFmt := parser.FormatDate(curDate)
+	fmt.Println()
+	fmt.Println(color.Yellow(hdrSep + " Дублирование записи " + hdrSep))
+	dateVal := a.dialog("Дата для копии ["+color.Magenta(curFmt)+"]:", "Enter — та же дата, или укажите новую дату; 0 — отмена")
+	if isCancel(dateVal) || a.stdinClosed {
+		fmt.Println(color.Yellow(warnMark + " Дублирование отменено"))
+		return
+	}
+	targetDate := curDate
+	if dateVal != "" {
+		d, err := parser.ParseDate(dateVal, a.today())
+		if err != nil {
+			fmt.Println(color.Red(errMark + " " + err.Error()))
+			return
+		}
+		targetDate = d
+	}
+
+	timeVal := a.dialog("Время для копии ["+color.Green(s.Time)+"]:", "Enter — то же время, или укажите новое (ЧЧ:ММ); 0 — отмена")
+	if isCancel(timeVal) || a.stdinClosed {
+		fmt.Println(color.Yellow(warnMark + " Дублирование отменено"))
+		return
+	}
+	targetTime, _ := time.Parse("15:04", s.Time)
+	if timeVal != "" {
+		tm, err := parser.ParseTime(timeVal)
+		if err != nil {
+			fmt.Println(color.Red(errMark + " " + err.Error()))
+			return
+		}
+		targetTime = tm
+	}
+
+	res, err := a.svc.CreateEntries(a.ctx, a.cfg, calendar.EntryInput{
+		Date:     targetDate,
+		Time:     targetTime,
+		RawName:  s.Name,
+		Type:     s.Type,
+		Duration: s.Duration,
+		Cash:     s.Cash,
+		Status:   s.Status,
+		Notes:    s.Notes,
+	})
+	if err != nil {
+		fmt.Println(color.Red(errMark + " Не удалось дублировать запись: " + err.Error()))
+		return
+	}
+	if res.ConfigMod {
+		a.saveConfig()
+	}
+	fmt.Println(color.Green(okMark + " Запись продублирована  ID: " + color.Yellow(res.First.ID)))
+}
+
+func (a *App) moveSessionCLI(s models.Session) {
+	cals := a.svc.ListCalendars(a.cfg)
+	var other []models.CalendarInfo
+	for _, c := range cals {
+		if !c.Active {
+			other = append(other, c)
+		}
+	}
+	fmt.Println()
+	fmt.Println(color.Yellow(hdrSep + " Перенос записи в другой календарь " + hdrSep))
+	for i, c := range other {
+		fmt.Printf("  %d. %s\n", i+1, c.Label)
+	}
+	fmt.Printf("  %d. Указать префикс календаря вручную\n", len(other)+1)
+	fmt.Println("  0. Отмена")
+
+	choice := a.prompt("")
+	if choice == "" || choice == "0" || isCancel(choice) {
+		return
+	}
+	targetKey := ""
+	idx, err := strconv.Atoi(choice)
+	if err == nil && idx >= 1 && idx <= len(other) {
+		targetKey = other[idx-1].Key
+	} else if err == nil && idx == len(other)+1 {
+		prefix := a.dialog("Префикс целевого календаря (Enter — default):", "Напр. work, sport; 0 — отмена")
+		if isCancel(prefix) || a.stdinClosed {
+			return
+		}
+		prefix = strings.TrimSpace(prefix)
+		if prefix == "" || strings.EqualFold(prefix, "default") || strings.EqualFold(prefix, "mycal") {
+			targetKey = ""
+		} else {
+			base := a.cfg.DataFileName
+			if base == "" {
+				base = "mycal"
+			}
+			targetKey = strings.TrimPrefix(prefix, base+"--")
+		}
+	} else {
+		fmt.Println(color.Red(errMark + " Некорректный выбор"))
+		return
+	}
+
+	moved, err := a.svc.MoveEntriesToCalendar(a.ctx, a.cfg, []string{s.ID}, targetKey)
+	if err != nil {
+		fmt.Println(color.Red(errMark + " " + err.Error()))
+		return
+	}
+	a.saveConfig()
+	targetDisp := targetKey
+	if targetDisp == "" {
+		base := a.cfg.DataFileName
+		if base == "" {
+			base = "mycal"
+		}
+		targetDisp = base + " (default)"
+	}
+	fmt.Println(color.Green(fmt.Sprintf("%s Перенесено записей: %d → %s", okMark, moved, targetDisp)))
+}
+
+func (a *App) undoCLI() {
+	desc, err := a.svc.Undo(a.ctx)
+	if err != nil {
+		fmt.Println(color.Yellow(warnMark + " " + err.Error()))
+		return
+	}
+	fmt.Println(color.Green(okMark + " Отменено действие: " + desc))
 }

@@ -24,14 +24,91 @@ var (
 	DefaultStatuses = []string{"Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"}
 )
 
+const maxUndoStack = 15
+
+type undoEntry struct {
+	sessions []models.Session
+	desc     string
+}
+
 // Service holds the calendar in memory and persists it on demand.
 type Service struct {
-	mu       sync.RWMutex
-	sessions []models.Session
-	dir      string
-	baseName string
-	mode     string
-	warnings []string
+	mu        sync.RWMutex
+	sessions  []models.Session
+	dir       string
+	baseName  string
+	mode      string
+	warnings  []string
+	undoStack []undoEntry
+	txDepth   int
+}
+
+func (s *Service) pushUndoUnlocked(desc string) {
+	if s.txDepth > 0 {
+		return
+	}
+	snap := make([]models.Session, len(s.sessions))
+	copy(snap, s.sessions)
+	s.undoStack = append(s.undoStack, undoEntry{
+		sessions: snap,
+		desc:     desc,
+	})
+	if len(s.undoStack) > maxUndoStack {
+		s.undoStack = s.undoStack[len(s.undoStack)-maxUndoStack:]
+	}
+}
+
+// BeginUndoTx starts a composite mutation, recording a single undo snapshot
+// with the given description so nested calls to Add/Update/Delete do not push
+// duplicate intermediate snapshots. Always pair with defer s.EndUndoTx().
+func (s *Service) BeginUndoTx(desc string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.txDepth == 0 {
+		s.pushUndoUnlocked(desc)
+	}
+	s.txDepth++
+}
+
+// EndUndoTx finishes a composite mutation started by BeginUndoTx.
+func (s *Service) EndUndoTx() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.txDepth > 0 {
+		s.txDepth--
+	}
+}
+
+// CanUndo reports whether an undo snapshot is available and returns its description.
+func (s *Service) CanUndo() (bool, string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.undoStack) == 0 {
+		return false, ""
+	}
+	return true, s.undoStack[len(s.undoStack)-1].desc
+}
+
+// Undo restores the calendar to the state before the last mutating operation,
+// persists it to disk, and returns a description of the undone operation.
+func (s *Service) Undo(ctx context.Context) (string, error) {
+	s.mu.Lock()
+	if len(s.undoStack) == 0 {
+		s.mu.Unlock()
+		return "", fmt.Errorf("нет действий для отмены")
+	}
+	last := s.undoStack[len(s.undoStack)-1]
+	s.undoStack = s.undoStack[:len(s.undoStack)-1]
+	restored := make([]models.Session, len(last.sessions))
+	copy(restored, last.sessions)
+	s.sessions = restored
+	storage.SortSessions(s.sessions)
+	s.mu.Unlock()
+
+	if err := s.Save(ctx); err != nil {
+		return last.desc, err
+	}
+	return last.desc, nil
 }
 
 // NewService loads the calendar. A non-nil error means the data could not be
@@ -111,6 +188,12 @@ func (s *Service) DataDir() string {
 	return s.dir
 }
 
+func (s *Service) MainDataFilePath() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return filepath.Join(s.dir, s.baseName+".json")
+}
+
 func (s *Service) BaseName() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -173,6 +256,7 @@ func (s *Service) SwitchCalendar(ctx context.Context, cfg *models.Config, calKey
 		s.mu.Lock()
 		s.baseName = cfg.EffectiveBaseName(calKey)
 		s.mode = mode
+		s.undoStack = nil
 		s.mu.Unlock()
 	} else {
 		s.mu.Lock()
@@ -187,6 +271,7 @@ func (s *Service) SwitchCalendar(ctx context.Context, cfg *models.Config, calKey
 			}
 			s.baseName = base + "--" + calKey
 		}
+		s.undoStack = nil
 		s.mu.Unlock()
 	}
 	return s.Reload(ctx)
@@ -211,6 +296,7 @@ func (s *Service) CreateCalendar(ctx context.Context, cfg *models.Config, calKey
 		s.mu.Lock()
 		s.baseName = cfg.EffectiveBaseName(calKey)
 		s.mode = splitMode
+		s.undoStack = nil
 		s.mu.Unlock()
 	} else {
 		s.mu.Lock()
@@ -220,6 +306,7 @@ func (s *Service) CreateCalendar(ctx context.Context, cfg *models.Config, calKey
 		}
 		s.baseName = base + "--" + calKey
 		s.mode = splitMode
+		s.undoStack = nil
 		s.mu.Unlock()
 	}
 	if err := s.Reload(ctx); err != nil {
@@ -244,7 +331,6 @@ func (s *Service) All() []models.Session {
 	s.mu.RLock()
 	out := append([]models.Session(nil), s.sessions...)
 	s.mu.RUnlock()
-	storage.SortSessions(out)
 	return out
 }
 
@@ -263,16 +349,15 @@ func (s *Service) CountByName(name string) int {
 
 // InRange returns sessions whose date falls within [start, end] (inclusive).
 func (s *Service) InRange(start, end time.Time) []models.Session {
-	lo, hi := start.Format("2006-01-02"), end.Format("2006-01-02")
+	lo, hi := start.Format("20060102"), end.Format("20060102")
 	s.mu.RLock()
 	var out []models.Session
 	for _, x := range s.sessions {
-		if d := x.Date(); d >= lo && d <= hi {
+		if d := x.DateKey(); d >= lo && d <= hi {
 			out = append(out, x)
 		}
 	}
 	s.mu.RUnlock()
-	storage.SortSessions(out)
 	return out
 }
 
@@ -463,9 +548,17 @@ func (s *Service) GenerateID(date, tm time.Time) string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	prefix := date.Format("20060102") + tm.Format("1504")
-	used := make(map[string]bool, len(s.sessions))
+	var used map[string]bool
 	for _, x := range s.sessions {
-		used[x.ID] = true
+		if strings.HasPrefix(x.ID, prefix) {
+			if used == nil {
+				used = make(map[string]bool, 4)
+			}
+			used[x.ID] = true
+		}
+	}
+	if used == nil {
+		return prefix + "00"
 	}
 	for n := 0; n < 100; n++ {
 		if id := fmt.Sprintf("%s%02d", prefix, n); !used[id] {
@@ -492,26 +585,45 @@ func (s *Service) Add(session models.Session) error {
 func (s *Service) AddBatch(sessions []models.Session) (added int, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if len(sessions) > 0 {
+		s.pushUndoUnlocked("добавление записи")
+	}
+	var used map[string]bool
+	if len(sessions) > 1 && len(s.sessions) > 0 {
+		used = make(map[string]bool, len(s.sessions)+len(sessions))
+		for _, cur := range s.sessions {
+			used[cur.ID] = true
+		}
+	}
 	for _, session := range sessions {
 		if session.ID == "" {
 			err = fmt.Errorf("внутренняя ошибка: ID записи не сгенерирован")
 			break
 		}
 		exists := false
-		for _, cur := range s.sessions {
-			if cur.ID == session.ID {
-				exists = true
-				break
+		if used != nil {
+			exists = used[session.ID]
+		} else {
+			for _, cur := range s.sessions {
+				if cur.ID == session.ID {
+					exists = true
+					break
+				}
 			}
 		}
 		if exists {
 			err = fmt.Errorf("запись с ID %s уже существует", session.ID)
 			break
 		}
+		if used != nil {
+			used[session.ID] = true
+		}
 		s.sessions = append(s.sessions, session)
 		added++
 	}
-	storage.SortSessions(s.sessions)
+	if added > 0 {
+		storage.SortSessions(s.sessions)
+	}
 	return added, err
 }
 
@@ -563,8 +675,11 @@ func (s *Service) Update(id string, patch Patch) error {
 	defer s.mu.Unlock()
 	for i := range s.sessions {
 		if s.sessions[i].ID == id {
+			s.pushUndoUnlocked("изменение записи")
 			patch.applyTo(&s.sessions[i])
-			storage.SortSessions(s.sessions)
+			if patch.Time != nil {
+				storage.SortSessions(s.sessions)
+			}
 			return nil
 		}
 	}
@@ -581,11 +696,14 @@ func (s *Service) UpdateSeries(seriesID string, patch Patch) int {
 	n := 0
 	for i := range s.sessions {
 		if s.sessions[i].SeriesID == seriesID {
+			if n == 0 {
+				s.pushUndoUnlocked("изменение серии записей")
+			}
 			patch.applyTo(&s.sessions[i])
 			n++
 		}
 	}
-	if n > 0 {
+	if n > 0 && patch.Time != nil {
 		storage.SortSessions(s.sessions)
 	}
 	return n
@@ -617,17 +735,28 @@ func (s *Service) DeleteRange(start, end time.Time) int {
 func (s *Service) DeleteAll() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if len(s.sessions) > 0 {
+		s.pushUndoUnlocked("очистка всех записей")
+	}
 	s.sessions = nil
 }
 
 func (s *Service) deleteWhere(match func(models.Session) bool) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	kept := s.sessions[:0]
 	n := 0
 	for _, x := range s.sessions {
 		if match(x) {
 			n++
+		}
+	}
+	if n == 0 {
+		return 0
+	}
+	s.pushUndoUnlocked("удаление записи")
+	kept := s.sessions[:0]
+	for _, x := range s.sessions {
+		if match(x) {
 			continue
 		}
 		kept = append(kept, x)
@@ -771,8 +900,8 @@ func SortSessions(sessions []models.Session, field string, asc bool) {
 
 // CompareSessions returns true if s1 should appear before s2.
 func CompareSessions(s1, s2 models.Session, field string, asc bool) bool {
-	d1 := s1.Date()
-	d2 := s2.Date()
+	d1 := s1.DateKey()
+	d2 := s2.DateKey()
 
 	switch field {
 	case "date":

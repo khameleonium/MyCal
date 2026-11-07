@@ -163,6 +163,8 @@ var mainMenuItems = []struct {
 	{[]string{"8", "q", "в"}, " q | 8. Выход", "Завершение работы программы (также работает Ctrl+C)", func(a *App) bool { return false }},
 	{[]string{"9", "c", "к"}, " c | 9. Выбрать календарь записей", "Переключение между календарями записей в папке данных", func(a *App) bool { a.selectCalendarDialog(); return true }},
 	{[]string{"10", "n", "сз"}, " n | 10. Создать календарь записей", "Создание нового календаря с префиксом (единый или погодовой файл)", func(a *App) bool { a.createCalendarDialog(); return true }},
+	{[]string{"11", "i", "и"}, " i | 11. Импорт из CSV / JSON", "Импорт записей из файла .csv или .json с пропуском дубликатов", func(a *App) bool { a.importMenu(); return true }},
+	{[]string{"12", "u", "о", "г"}, " u | 12. Отменить действие", "Отмена последнего добавления, изменения или удаления записей", func(a *App) bool { a.undoCLI(); return true }},
 }
 
 func mainMenuKeys() [][]string {
@@ -193,7 +195,7 @@ func (a *App) mainMenu() {
 		}
 		idx := resolve(choice, keys)
 		if idx < 0 {
-			fmt.Println(color.Red(errMark + " Некорректный выбор (1–10)"))
+			fmt.Println(color.Red(errMark + " Некорректный выбор (1–12)"))
 			continue
 		}
 		if !mainMenuItems[idx].run(a) {

@@ -75,8 +75,8 @@ func StatusBadge(status string) (text string, fg string, bg string) {
 		return "⊘ Пропущено", FgOrange, "\033[48;2;60;40;20m"
 	case strings.EqualFold(s, "Отменено") || strings.EqualFold(s, "Cancelled"):
 		return "✗ Отменено", FgRed, "\033[48;2;60;25;25m"
-	case s == "":
-		return "(без статуса)", FgDim, BgCard
+	case s == "" || strings.EqualFold(s, "~пусто~") || strings.EqualFold(s, "<пусто>"):
+		return "~пусто~", FgDim, BgCard
 	default:
 		return "• " + s, FgMain, BgCard
 	}

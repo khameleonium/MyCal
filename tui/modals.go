@@ -3,6 +3,9 @@ package tui
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -36,9 +39,10 @@ func NewModalStatusPicker(customStatuses []string, currentStatus, targetID strin
 	var list []string
 	seen := map[string]bool{}
 	for _, st := range customStatuses {
-		if strings.TrimSpace(st) != "" && !seen[st] {
-			list = append(list, st)
-			seen[st] = true
+		stTrim := strings.TrimSpace(st)
+		if stTrim != "" && !strings.EqualFold(stTrim, calendar.EmptyStatusLabel) && !seen[stTrim] {
+			list = append(list, stTrim)
+			seen[stTrim] = true
 		}
 	}
 	for _, st := range defaults {
@@ -47,10 +51,12 @@ func NewModalStatusPicker(customStatuses []string, currentStatus, targetID strin
 			seen[st] = true
 		}
 	}
+	list = append(list, calendar.EmptyStatusLabel)
 
 	sel := 0
+	normCur := calendar.FormatStatusDisplay(currentStatus)
 	for i, st := range list {
-		if strings.EqualFold(st, currentStatus) {
+		if strings.EqualFold(st, normCur) {
 			sel = i
 			break
 		}
@@ -201,12 +207,15 @@ func (m *ModalStatusPicker) HandleKey(k Key, app *App) bool {
 	case k.Matches('d', 'в') || k.Type == KeyDelete:
 		if m.selected < len(m.statuses) {
 			st := m.statuses[m.selected]
+			if st == calendar.EmptyStatusLabel {
+				return true
+			}
 			if app.cfg != nil {
 				app.cfg.RemoveStatus(st)
 				app.persistConfig()
 			}
 			app.setStatusMsg("Статус «" + st + "» удалён из списков выбора")
-			m.statuses = app.getAvailableStatuses()
+			m.statuses = append(app.getAvailableStatuses(), calendar.EmptyStatusLabel)
 			if m.selected >= len(m.statuses) {
 				m.selected = len(m.statuses)
 			}
@@ -244,6 +253,11 @@ func (m *ModalStatusPicker) HandleKey(k Key, app *App) bool {
 		app.activeModal = nil
 		return true
 
+	case k.Type == KeyRune && k.Rune == '0':
+		m.applyStatus(app, calendar.EmptyStatusLabel)
+		app.activeModal = nil
+		return true
+
 	case k.Type == KeyRune && k.Rune >= '1' && k.Rune <= '9':
 		idx := int(k.Rune - '1')
 		if idx < len(m.statuses) {
@@ -256,6 +270,7 @@ func (m *ModalStatusPicker) HandleKey(k Key, app *App) bool {
 }
 
 func (m *ModalStatusPicker) applyStatus(app *App, status string) {
+	status = calendar.NormalizeStatus(status)
 	if app.cfg != nil && status != "" {
 		app.cfg.AddCustomStatus(status)
 		app.persistConfig()
@@ -270,10 +285,12 @@ func (m *ModalStatusPicker) applyStatus(app *App, status string) {
 		if err := app.svc.Save(app.ctx); err != nil {
 			app.setStatusMsg("⚠ Ошибка сохранения: " + err.Error())
 		} else {
-			app.setStatusMsg("Статус записи изменён на: " + status)
+			app.lastDataMod = app.svc.DataFilesModTime()
+			app.setStatusMsg("Статус записи изменён на: " + calendar.FormatStatusDisplay(status))
 		}
 	} else if len(app.selectedIDs) > 0 {
 		// Batch update
+		app.svc.BeginUndoTx("групповая смена статуса")
 		count := 0
 		for id := range app.selectedIDs {
 			patch := calendar.Patch{
@@ -283,10 +300,12 @@ func (m *ModalStatusPicker) applyStatus(app *App, status string) {
 				count++
 			}
 		}
+		app.svc.EndUndoTx()
 		if err := app.svc.Save(app.ctx); err != nil {
 			app.setStatusMsg("⚠ Ошибка сохранения: " + err.Error())
 		} else {
-			app.setStatusMsg(fmt.Sprintf("Статус обновлён для %d записей", count))
+			app.lastDataMod = app.svc.DataFilesModTime()
+			app.setStatusMsg(fmt.Sprintf("Статус обновлён для %d записей (%s)", count, calendar.FormatStatusDisplay(status)))
 		}
 	}
 	app.reloadSessions()
@@ -501,6 +520,9 @@ func (m *ModalQuickEditField) HandleKey(k Key, app *App) bool {
 						app.setStatusMsg("Тип «" + item + "» удалён из списков выбора")
 						m.openCatPicker(app)
 					} else if m.pickerField == 3 { // Status
+						if item == calendar.EmptyStatusLabel {
+							return true
+						}
 						if app.cfg != nil {
 							app.cfg.RemoveStatus(item)
 							app.persistConfig()
@@ -625,9 +647,19 @@ func (m *ModalQuickEditField) openCatPicker(app *App) {
 func (m *ModalQuickEditField) openStatusPicker(app *App) {
 	var list []string
 	if app != nil {
-		list = app.getAvailableStatuses()
+		list = append([]string{}, app.getAvailableStatuses()...)
 	} else {
 		list = []string{"Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"}
+	}
+	hasEmpty := false
+	for _, st := range list {
+		if strings.EqualFold(st, calendar.EmptyStatusLabel) {
+			hasEmpty = true
+			break
+		}
+	}
+	if !hasEmpty {
+		list = append(list, calendar.EmptyStatusLabel)
 	}
 	m.pickerList = list
 	m.pickerTitle = " Статусы [Enter] "
@@ -636,7 +668,7 @@ func (m *ModalQuickEditField) openStatusPicker(app *App) {
 	m.pickerScroll = 0
 	m.pickerIdx = 0
 
-	cur := strings.TrimSpace(m.value)
+	cur := calendar.FormatStatusDisplay(m.value)
 	for i, item := range m.pickerList {
 		if strings.EqualFold(item, cur) {
 			m.pickerIdx = i
@@ -720,7 +752,8 @@ func (m *ModalQuickEditField) applyValue(app *App) {
 	case 2: // Type
 		patch.Type = &val
 	case 3: // Status
-		patch.Status = &val
+		normSt := calendar.NormalizeStatus(val)
+		patch.Status = &normSt
 	case 4: // Time
 		if tm, err := parser.ParseTime(val); err == nil {
 			tStr := parser.FormatTime(tm)
@@ -754,26 +787,49 @@ func (m *ModalQuickEditField) applyValue(app *App) {
 		}); err != nil {
 			app.setStatusMsg("⚠ Ошибка сохранения: " + err.Error())
 		} else {
+			app.lastDataMod = app.svc.DataFilesModTime()
 			app.persistConfig()
 			app.setStatusMsg("Поле успешно обновлено")
 		}
 	} else if len(app.selectedIDs) > 0 {
-		count := 0
-		var lastErr error
-		for id := range app.selectedIDs {
-			if _, _, err := app.svc.UpdateEntry(app.ctx, app.cfg, id, calendar.UpdateInput{
-				Patch:   patch,
-				NewDate: newDatePtr,
-			}); err == nil {
-				count++
-			} else {
-				lastErr = err
+		if app.cfg != nil {
+			if patch.Type != nil && strings.TrimSpace(*patch.Type) != "" {
+				app.cfg.AddCustomType(*patch.Type)
+			}
+			if patch.Status != nil && *patch.Status != "" {
+				app.cfg.AddCustomStatus(*patch.Status)
 			}
 		}
+		app.svc.BeginUndoTx("групповое изменение поля")
+		count := 0
+		for id := range app.selectedIDs {
+			if newDatePtr != nil {
+				sess, ok := app.svc.ByID(id)
+				if !ok {
+					continue
+				}
+				tm, err := parser.ParseTime(sess.Time)
+				if err != nil {
+					tm, _ = parser.ParseTime("10:00")
+				}
+				_ = app.svc.Delete(id)
+				sess.ID = app.svc.GenerateID(*newDatePtr, tm)
+				if err := app.svc.Add(sess); err == nil {
+					count++
+				}
+			} else {
+				if err := app.svc.Update(id, patch); err == nil {
+					count++
+				}
+			}
+		}
+		app.svc.EndUndoTx()
+		saveErr := app.svc.Save(app.ctx)
+		app.lastDataMod = app.svc.DataFilesModTime()
 		app.persistConfig()
 		app.selectedIDs = map[string]bool{}
-		if lastErr != nil && count == 0 {
-			app.setStatusMsg("⚠ Ошибка сохранения: " + lastErr.Error())
+		if saveErr != nil {
+			app.setStatusMsg("⚠ Ошибка сохранения: " + saveErr.Error())
 		} else {
 			app.setStatusMsg(fmt.Sprintf("Поле обновлено для %d записей", count))
 		}
@@ -821,7 +877,7 @@ func NewModalSessionForm(sess *models.Session, initialDate string) *ModalSession
 			typeStr:   sess.Type,
 			durStr:    strconv.Itoa(sess.Duration),
 			cashStr:   strconv.FormatFloat(sess.Cash, 'f', -1, 64),
-			status:    sess.Status,
+			status:    calendar.FormatStatusDisplay(sess.Status),
 			notes:     sess.Notes,
 			repeatStr: "none",
 			fieldIdx:  2, // focus name by default
@@ -850,6 +906,32 @@ func NewModalSessionForm(sess *models.Session, initialDate string) *ModalSession
 		notes:     "",
 		repeatStr: "none",
 		fieldIdx:  2,
+	}
+}
+
+func NewModalCloneSessionForm(sess *models.Session, initialDate string) *ModalSessionForm {
+	if sess == nil {
+		return NewModalSessionForm(nil, initialDate)
+	}
+	dStr := initialDate
+	if dStr == "" {
+		dStr = sess.Date()
+	}
+	if parsed, err := parser.ParseDate(dStr, time.Now()); err == nil {
+		dStr = fmt.Sprintf("%02d.%02d.%04d", parsed.Day(), parsed.Month(), parsed.Year())
+	}
+	return &ModalSessionForm{
+		isEdit:    false,
+		dateStr:   dStr,
+		timeStr:   sess.Time,
+		name:      sess.Name,
+		typeStr:   sess.Type,
+		durStr:    strconv.Itoa(sess.Duration),
+		cashStr:   strconv.FormatFloat(sess.Cash, 'f', -1, 64),
+		status:    calendar.FormatStatusDisplay(sess.Status),
+		notes:     sess.Notes,
+		repeatStr: "none",
+		fieldIdx:  0, // focus date so user can adjust date or press Enter immediately
 	}
 }
 
@@ -1069,6 +1151,9 @@ func (m *ModalSessionForm) HandleKey(k Key, app *App) bool {
 					app.setStatusMsg("Тип «" + item + "» удалён из списков выбора")
 					m.openCatPicker(app)
 				} else if m.pickerField == 6 { // Status
+					if item == calendar.EmptyStatusLabel {
+						return true
+					}
 					if app.cfg != nil {
 						app.cfg.RemoveStatus(item)
 						app.persistConfig()
@@ -1318,9 +1403,19 @@ func (m *ModalSessionForm) openCatPicker(app *App) {
 func (m *ModalSessionForm) openStatusPicker(app *App) {
 	var list []string
 	if app != nil {
-		list = app.getAvailableStatuses()
+		list = append([]string{}, app.getAvailableStatuses()...)
 	} else {
 		list = []string{"Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"}
+	}
+	hasEmpty := false
+	for _, st := range list {
+		if strings.EqualFold(st, calendar.EmptyStatusLabel) {
+			hasEmpty = true
+			break
+		}
+	}
+	if !hasEmpty {
+		list = append(list, calendar.EmptyStatusLabel)
 	}
 	m.pickerList = list
 	m.pickerTitle = " Статусы [Enter] "
@@ -1329,7 +1424,7 @@ func (m *ModalSessionForm) openStatusPicker(app *App) {
 	m.pickerScroll = 0
 	m.pickerIdx = 0
 
-	cur := strings.TrimSpace(m.status)
+	cur := calendar.FormatStatusDisplay(m.status)
 	for i, item := range m.pickerList {
 		if strings.EqualFold(item, cur) {
 			m.pickerIdx = i
@@ -1371,10 +1466,12 @@ func (m *ModalSessionForm) openNamePicker(app *App) {
 func (m *ModalSessionForm) cycleStatus(app *App) {
 	order := []string{"Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"}
 	if app != nil {
-		order = app.getAvailableStatuses()
+		order = append([]string{}, app.getAvailableStatuses()...)
 	}
+	order = append(order, calendar.EmptyStatusLabel)
+	cur := calendar.FormatStatusDisplay(m.status)
 	for i, st := range order {
-		if strings.EqualFold(st, m.status) {
+		if strings.EqualFold(st, cur) {
 			m.status = order[(i+1)%len(order)]
 			return
 		}
@@ -1452,10 +1549,7 @@ func (m *ModalSessionForm) save(app *App) bool {
 		nameVal = "Запись"
 	}
 	typeVal := strings.TrimSpace(m.typeStr)
-	statusVal := strings.TrimSpace(m.status)
-	if statusVal == "" {
-		statusVal = "Активно"
-	}
+	statusVal := calendar.NormalizeStatus(m.status)
 	notesVal := strings.TrimSpace(m.notes)
 
 	var savedID string
@@ -1594,18 +1688,22 @@ func (m *ModalConfirmDelete) HandleKey(k Key, app *App) bool {
 			if err := app.svc.Save(app.ctx); err != nil {
 				app.setStatusMsg("⚠ Ошибка сохранения: " + err.Error())
 			} else {
+				app.lastDataMod = app.svc.DataFilesModTime()
 				app.setStatusMsg("Запись удалена")
 			}
 		} else if len(app.selectedIDs) > 0 {
+			app.svc.BeginUndoTx("групповое удаление записей")
 			delCount := 0
 			for id := range app.selectedIDs {
 				if app.svc.Delete(id) {
 					delCount++
 				}
 			}
+			app.svc.EndUndoTx()
 			if err := app.svc.Save(app.ctx); err != nil {
 				app.setStatusMsg("⚠ Ошибка сохранения: " + err.Error())
 			} else {
+				app.lastDataMod = app.svc.DataFilesModTime()
 				app.selectedIDs = map[string]bool{}
 				app.setStatusMsg(fmt.Sprintf("Удалено записей: %d", delCount))
 			}
@@ -3201,7 +3299,13 @@ func (m *ModalHelp) Draw(s *Screen) {
 		{"↑ / ↓ / ← / →", "Навигация по записям и дням календаря"},
 		{"Space (Пробел)", "Выбор записи [✓] / фиксация периода в календаре"},
 		{"Enter", "Карточка записи / применить выбор дня"},
-		{"s / ы", "Быстрая смена статуса (Активно/Завершено/...) [1-5]"},
+		{"v / м", "Быстрое переключение статуса по кругу (вкл. ~пусто~)"},
+		{"s / ы", "Окно выбора статуса (Активно/Завершено/~пусто~/...)"},
+		{"c / с", "Дублировать выбранную запись (клон в 1 клавишу)"},
+		{"m / ь", "Перенести запись (или отмеченные) в другой календарь"},
+		{"u / г", "Отменить последнее действие (Undo)"},
+		{"x / ч, X / Ч", "Экспорт в CSV [x] / Импорт из CSV или JSON [Shift+X]"},
+		{"b / и", "Календари записей (переключение / создание)"},
 		{"l / д", "Сортировка записей (Дата, Время, Имя, Тип...)"},
 		{"a / ф", "Создать новую запись"},
 		{"e / у", "Редактировать выбранную запись"},
@@ -4043,4 +4147,483 @@ func (m *ModalStats) HandleKey(k Key, app *App) bool {
 		return true
 	}
 	return false
+}
+
+// ----------------- MOVE TO CALENDAR MODAL [m] -----------------
+
+type ModalMoveToCalendar struct {
+	calendars     []models.CalendarInfo
+	selected      int
+	scroll        int
+	targetIDs     []string
+	isCustomInput bool
+	customKey     string
+	errMsg        string
+}
+
+func NewModalMoveToCalendar(app *App, targetIDs []string) *ModalMoveToCalendar {
+	var other []models.CalendarInfo
+	if app != nil && app.svc != nil {
+		for _, c := range app.svc.ListCalendars(app.cfg) {
+			if !c.Active {
+				other = append(other, c)
+			}
+		}
+	}
+	return &ModalMoveToCalendar{
+		calendars:     other,
+		selected:      0,
+		targetIDs:     targetIDs,
+		isCustomInput: len(other) == 0,
+	}
+}
+
+func (m *ModalMoveToCalendar) Draw(s *Screen) {
+	if m.isCustomInput {
+		w := 50
+		h := 10
+		if w > s.Width-2 {
+			w = s.Width - 2
+		}
+		if h > s.Height-2 {
+			h = s.Height - 2
+		}
+		x := (s.Width - w) / 2
+		y := (s.Height - h) / 2
+		if x < 1 {
+			x = 1
+		}
+		if y < 1 {
+			y = 1
+		}
+		s.DrawBox(x, y, w, h, "Перенос в календарь по префиксу", FgCyan, BorderBright, BgModal, true)
+		s.DrawText(x+2, y+2, "Префикс целевого календаря (напр. work, sport):", FgMuted, BgModal, w-4, false, false, false)
+		s.Fill(x+2, y+4, w-4, 1, ' ', FgWhite, BgInput)
+		s.DrawBox(x+1, y+3, w-2, 3, "", FgDim, BorderFocus, BgInput, false)
+		s.DrawText(x+3, y+4, m.customKey+"█", FgWhite, BgInput, w-6, true, false, false)
+		if m.errMsg != "" {
+			s.DrawText(x+2, y+6, m.errMsg, FgRed, BgModal, w-4, true, false, false)
+		}
+		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Enter] Перенести  [Esc] Назад", FgDim, BgModal)
+		return
+	}
+
+	totalRows := len(m.calendars) + 1
+	w := 54
+	h := totalRows + 7
+	if h < 10 {
+		h = 10
+	}
+	if h > 18 {
+		h = 18
+	}
+	if w > s.Width-2 {
+		w = s.Width - 2
+	}
+	if h > s.Height-2 {
+		h = s.Height - 2
+	}
+	x := (s.Width - w) / 2
+	y := (s.Height - h) / 2
+	if x < 1 {
+		x = 1
+	}
+	if y < 1 {
+		y = 1
+	}
+
+	title := fmt.Sprintf("Перенос в другой календарь (%d зап.)", len(m.targetIDs))
+	s.DrawBox(x, y, w, h, title, FgCyan, BorderBright, BgModal, true)
+	s.DrawText(x+2, y+1, "Выберите целевой календарь:", FgMuted, BgModal, w-4, false, false, false)
+
+	maxListRows := h - 6
+	if maxListRows < 1 {
+		maxListRows = 1
+	}
+	if m.selected < m.scroll {
+		m.scroll = m.selected
+	} else if m.selected >= m.scroll+maxListRows {
+		m.scroll = m.selected - maxListRows + 1
+	}
+
+	for row := 0; row < maxListRows; row++ {
+		idx := m.scroll + row
+		if idx >= totalRows {
+			break
+		}
+		rowY := y + 3 + row
+		isCur := idx == m.selected
+		bg := BgModal
+		fg := FgMain
+		prefix := "  "
+		if isCur {
+			bg = BgSelected
+			fg = FgWhite
+			prefix = "► "
+		}
+		s.Fill(x+2, rowY, w-4, 1, ' ', fg, bg)
+		if idx < len(m.calendars) {
+			cal := m.calendars[idx]
+			numStr := fmt.Sprintf("[%d] ", idx+1)
+			s.DrawText(x+2, rowY, prefix+numStr, FgCyan, bg, 8, isCur, false, false)
+			s.DrawText(x+9, rowY, cal.Label, fg, bg, w-12, isCur, false, false)
+		} else {
+			if !isCur {
+				fg = FgGreen
+			}
+			s.DrawText(x+2, rowY, prefix+"+ Ввести префикс календаря вручную...", fg, bg, w-4, isCur, false, false)
+		}
+	}
+
+	s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓/1-9] Выбор  [+] Свой префикс  [Enter] Перенести  [Esc] Отмена", FgDim, BgModal)
+}
+
+func (m *ModalMoveToCalendar) HandleKey(k Key, app *App) bool {
+	if m.isCustomInput {
+		switch {
+		case k.Type == KeyEsc:
+			if len(m.calendars) == 0 {
+				app.activeModal = nil
+				return true
+			}
+			m.isCustomInput = false
+			m.errMsg = ""
+			return true
+		case k.Type == KeyBackspace:
+			if len(m.customKey) > 0 {
+				runes := []rune(m.customKey)
+				m.customKey = string(runes[:len(runes)-1])
+			}
+			return true
+		case k.Type == KeyRune:
+			m.customKey += string(k.Rune)
+			m.errMsg = ""
+			return true
+		case k.Type == KeyEnter:
+			key := strings.TrimSpace(m.customKey)
+			if strings.EqualFold(key, "default") || strings.EqualFold(key, "mycal") {
+				key = ""
+			}
+			m.executeMove(app, key)
+			return true
+		}
+		return true
+	}
+
+	totalRows := len(m.calendars) + 1
+	switch {
+	case k.Type == KeyEsc:
+		app.activeModal = nil
+		return true
+	case k.Matches('+', '='):
+		m.isCustomInput = true
+		m.customKey = ""
+		m.errMsg = ""
+		return true
+	case k.Type == KeyUp || k.Matches('k', 'л'):
+		if m.selected > 0 {
+			m.selected--
+		} else {
+			m.selected = totalRows - 1
+		}
+		return true
+	case k.Type == KeyDown || k.Matches('j', 'о'):
+		if m.selected < totalRows-1 {
+			m.selected++
+		} else {
+			m.selected = 0
+		}
+		return true
+	case k.Type == KeyRune && k.Rune >= '1' && k.Rune <= '9':
+		idx := int(k.Rune - '1')
+		if idx < len(m.calendars) {
+			m.executeMove(app, m.calendars[idx].Key)
+		}
+		return true
+	case k.Type == KeyEnter:
+		if m.selected == len(m.calendars) {
+			m.isCustomInput = true
+			m.customKey = ""
+			m.errMsg = ""
+			return true
+		}
+		if m.selected >= 0 && m.selected < len(m.calendars) {
+			m.executeMove(app, m.calendars[m.selected].Key)
+		}
+		return true
+	}
+	return false
+}
+
+func (m *ModalMoveToCalendar) executeMove(app *App, targetKey string) {
+	if app == nil || app.svc == nil {
+		return
+	}
+	moved, err := app.svc.MoveEntriesToCalendar(app.ctx, app.cfg, m.targetIDs, targetKey)
+	if err != nil {
+		if m.isCustomInput {
+			m.errMsg = err.Error()
+		} else {
+			app.setStatusMsg("⚠ " + err.Error())
+			app.activeModal = nil
+		}
+		return
+	}
+	app.selectedIDs = map[string]bool{}
+	app.lastDataMod = app.svc.DataFilesModTime()
+	app.persistConfig()
+	app.reloadSessions()
+	targetDisp := app.cfg.EffectiveBaseName(targetKey)
+	app.setStatusMsg(fmt.Sprintf("Перенесено записей: %d → %s", moved, targetDisp))
+	app.activeModal = nil
+}
+
+// ----------------- IMPORT CSV / JSON MODAL [Shift+X] -----------------
+
+type ModalImport struct {
+	files         []string
+	selected      int
+	scroll        int
+	isCustomInput bool
+	customPath    string
+	errMsg        string
+}
+
+func NewModalImport(app *App) *ModalImport {
+	var files []string
+	seen := map[string]bool{}
+	if app != nil && app.svc != nil {
+		activeBase := filepath.Base(app.svc.MainDataFilePath())
+		dirs := []string{app.svc.DataDir()}
+		if wd, err := os.Getwd(); err == nil && wd != app.svc.DataDir() {
+			dirs = append(dirs, wd)
+		}
+		for _, dir := range dirs {
+			entries, err := os.ReadDir(dir)
+			if err != nil {
+				continue
+			}
+			for _, e := range entries {
+				if e.IsDir() {
+					continue
+				}
+				name := e.Name()
+				lower := strings.ToLower(name)
+				if lower == "config_mycal.json" || name == activeBase {
+					continue
+				}
+				if strings.HasSuffix(lower, ".csv") || strings.HasSuffix(lower, ".json") {
+					full := filepath.Join(dir, name)
+					if !seen[full] {
+						seen[full] = true
+						files = append(files, full)
+					}
+				}
+			}
+		}
+		sort.Strings(files)
+	}
+	return &ModalImport{
+		files:         files,
+		selected:      0,
+		isCustomInput: len(files) == 0,
+	}
+}
+
+func (m *ModalImport) Draw(s *Screen) {
+	if m.isCustomInput {
+		w := 58
+		h := 10
+		if w > s.Width-2 {
+			w = s.Width - 2
+		}
+		if h > s.Height-2 {
+			h = s.Height - 2
+		}
+		x := (s.Width - w) / 2
+		y := (s.Height - h) / 2
+		if x < 1 {
+			x = 1
+		}
+		if y < 1 {
+			y = 1
+		}
+		s.DrawBox(x, y, w, h, "Импорт из файла (.csv / .json)", FgCyan, BorderBright, BgModal, true)
+		s.DrawText(x+2, y+2, "Введите путь к файлу CSV или JSON:", FgMuted, BgModal, w-4, false, false, false)
+		s.Fill(x+2, y+4, w-4, 1, ' ', FgWhite, BgInput)
+		s.DrawBox(x+1, y+3, w-2, 3, "", FgDim, BorderFocus, BgInput, false)
+		s.DrawText(x+3, y+4, m.customPath+"█", FgWhite, BgInput, w-6, true, false, false)
+		if m.errMsg != "" {
+			s.DrawText(x+2, y+6, m.errMsg, FgRed, BgModal, w-4, true, false, false)
+		}
+		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Enter] Импортировать  [Esc] Назад", FgDim, BgModal)
+		return
+	}
+
+	totalRows := len(m.files) + 1
+	w := 62
+	h := totalRows + 7
+	if h < 10 {
+		h = 10
+	}
+	if h > 18 {
+		h = 18
+	}
+	if w > s.Width-2 {
+		w = s.Width - 2
+	}
+	if h > s.Height-2 {
+		h = s.Height - 2
+	}
+	x := (s.Width - w) / 2
+	y := (s.Height - h) / 2
+	if x < 1 {
+		x = 1
+	}
+	if y < 1 {
+		y = 1
+	}
+
+	s.DrawBox(x, y, w, h, "Импорт из CSV / JSON [Shift+X]", FgCyan, BorderBright, BgModal, true)
+	s.DrawText(x+2, y+1, "Выберите файл для импорта (дубликаты пропускаются):", FgMuted, BgModal, w-4, false, false, false)
+
+	maxListRows := h - 6
+	if maxListRows < 1 {
+		maxListRows = 1
+	}
+	if m.selected < m.scroll {
+		m.scroll = m.selected
+	} else if m.selected >= m.scroll+maxListRows {
+		m.scroll = m.selected - maxListRows + 1
+	}
+
+	for row := 0; row < maxListRows; row++ {
+		idx := m.scroll + row
+		if idx >= totalRows {
+			break
+		}
+		rowY := y + 3 + row
+		isCur := idx == m.selected
+		bg := BgModal
+		fg := FgMain
+		prefix := "  "
+		if isCur {
+			bg = BgSelected
+			fg = FgWhite
+			prefix = "► "
+		}
+		s.Fill(x+2, rowY, w-4, 1, ' ', fg, bg)
+		if idx < len(m.files) {
+			f := m.files[idx]
+			numStr := fmt.Sprintf("[%d] ", idx+1)
+			s.DrawText(x+2, rowY, prefix+numStr, FgCyan, bg, 8, isCur, false, false)
+			s.DrawText(x+9, rowY, TruncateString(filepath.Base(f), w-12, "…"), fg, bg, w-12, isCur, false, false)
+		} else {
+			if !isCur {
+				fg = FgGreen
+			}
+			s.DrawText(x+2, rowY, prefix+"+ Указать путь к файлу вручную...", fg, bg, w-4, isCur, false, false)
+		}
+	}
+
+	s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓/1-9] Выбор  [+] Указать путь  [Enter] Импорт  [Esc] Отмена", FgDim, BgModal)
+}
+
+func (m *ModalImport) HandleKey(k Key, app *App) bool {
+	if m.isCustomInput {
+		switch {
+		case k.Type == KeyEsc:
+			if len(m.files) == 0 {
+				app.activeModal = nil
+				return true
+			}
+			m.isCustomInput = false
+			m.errMsg = ""
+			return true
+		case k.Type == KeyBackspace:
+			if len(m.customPath) > 0 {
+				runes := []rune(m.customPath)
+				m.customPath = string(runes[:len(runes)-1])
+			}
+			return true
+		case k.Type == KeySpace:
+			m.customPath += " "
+			return true
+		case k.Type == KeyRune:
+			m.customPath += string(k.Rune)
+			m.errMsg = ""
+			return true
+		case k.Type == KeyEnter:
+			m.executeImport(app, m.customPath)
+			return true
+		}
+		return true
+	}
+
+	totalRows := len(m.files) + 1
+	switch {
+	case k.Type == KeyEsc:
+		app.activeModal = nil
+		return true
+	case k.Matches('+', '='):
+		m.isCustomInput = true
+		m.customPath = ""
+		m.errMsg = ""
+		return true
+	case k.Type == KeyUp || k.Matches('k', 'л'):
+		if m.selected > 0 {
+			m.selected--
+		} else {
+			m.selected = totalRows - 1
+		}
+		return true
+	case k.Type == KeyDown || k.Matches('j', 'о'):
+		if m.selected < totalRows-1 {
+			m.selected++
+		} else {
+			m.selected = 0
+		}
+		return true
+	case k.Type == KeyRune && k.Rune >= '1' && k.Rune <= '9':
+		idx := int(k.Rune - '1')
+		if idx < len(m.files) {
+			m.executeImport(app, m.files[idx])
+		}
+		return true
+	case k.Type == KeyEnter:
+		if m.selected == len(m.files) {
+			m.isCustomInput = true
+			m.customPath = ""
+			m.errMsg = ""
+			return true
+		}
+		if m.selected >= 0 && m.selected < len(m.files) {
+			m.executeImport(app, m.files[m.selected])
+		}
+		return true
+	}
+	return false
+}
+
+func (m *ModalImport) executeImport(app *App, path string) {
+	if app == nil || app.svc == nil {
+		return
+	}
+	res, err := app.svc.ImportFile(app.ctx, app.cfg, path)
+	if err != nil {
+		if m.isCustomInput {
+			m.errMsg = err.Error()
+		} else {
+			app.setStatusMsg("⚠ Ошибка импорта: " + err.Error())
+			app.activeModal = nil
+		}
+		return
+	}
+	app.lastDataMod = app.svc.DataFilesModTime()
+	if res.ConfigMod {
+		app.persistConfig()
+	}
+	app.reloadSessions()
+	app.setStatusMsg(fmt.Sprintf("Импорт: добавлено %d, пропущено дубликатов %d (всего %d)", res.Added, res.Skipped, res.Total))
+	app.activeModal = nil
 }

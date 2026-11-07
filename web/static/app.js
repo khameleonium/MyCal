@@ -250,6 +250,15 @@ async function refreshData() {
 
     const data = await apiFetch(`/api/sessions?${params.toString()}`);
     state.sessions = data.sessions || [];
+    state.canUndo = !!data.can_undo;
+    state.undoDesc = data.undo_desc || "";
+    const btnUndo = document.getElementById("btnUndo");
+    if (btnUndo) {
+      btnUndo.disabled = !state.canUndo;
+      btnUndo.title = state.canUndo
+        ? `Отменить: ${state.undoDesc} (u / Ctrl+Z)`
+        : "Нет действий для отмены (u / Ctrl+Z)";
+    }
     updateNamesDatalist();
 
     renderFeed();
@@ -442,7 +451,7 @@ function renderSessionRowHTML(s) {
   const isSelected = s.id === state.focusedId;
   const isBatchChecked = state.selectedBatchIds.has(s.id);
   const statusClass = getStatusClass(s.status);
-  const statusLabel = s.status ? s.status : "<пусто>";
+  const statusLabel = s.status ? s.status : "~пусто~";
   const repeatIcon = s.series_id ? '<span class="row-repeat-icon" title="Повторяющаяся серия">↻</span>' : '';
   const isNegative = s.cash < 0;
   const cashBadge = (s.cash !== undefined && s.cash !== 0)
@@ -823,12 +832,15 @@ function updateStatusSelect(selectedVal) {
     : ["Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"];
   const curVal = selectedVal !== undefined ? selectedVal : sel.value;
   let optionsHtml = statuses.map(st => `<option value="${escapeHtml(st)}">${escapeHtml(st)}</option>`).join("");
-  if (curVal && !statuses.includes(curVal) && curVal !== "__custom__") {
+  optionsHtml += `<option value="">~пусто~</option>`;
+  if (curVal && !statuses.includes(curVal) && curVal !== "__custom__" && curVal !== "~пусто~") {
     optionsHtml = `<option value="${escapeHtml(curVal)}">${escapeHtml(curVal)}</option>` + optionsHtml;
   }
   optionsHtml += `<option value="__custom__">✏️ + Свой статус...</option>`;
   sel.innerHTML = optionsHtml;
-  if (curVal && curVal !== "__custom__") {
+  if (curVal === "" || curVal === "~пусто~") {
+    sel.value = "";
+  } else if (curVal && curVal !== "__custom__") {
     sel.value = curVal;
   } else if (statuses.length > 0) {
     sel.value = statuses[0];
@@ -1076,7 +1088,7 @@ function renderInspector(s) {
   }
 
   const statusClass = getStatusClass(s.status);
-  const statusLabel = s.status ? s.status : "<пусто>";
+  const statusLabel = s.status ? s.status : "~пусто~";
   const repeatText = s.series_id ? `Серия: ${s.series_id}` : "Одиночная запись";
 
   box.innerHTML = `
@@ -1224,7 +1236,7 @@ function renderStatusPickerPopup() {
   html += `
     <button type="button" class="status-opt-btn status-opt-empty" onclick="selectNewStatus('')">
       <span class="st-dot dot-gray"></span>
-      <span>&lt;Очистить статус&gt;</span>
+      <span>~пусто~</span>
       <span class="st-icon">∅</span>
     </button>
     <button type="button" class="status-opt-btn status-opt-custom" onclick="promptCustomStatus()">
@@ -1469,6 +1481,14 @@ function ctxChangeStatus() {
 function ctxDuplicate() {
   hideContextMenu();
   duplicateFocusedSession();
+}
+
+function ctxMoveToCalendar() {
+  const id = state.contextTargetId || state.focusedId;
+  hideContextMenu();
+  if (id) {
+    openMoveCalendarModal([id]);
+  }
 }
 
 function ctxDelete() {
@@ -2306,6 +2326,7 @@ function onBatchFieldSelectChange(field) {
         <label for="batchFieldValue" class="form-label">Новый статус:</label>
         <select id="batchFieldValue" class="form-select">
           ${state.statuses.map(st => `<option value="${escapeHtml(st)}">${escapeHtml(st)}</option>`).join("")}
+          <option value="">~пусто~</option>
         </select>
       `;
       break;
@@ -2487,7 +2508,7 @@ function editFocusedSession() {
   updateTypeSelect(s.type);
   document.getElementById("formDuration").value = s.duration;
   document.getElementById("formCash").value = s.cash !== undefined ? s.cash : 0.0;
-  updateStatusSelect(s.status || "Активно");
+  updateStatusSelect(s.status !== undefined && s.status !== null ? s.status : "");
   document.getElementById("formNotes").value = s.notes || "";
 
   document.getElementById("repeatSection").style.display = "none"; // cannot change repeat rule in edit
@@ -2967,6 +2988,12 @@ function initGlobalKeyboard() {
       return;
     }
 
+    if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z" || e.key === "я" || e.key === "Я")) {
+      e.preventDefault();
+      undoLastAction();
+      return;
+    }
+
     switch (e.key) {
       case "ArrowDown":
       case "j":
@@ -2988,6 +3015,36 @@ function initGlobalKeyboard() {
       case "\\":
         e.preventDefault();
         editFocusedSession();
+        break;
+      case "c":
+      case "с":
+        e.preventDefault();
+        duplicateFocusedSession();
+        break;
+      case "v":
+      case "м":
+        e.preventDefault();
+        cycleFocusedSessionStatus();
+        break;
+      case "m":
+      case "ь":
+        e.preventDefault();
+        openMoveFocusedSessionModal();
+        break;
+      case "u":
+      case "г":
+        e.preventDefault();
+        undoLastAction();
+        break;
+      case "x":
+      case "ч":
+        e.preventDefault();
+        exportCurrentSessionsCSV();
+        break;
+      case "X":
+      case "Ч":
+        e.preventDefault();
+        triggerImportFile();
         break;
       case "d":
       case "в":
@@ -3261,5 +3318,225 @@ async function handleCreateCalendarSubmit(e) {
     await refreshData();
   } catch (err) {
     alert("Не удалось создать календарь: " + err.message);
+  }
+}
+
+// ======================== QUICK STATUS CYCLE (v), UNDO (u), MOVE (m), IMPORT/EXPORT ========================
+
+async function cycleFocusedSessionStatus() {
+  const statuses = (state.statuses && state.statuses.length > 0)
+    ? state.statuses
+    : ["Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"];
+  const cycle = [...statuses.filter(st => st && st !== "~пусто~"), ""];
+
+  if (state.selectedBatchIds && state.selectedBatchIds.size > 0) {
+    const ids = Array.from(state.selectedBatchIds);
+    const firstSess = state.sessions.find(s => s.id === ids[0]);
+    const cur = (firstSess && firstSess.status) ? firstSess.status : "";
+    const idx = cycle.indexOf(cur);
+    const nextStatus = cycle[(idx + 1) % cycle.length];
+    try {
+      await apiFetch("/api/sessions/batch", {
+        method: "PATCH",
+        body: JSON.stringify({ ids, field: "status", value: nextStatus }),
+      });
+      await refreshData();
+    } catch (err) {
+      alert("Не удалось сменить статус: " + err.message);
+    }
+    return;
+  }
+
+  if (!state.focusedId) return;
+  const s = state.sessions.find(x => x.id === state.focusedId);
+  if (!s) return;
+
+  const cur = s.status || "";
+  const idx = cycle.indexOf(cur);
+  const nextStatus = cycle[(idx + 1) % cycle.length];
+
+  try {
+    await apiFetch(`/api/sessions/${s.id}/status`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: nextStatus }),
+    });
+    await refreshData();
+  } catch (err) {
+    alert("Не удалось сменить статус: " + err.message);
+  }
+}
+
+async function undoLastAction() {
+  try {
+    const res = await apiFetch("/api/undo", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    if (res && res.ok) {
+      await Promise.all([fetchTypes(), fetchStatuses()]);
+      await refreshData();
+    }
+  } catch (err) {
+    alert("Отмена действия: " + err.message);
+  }
+}
+
+let pendingMoveSessionIds = [];
+
+function openMoveFocusedSessionModal() {
+  if (state.selectedBatchIds && state.selectedBatchIds.size > 0) {
+    openMoveCalendarModal(Array.from(state.selectedBatchIds));
+    return;
+  }
+  if (!state.focusedId) return;
+  openMoveCalendarModal([state.focusedId]);
+}
+
+function openBatchMoveModal() {
+  if (!state.selectedBatchIds || state.selectedBatchIds.size === 0) return;
+  openMoveCalendarModal(Array.from(state.selectedBatchIds));
+}
+
+function openMoveCalendarModal(ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return;
+  pendingMoveSessionIds = ids;
+
+  const countEl = document.getElementById("moveCalCount");
+  if (countEl) countEl.textContent = ids.length;
+
+  const sel = document.getElementById("moveCalTargetSelect");
+  const customGroup = document.getElementById("moveCalCustomGroup");
+  const customInp = document.getElementById("moveCalCustomPrefix");
+  if (!sel) return;
+
+  const activeKey = (state.config && state.config.active_calendar) ? state.config.active_calendar : "";
+  const cals = Array.isArray(state.calendars) && state.calendars.length > 0
+    ? state.calendars
+    : [{ key: "", label: "Основной (mycal)", active: activeKey === "" }];
+
+  const otherCals = cals.filter(c => c.key !== activeKey);
+  let html = "";
+  for (const c of otherCals) {
+    html += `<option value="${escapeHtml(c.key)}">🗂️ ${escapeHtml(c.label)}</option>`;
+  }
+  html += `<option value="__custom__">➕ Новый календарь (ввести префикс)...</option>`;
+  sel.innerHTML = html;
+
+  if (otherCals.length > 0) {
+    sel.value = otherCals[0].key;
+    if (customGroup) customGroup.style.display = "none";
+  } else {
+    sel.value = "__custom__";
+    if (customGroup) customGroup.style.display = "flex";
+  }
+  if (customInp) customInp.value = "";
+
+  openModal("modalMoveCalendar");
+}
+
+function onMoveTargetSelectChange(val) {
+  const customGroup = document.getElementById("moveCalCustomGroup");
+  const customInp = document.getElementById("moveCalCustomPrefix");
+  if (customGroup) {
+    customGroup.style.display = val === "__custom__" ? "flex" : "none";
+  }
+  if (val === "__custom__" && customInp) {
+    setTimeout(() => customInp.focus(), 50);
+  }
+}
+
+async function handleMoveCalendarSubmit(e) {
+  if (e && typeof e.preventDefault === "function") e.preventDefault();
+  if (!pendingMoveSessionIds || pendingMoveSessionIds.length === 0) return;
+
+  const sel = document.getElementById("moveCalTargetSelect");
+  const customInp = document.getElementById("moveCalCustomPrefix");
+  let targetCalendar = sel ? sel.value : "";
+  if (targetCalendar === "__custom__") {
+    targetCalendar = customInp ? customInp.value.trim() : "";
+    if (!targetCalendar) {
+      alert("Введите префикс целевого календаря");
+      return;
+    }
+  }
+
+  try {
+    await apiFetch("/api/sessions/move", {
+      method: "POST",
+      body: JSON.stringify({
+        ids: pendingMoveSessionIds,
+        target_calendar: targetCalendar,
+      }),
+    });
+    closeModal("modalMoveCalendar");
+    state.selectedBatchIds.clear();
+    pendingMoveSessionIds = [];
+    await fetchConfig();
+    await refreshData();
+  } catch (err) {
+    alert("Ошибка переноса записей: " + err.message);
+  }
+}
+
+async function exportCurrentSessionsCSV() {
+  if (!state.sessions || state.sessions.length === 0) {
+    alert("Нет записей в текущей выборке для экспорта");
+    return;
+  }
+  const ids = state.sessions.map(s => s.id);
+  try {
+    const res = await fetch("/api/export?download=true", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    if (!res.ok) {
+      throw new Error(await res.text());
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const calPrefix = (state.config && state.config.active_calendar) ? `--${state.config.active_calendar}` : "";
+    a.download = `mycal${calPrefix}_export_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert("Ошибка экспорта CSV: " + err.message);
+  }
+}
+
+function triggerImportFile() {
+  const inp = document.getElementById("importFileInput");
+  if (inp) {
+    inp.value = "";
+    inp.click();
+  }
+}
+
+async function handleImportFileSelected(input) {
+  if (!input || !input.files || input.files.length === 0) return;
+  const file = input.files[0];
+  try {
+    const content = await file.text();
+    const ext = file.name.toLowerCase().endsWith(".json") ? "json" : "csv";
+    const res = await apiFetch("/api/import", {
+      method: "POST",
+      body: JSON.stringify({
+        format: ext,
+        filename: file.name,
+        content,
+      }),
+    });
+    const addedCount = res.added !== undefined ? res.added : (res.imported || 0);
+    alert(`Импорт завершён:\n• Добавлено: ${addedCount}\n• Пропущено дубликатов: ${res.skipped || 0}`);
+    await Promise.all([fetchTypes(), fetchStatuses()]);
+    await refreshData();
+  } catch (err) {
+    alert("Ошибка импорта файла: " + err.message);
+  } finally {
+    input.value = "";
   }
 }

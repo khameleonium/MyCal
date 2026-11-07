@@ -557,3 +557,70 @@ func TestUpdateFieldValidationAndCalendarSplitPreservesSessions(t *testing.T) {
 		t.Fatalf("expected 2 sessions preserved after split_mode switch, got %d", srv.svc.Count())
 	}
 }
+
+func TestWebUndoMoveImportExportAndEmptyStatus(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	handler := srv.Routes()
+
+	// 1. Update session with empty status "" -> must remain "" (not overwritten with "Активно")
+	body := bytes.NewBufferString(`{"date":"2026-11-04","time":"10:00","name":"Без статуса","type":"Стрельба из лука","duration":60,"status":""}`)
+	req := httptest.NewRequest(http.MethodPut, "/api/sessions/20261104100000", body)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT /api/sessions/20261104100000 with empty status: got %d (%s)", rec.Code, rec.Body.String())
+	}
+	updated, ok := srv.svc.ByID("20261104100000")
+	if !ok || updated.Status != "" {
+		t.Fatalf("expected empty status \"\" after PUT, got %q", updated.Status)
+	}
+
+	// 2. Undo via POST /api/undo restores previous status ("Активно")
+	req = httptest.NewRequest(http.MethodPost, "/api/undo", bytes.NewBufferString(`{}`))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/undo: got %d (%s)", rec.Code, rec.Body.String())
+	}
+	restored, _ := srv.svc.ByID("20261104100000")
+	if restored.Status != "Активно" {
+		t.Fatalf("expected status restored to 'Активно' after undo, got %q", restored.Status)
+	}
+
+	// 3. Export CSV via POST /api/export?download=true
+	req = httptest.NewRequest(http.MethodPost, "/api/export?download=true", bytes.NewBufferString(`{"ids":["20261104100000"]}`))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "Утренняя тренировка") {
+		t.Fatalf("POST /api/export failed: code=%d body=%q", rec.Code, rec.Body.String())
+	}
+
+	// 4. Import CSV via POST /api/import with deduplication
+	csvPayload := `{"format":"csv","content":"Дата;Время;Наименование;Тип;Длительность_мин;Кэш;Статус;Повторение;Комментарии\n04.11.2026;10:00;Утренняя тренировка;Стрельба из лука;60;0;Активно;Одиночная;\n09.11.2026;15:00;Импортированная;Йога;45;0;~пусто~;Одиночная;Тест"}`
+	req = httptest.NewRequest(http.MethodPost, "/api/import", bytes.NewBufferString(csvPayload))
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/import: got %d (%s)", rec.Code, rec.Body.String())
+	}
+	var impRes struct {
+		Imported int `json:"imported"`
+		Skipped  int `json:"skipped"`
+	}
+	_ = json.NewDecoder(rec.Body).Decode(&impRes)
+	if impRes.Imported != 1 || impRes.Skipped != 1 {
+		t.Fatalf("expected Imported=1, Skipped=1, got %+v", impRes)
+	}
+
+	// 5. Move session to another calendar via POST /api/sessions/move
+	moveBody := bytes.NewBufferString(`{"ids":["20261104100000"],"target_calendar":"work"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/sessions/move", moveBody)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/sessions/move: got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if _, stillHere := srv.svc.ByID("20261104100000"); stillHere {
+		t.Fatalf("expected session 20261104100000 moved out of default calendar")
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -172,8 +173,12 @@ func (s *Server) Routes() http.Handler {
 
 	// REST API endpoints
 	mux.HandleFunc("/api/sessions/batch", s.handleSessionsBatch)
+	mux.HandleFunc("/api/sessions/move", s.handleSessionsMove)
 	mux.HandleFunc("/api/sessions", s.handleSessions)
 	mux.HandleFunc("/api/sessions/", s.handleSessionByID)
+	mux.HandleFunc("/api/undo", s.handleUndo)
+	mux.HandleFunc("/api/import", s.handleImport)
+	mux.HandleFunc("/api/export", s.handleExport)
 	mux.HandleFunc("/api/types", s.handleTypes)
 	mux.HandleFunc("/api/types/", s.handleTypes)
 	mux.HandleFunc("/api/statuses", s.handleStatuses)
@@ -308,12 +313,15 @@ func (s *Server) getSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	st := calendar.ComputeStats(sessions)
+	canUndo, undoDesc := s.svc.CanUndo()
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"sessions":      sessions,
 		"count":         st.TotalEntries,
 		"total_minutes": st.TotalMinutes,
 		"total_hours":   st.TotalHours,
 		"total_cash":    st.TotalCash,
+		"can_undo":      canUndo,
+		"undo_desc":     undoDesc,
 	})
 }
 
@@ -566,7 +574,7 @@ func (s *Server) updateStatus(w http.ResponseWriter, r *http.Request, id string)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	status := strings.TrimSpace(req.Status)
+	status := calendar.NormalizeStatus(req.Status)
 	if s.cfg != nil && status != "" {
 		s.cfg.AddCustomStatus(status)
 		if s.cfgPath != "" {
@@ -638,7 +646,7 @@ func (s *Server) updateField(w http.ResponseWriter, r *http.Request, id string) 
 		v := fmt.Sprintf("%v", req.Value)
 		patch.Notes = &v
 	case "status":
-		v := strings.TrimSpace(fmt.Sprintf("%v", req.Value))
+		v := calendar.NormalizeStatus(fmt.Sprintf("%v", req.Value))
 		patch.Status = &v
 		if s.cfg != nil && v != "" {
 			s.cfg.AddCustomStatus(v)
@@ -1235,12 +1243,14 @@ func (s *Server) handleSessionsBatch(w http.ResponseWriter, r *http.Request) {
 			respondError(w, http.StatusBadRequest, "Некорректный JSON запрос")
 			return
 		}
+		s.svc.BeginUndoTx("групповое удаление записей")
 		deleted := 0
 		for _, id := range req.IDs {
 			if s.svc.Delete(id) {
 				deleted++
 			}
 		}
+		s.svc.EndUndoTx()
 		_ = s.saveService(context.Background())
 		respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "deleted_count": deleted})
 
@@ -1269,6 +1279,7 @@ func (s *Server) handleSessionsBatch(w http.ResponseWriter, r *http.Request) {
 				respondError(w, http.StatusBadRequest, "Неверный формат даты: "+err.Error())
 				return
 			}
+			s.svc.BeginUndoTx("групповой перенос даты")
 			for _, id := range req.IDs {
 				sess, ok := s.svc.ByID(id)
 				if !ok {
@@ -1283,6 +1294,7 @@ func (s *Server) handleSessionsBatch(w http.ResponseWriter, r *http.Request) {
 				_ = s.svc.Add(sess)
 				updated++
 			}
+			s.svc.EndUndoTx()
 			_ = s.saveService(context.Background())
 			respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "updated_count": updated})
 			return
@@ -1324,7 +1336,7 @@ func (s *Server) handleSessionsBatch(w http.ResponseWriter, r *http.Request) {
 			v := strings.TrimSpace(fmt.Sprintf("%v", req.Value))
 			patch.Notes = &v
 		case "status":
-			v := strings.TrimSpace(fmt.Sprintf("%v", req.Value))
+			v := calendar.NormalizeStatus(fmt.Sprintf("%v", req.Value))
 			patch.Status = &v
 			if s.cfg != nil && v != "" {
 				s.cfg.AddCustomStatus(v)
@@ -1343,11 +1355,13 @@ func (s *Server) handleSessionsBatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		s.svc.BeginUndoTx("групповое изменение поля")
 		for _, id := range req.IDs {
 			if err := s.svc.Update(id, patch); err == nil {
 				updated++
 			}
 		}
+		s.svc.EndUndoTx()
 		if err := s.saveService(r.Context()); err != nil {
 			respondError(w, http.StatusInternalServerError, "Ошибка сохранения: "+err.Error())
 			return
@@ -1357,6 +1371,172 @@ func (s *Server) handleSessionsBatch(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *Server) handleSessionsMove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+		return
+	}
+	s.checkAutoReload(r.Context())
+	var req struct {
+		IDs            []string `json:"ids"`
+		TargetCalendar string   `json:"target_calendar"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Некорректный JSON запрос")
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	moved, err := s.svc.MoveEntriesToCalendar(r.Context(), s.cfg, req.IDs, req.TargetCalendar)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.lastDataMod = s.svc.DataFilesModTime()
+	if s.cfg != nil && s.cfgPath != "" {
+		_ = config.Save(r.Context(), s.cfgPath, s.cfg)
+		if fi, err := os.Stat(s.cfgPath); err == nil {
+			s.lastCfgMod = fi.ModTime()
+		}
+	}
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"ok":          true,
+		"moved_count": moved,
+		"target":      s.cfg.EffectiveBaseName(req.TargetCalendar),
+	})
+}
+
+func (s *Server) handleUndo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	desc, err := s.svc.Undo(r.Context())
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.lastDataMod = s.svc.DataFilesModTime()
+	canUndo, nextDesc := s.svc.CanUndo()
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"ok":          true,
+		"description": desc,
+		"can_undo":    canUndo,
+		"undo_desc":   nextDesc,
+	})
+}
+
+func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Format   string `json:"format"`
+		Filename string `json:"filename"`
+		Content  string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Некорректный JSON запрос")
+		return
+	}
+	content := strings.TrimSpace(req.Content)
+	if content == "" {
+		respondError(w, http.StatusBadRequest, "Файл для импорта пуст")
+		return
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	isJSON := strings.EqualFold(req.Format, "json") ||
+		strings.HasSuffix(strings.ToLower(req.Filename), ".json") ||
+		strings.HasPrefix(content, "{") ||
+		strings.HasPrefix(content, "[")
+
+	var res calendar.ImportResult
+	var err error
+	if isJSON {
+		res, err = s.svc.ImportJSON(r.Context(), s.cfg, strings.NewReader(req.Content))
+	} else {
+		res, err = s.svc.ImportCSV(r.Context(), s.cfg, strings.NewReader(req.Content))
+	}
+	if err != nil {
+		respondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.lastDataMod = s.svc.DataFilesModTime()
+	if res.ConfigMod && s.cfg != nil && s.cfgPath != "" {
+		_ = config.Save(r.Context(), s.cfgPath, s.cfg)
+		if fi, err := os.Stat(s.cfgPath); err == nil {
+			s.lastCfgMod = fi.ModTime()
+		}
+	}
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"ok":       true,
+		"added":    res.Added,
+		"imported": res.Added,
+		"skipped":  res.Skipped,
+		"total":    res.Total,
+	})
+}
+
+func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
+	s.checkAutoReload(r.Context())
+	s.mu.RLock()
+	var sessions []models.Session
+	if r.Method == http.MethodPost {
+		var req struct {
+			IDs []string `json:"ids"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if len(req.IDs) > 0 {
+			idSet := make(map[string]bool, len(req.IDs))
+			for _, id := range req.IDs {
+				idSet[id] = true
+			}
+			for _, sess := range s.svc.All() {
+				if idSet[sess.ID] {
+					sessions = append(sessions, sess)
+				}
+			}
+		}
+	}
+	if len(sessions) == 0 {
+		sessions = s.svc.All()
+	}
+	s.mu.RUnlock()
+
+	if len(sessions) == 0 {
+		respondError(w, http.StatusBadRequest, "Нет записей для экспорта")
+		return
+	}
+	path, err := s.svc.ExportCSV(sessions)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Ошибка экспорта CSV: "+err.Error())
+		return
+	}
+	csvBytes, _ := os.ReadFile(path)
+	if r.URL.Query().Get("download") == "true" {
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filepath.Base(path)))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(csvBytes)
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"ok":      true,
+		"path":    path,
+		"count":   len(sessions),
+		"content": string(csvBytes),
+	})
 }
 
 func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
