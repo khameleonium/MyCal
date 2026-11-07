@@ -2,6 +2,7 @@
 package config
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 
 	"mycalendar/models"
@@ -21,6 +24,8 @@ const ConfigFile = "config_mycal.json"
 // models.DefaultConfig).
 func DefaultConfig() *models.Config {
 	cfg := models.DefaultConfig
+	cfg.CalendarSplits = make(map[string]string)
+	cfg.SettingModes = models.DefaultSettingModes()
 	return &cfg
 }
 
@@ -31,6 +36,9 @@ func DefaultConfig() *models.Config {
 //   - Corrupt JSON            -> the file is moved aside to *.corrupt-<ts>, a
 //     note is printed to stderr, and defaults are returned. The tool stays
 //     usable and the next Save writes a clean file.
+//   - Old/incomplete JSON     -> known fields are read and preserved, the old
+//     file is deleted and replaced with a new complete config file containing
+//     both preserved user settings and all newly introduced fields/modes.
 func Load(ctx context.Context, path string) (*models.Config, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -46,8 +54,9 @@ func Load(ctx context.Context, path string) (*models.Config, error) {
 		return nil, err
 	}
 
+	cleaned := trimBOM(data)
 	var cfg models.Config
-	if err := json.Unmarshal(trimBOM(data), &cfg); err != nil {
+	if err := json.Unmarshal(cleaned, &cfg); err != nil {
 		aside := path + ".corrupt-" + time.Now().Format("20060102-150405")
 		if renameErr := os.Rename(path, aside); renameErr == nil {
 			fmt.Fprintf(os.Stderr,
@@ -60,6 +69,17 @@ func Load(ctx context.Context, path string) (*models.Config, error) {
 		}
 		return DefaultConfig(), nil
 	}
+
+	// If the on-disk file is from an older version (missing new fields, missing
+	// setting_modes, or containing obsolete keys), remove the old file and write
+	// the complete updated config preserving all recognized settings.
+	if canonical, mErr := json.MarshalIndent(&cfg, "", "  "); mErr == nil {
+		if !bytes.Equal(bytes.TrimSpace(cleaned), bytes.TrimSpace(canonical)) {
+			_ = os.Remove(path)
+			_ = Save(ctx, path, &cfg)
+		}
+	}
+
 	return &cfg, nil
 }
 
@@ -109,6 +129,42 @@ func Dir() (string, error) {
 		return "", fmt.Errorf("не удалось определить домашний каталог: %w", err)
 	}
 	return filepath.Join(home, ".mycal"), nil
+}
+
+// EffectiveDataDir resolves the directory where calendar data files live:
+//   - If dataPath is non-empty, storage.ExpandPath(dataPath) is returned.
+//   - Otherwise, if cfgPath is non-empty, filepath.Dir(cfgPath) is returned.
+//   - Otherwise, Dir() (or "." as fallback) is returned.
+func EffectiveDataDir(dataPath, cfgPath string) string {
+	expanded := storage.ExpandPath(dataPath)
+	if expanded != "" {
+		return expanded
+	}
+	if strings.TrimSpace(cfgPath) != "" {
+		return filepath.Dir(cfgPath)
+	}
+	if d, err := Dir(); err == nil && d != "" {
+		return d
+	}
+	return "."
+}
+
+// DataPathDisplay returns a human-friendly representation of dataPath for UIs.
+func DataPathDisplay(dataPath string) string {
+	p := strings.TrimSpace(dataPath)
+	if p == "" {
+		if d := os.Getenv("MYCAL_HOME"); d != "" {
+			return d
+		}
+		if runtime.GOOS == "windows" {
+			return `~\.mycal`
+		}
+		return "~/.mycal"
+	}
+	if p == "." || p == "./" || p == `.\` {
+		return "./ (текущая папка)"
+	}
+	return p
 }
 
 // ResolveConfigPath returns the path of the global config file inside Dir,

@@ -11,6 +11,8 @@ const state = {
   types: [],
   statuses: ["Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"],
   config: {},
+  calendars: [],
+  activeSplitMode: "none",
   currentPeriod: (savedPeriodState && savedPeriodState.period) ? savedPeriodState.period : "month", // "today", "week", "month", "all", "range", or "day"
   selectedDate: (savedPeriodState && savedPeriodState.selectedDate) ? savedPeriodState.selectedDate : null,    // ISO date string if a single day is selected (YYYY-MM-DD), otherwise null
   rangeStart: (savedPeriodState && savedPeriodState.rangeStart) ? savedPeriodState.rangeStart : null,      // ISO date string (YYYY-MM-DD) for week / month / range
@@ -158,6 +160,9 @@ async function fetchConfig() {
   try {
     const data = await apiFetch("/api/config");
     state.config = data.config || {};
+    state.calendars = Array.isArray(data.calendars) ? data.calendars : [];
+    state.activeSplitMode = data.active_split_mode || state.config.split_mode || "none";
+    renderCalendarSelect();
     updateNamesDatalist();
     const defaultMode = state.config.default_mode || "cli";
     if (document.getElementById("cfgDefaultMode")) {
@@ -185,7 +190,7 @@ async function fetchConfig() {
       select.value = currentVal;
     }
     if (document.getElementById("cfgSplitMode")) {
-      document.getElementById("cfgSplitMode").value = state.config.split_mode || "none";
+      document.getElementById("cfgSplitMode").value = state.activeSplitMode || state.config.split_mode || "none";
     }
     if (document.getElementById("cfgSilentAddNames")) {
       document.getElementById("cfgSilentAddNames").value = state.config.silent_add_names ? "true" : "false";
@@ -193,12 +198,16 @@ async function fetchConfig() {
     if (document.getElementById("cfgUseSystemDate")) {
       document.getElementById("cfgUseSystemDate").value = state.config.use_system_date !== false ? "true" : "false";
     }
+    if (document.getElementById("cfgCustomDate")) {
+      document.getElementById("cfgCustomDate").value = state.config.custom_date || toISODate(new Date());
+    }
     if (document.getElementById("cfgDataPath")) {
       document.getElementById("cfgDataPath").value = state.config.data_path || "";
     }
     if (document.getElementById("cfgTUIDefaultPeriod")) {
       document.getElementById("cfgTUIDefaultPeriod").value = state.config.tui_default_period || "today";
     }
+    applySettingModesVisibility();
   } catch (e) {
     console.warn("Could not load config:", e);
   }
@@ -915,7 +924,7 @@ function renderMiniCalendar() {
   const startMonday = new Date(firstDayOfMonth);
   startMonday.setDate(firstDayOfMonth.getDate() - startDayOfWeek);
 
-  const today = new Date();
+  const today = getEffectiveDate();
   const todayISO = toISODate(today);
 
   // Set of dates having events (check from loaded sessions and year cache)
@@ -1015,12 +1024,6 @@ function renderStats(data) {
   if (totalCashEl) {
     const totalCash = data.total_cash !== undefined ? data.total_cash : 0;
     totalCashEl.textContent = formatCash(totalCash);
-  }
-  const avgCashEl = document.getElementById("statsAvgCash");
-  if (avgCashEl) {
-    const totalCash = data.total_cash !== undefined ? data.total_cash : 0;
-    const avgCash = data.count > 0 ? (totalCash / data.count) : 0;
-    avgCashEl.textContent = `средн. ${formatCash(avgCash)}`;
   }
 
   // Breakdown by type
@@ -1510,14 +1513,14 @@ function nextMonth() {
 }
 
 function goTodayMonth() {
-  const now = new Date();
+  const now = getEffectiveDate();
   state.calYear = now.getFullYear();
   state.calMonth = now.getMonth();
   setPeriod("today");
 }
 
 function selectCalendarDate(iso) {
-  const todayISO = toISODate(new Date());
+  const todayISO = toISODate(getEffectiveDate());
   state.currentPage = 1;
 
   if (iso === todayISO) {
@@ -1652,7 +1655,7 @@ function setPeriod(p, options = {}) {
   state.currentPeriod = p;
   state.currentPage = 1;
 
-  const today = new Date();
+  const today = getEffectiveDate();
   const todayISO = toISODate(today);
 
   if (p === "today") {
@@ -1693,8 +1696,8 @@ function setPeriod(p, options = {}) {
 }
 
 function syncPeriodButtons() {
-  const todayISO = toISODate(new Date());
-  const curWeek = getWeekBounds(new Date());
+  const todayISO = toISODate(getEffectiveDate());
+  const curWeek = getWeekBounds(getEffectiveDate());
   const curMonISO = toISODate(curWeek.monday);
   const curSunISO = toISODate(curWeek.sunday);
 
@@ -2617,20 +2620,15 @@ async function handleSessionFormSubmit(e) {
 
   try {
     if (!isEdit) {
-      // Create new session(s)
+      // Create new session(s) in a single atomic batch request
       const repeat = document.getElementById("formRepeat").value;
       const repeat_until = document.getElementById("formRepeatUntil").value;
 
-      let lastId = null;
-      for (const name of names) {
-        const res = await apiFetch("/api/sessions", {
-          method: "POST",
-          body: JSON.stringify({ date, time, name, type, duration, cash, status, notes, repeat, repeat_until }),
-        });
-        if (res && res.first_id) {
-          lastId = res.first_id;
-        }
-      }
+      const res = await apiFetch("/api/sessions", {
+        method: "POST",
+        body: JSON.stringify({ date, time, name: names.join("; "), type, duration, cash, status, notes, repeat, repeat_until }),
+      });
+      const lastId = res && res.first_id ? res.first_id : null;
       closeModal("modalSession");
       await fetchTypes(); // refresh types in case a new one was added
       await refreshData();
@@ -2771,7 +2769,7 @@ function openSettingsModal() {
     select.value = currentVal;
   }
   if (document.getElementById("cfgSplitMode")) {
-    document.getElementById("cfgSplitMode").value = state.config.split_mode || "none";
+    document.getElementById("cfgSplitMode").value = state.activeSplitMode || state.config.split_mode || "none";
   }
   if (document.getElementById("cfgSilentAddNames")) {
     document.getElementById("cfgSilentAddNames").value = state.config.silent_add_names ? "true" : "false";
@@ -2779,13 +2777,42 @@ function openSettingsModal() {
   if (document.getElementById("cfgUseSystemDate")) {
     document.getElementById("cfgUseSystemDate").value = state.config.use_system_date !== false ? "true" : "false";
   }
+  if (document.getElementById("cfgCustomDate")) {
+    document.getElementById("cfgCustomDate").value = state.config.custom_date || toISODate(new Date());
+  }
   if (document.getElementById("cfgDataPath")) {
     document.getElementById("cfgDataPath").value = state.config.data_path || "";
   }
   if (document.getElementById("cfgTUIDefaultPeriod")) {
     document.getElementById("cfgTUIDefaultPeriod").value = state.config.tui_default_period || "today";
   }
+  applySettingModesVisibility();
   openModal("modalSettings");
+}
+
+function isSettingEnabledForWeb(key) {
+  const modes = state.config && state.config.setting_modes && state.config.setting_modes[key];
+  if (!Array.isArray(modes) || modes.length === 0) return true;
+  return modes.includes("web");
+}
+
+function toggleCustomDateInput() {
+  const group = document.getElementById("cfgCustomDateGroup");
+  const select = document.getElementById("cfgUseSystemDate");
+  if (!group || !select) return;
+  const enabledForWeb = isSettingEnabledForWeb("custom_date");
+  group.style.display = (enabledForWeb && select.value === "false") ? "block" : "none";
+}
+
+function applySettingModesVisibility() {
+  document.querySelectorAll("#modalSettings [data-setting-key]").forEach(el => {
+    const key = el.getAttribute("data-setting-key");
+    if (key === "custom_date") {
+      toggleCustomDateInput();
+      return;
+    }
+    el.style.display = isSettingEnabledForWeb(key) ? "block" : "none";
+  });
 }
 
 async function saveSettings() {
@@ -2799,6 +2826,7 @@ async function saveSettings() {
   const silent_add_names = document.getElementById("cfgSilentAddNames") ? (document.getElementById("cfgSilentAddNames").value === "true") : false;
   const split_mode = document.getElementById("cfgSplitMode") ? document.getElementById("cfgSplitMode").value : "none";
   const use_system_date = document.getElementById("cfgUseSystemDate") ? (document.getElementById("cfgUseSystemDate").value === "true") : true;
+  const custom_date = document.getElementById("cfgCustomDate") ? document.getElementById("cfgCustomDate").value.trim() : (state.config.custom_date || "");
   const data_path = document.getElementById("cfgDataPath") ? document.getElementById("cfgDataPath").value.trim() : "";
   const tui_default_period = document.getElementById("cfgTUIDefaultPeriod") ? document.getElementById("cfgTUIDefaultPeriod").value : "today";
 
@@ -2815,6 +2843,7 @@ async function saveSettings() {
       silent_add_names,
       split_mode,
       use_system_date,
+      custom_date,
       data_path,
       tui_default_period,
     };
@@ -3001,6 +3030,14 @@ function moveFocusedSession(dir) {
 
 // ======================== UTILITIES ========================
 
+function getEffectiveDate() {
+  if (state.config && state.config.use_system_date === false && state.config.custom_date && /^\d{4}-\d{2}-\d{2}$/.test(state.config.custom_date)) {
+    const d = new Date(state.config.custom_date + "T12:00:00");
+    if (!isNaN(d.getTime())) return d;
+  }
+  return new Date();
+}
+
 function toISODate(d) {
   if (!d) return "";
   const y = d.getFullYear();
@@ -3111,4 +3148,118 @@ function parseCash(val) {
 function formatCash(val) {
   const n = parseCash(val);
   return n.toLocaleString("ru-RU", { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+}
+
+// ======================== MULTI-CALENDAR MANAGEMENT ========================
+
+function renderCalendarSelect() {
+  const select = document.getElementById("calendarSelect");
+  if (!select) return;
+  const splitNames = {
+    none: "1 файл",
+    year: "по годам",
+    month: "по месяцам",
+  };
+  const cals = Array.isArray(state.calendars) && state.calendars.length > 0
+    ? state.calendars
+    : [{ key: "", label: "Основной (mycal)", split_mode: "none", active: true }];
+
+  select.innerHTML = "";
+  let activeKey = (state.config && state.config.active_calendar) ? state.config.active_calendar : "";
+  for (const c of cals) {
+    const opt = document.createElement("option");
+    opt.value = c.key;
+    const modeTag = splitNames[c.split_mode] || "1 файл";
+    opt.textContent = `🗂️ ${c.label} [${modeTag}]`;
+    if (c.active) {
+      activeKey = c.key;
+    }
+    select.appendChild(opt);
+  }
+  const createOpt = document.createElement("option");
+  createOpt.value = "__create__";
+  createOpt.textContent = "➕ Создать календарь записей...";
+  select.appendChild(createOpt);
+
+  select.value = activeKey;
+}
+
+async function onCalendarSelectChange(val) {
+  if (val === "__create__") {
+    renderCalendarSelect();
+    openCreateCalendarModal();
+    return;
+  }
+  try {
+    const res = await apiFetch("/api/calendars", {
+      method: "POST",
+      body: JSON.stringify({ action: "select", key: val }),
+    });
+    if (res.config) state.config = res.config;
+    if (Array.isArray(res.calendars)) state.calendars = res.calendars;
+    state.activeSplitMode = res.active_split_mode || "none";
+    renderCalendarSelect();
+    await Promise.all([fetchTypes(), fetchStatuses()]);
+    await refreshData();
+  } catch (err) {
+    alert("Не удалось переключить календарь: " + err.message);
+    renderCalendarSelect();
+  }
+}
+
+function openCreateCalendarModal() {
+  const inp = document.getElementById("newCalPrefix");
+  const modeSel = document.getElementById("newCalSplitMode");
+  if (inp) inp.value = "";
+  if (modeSel) modeSel.value = "none";
+  updateNewCalPreview();
+  openModal("modalCreateCalendar");
+  if (inp) setTimeout(() => inp.focus(), 50);
+}
+
+function updateNewCalPreview() {
+  const inp = document.getElementById("newCalPrefix");
+  const modeSel = document.getElementById("newCalSplitMode");
+  const preview = document.getElementById("newCalFilePreview");
+  if (!preview) return;
+  const base = (state.config && state.config.data_file_name) ? state.config.data_file_name : "mycal";
+  const raw = inp ? inp.value.trim().replace(/--+/g, "-") : "";
+  const prefix = raw || "префикс";
+  const mode = modeSel ? modeSel.value : "none";
+  const year = new Date().getFullYear();
+  const month = String(new Date().getMonth() + 1).padStart(2, "0");
+  let fileName = `${base}--${prefix}.json`;
+  if (mode === "year") {
+    fileName = `${year}_${base}--${prefix}.json`;
+  } else if (mode === "month") {
+    fileName = `${year}-${month}_${base}--${prefix}.json`;
+  }
+  preview.innerHTML = `Файл на диске: <code>${escapeHtml(fileName)}</code>`;
+}
+
+async function handleCreateCalendarSubmit(e) {
+  if (e && typeof e.preventDefault === "function") e.preventDefault();
+  const inp = document.getElementById("newCalPrefix");
+  const modeSel = document.getElementById("newCalSplitMode");
+  const key = inp ? inp.value.trim() : "";
+  const split_mode = modeSel ? modeSel.value : "none";
+  if (!key) {
+    alert("Введите префикс календаря");
+    return;
+  }
+  try {
+    const res = await apiFetch("/api/calendars", {
+      method: "POST",
+      body: JSON.stringify({ action: "create", key, split_mode }),
+    });
+    if (res.config) state.config = res.config;
+    if (Array.isArray(res.calendars)) state.calendars = res.calendars;
+    state.activeSplitMode = res.active_split_mode || split_mode;
+    closeModal("modalCreateCalendar");
+    renderCalendarSelect();
+    await Promise.all([fetchTypes(), fetchStatuses()]);
+    await refreshData();
+  } catch (err) {
+    alert("Не удалось создать календарь: " + err.message);
+  }
 }

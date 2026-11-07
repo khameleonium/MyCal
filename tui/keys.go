@@ -160,6 +160,24 @@ func (kr *KeyReader) parseCSI(r *bufio.Reader) {
 	}
 
 	switch b {
+	case '[':
+		// Linux console F1..F5: ESC [ [ A .. E
+		nb, err := r.ReadByte()
+		if err != nil {
+			return
+		}
+		switch nb {
+		case 'A':
+			kr.send(Key{Type: KeyF1})
+		case 'B':
+			kr.send(Key{Type: KeyF2})
+		case 'C':
+			kr.send(Key{Type: KeyF3})
+		case 'D':
+			kr.send(Key{Type: KeyF4})
+		case 'E':
+			kr.send(Key{Type: KeyF5})
+		}
 	case 'A':
 		kr.send(Key{Type: KeyUp})
 	case 'B':
@@ -172,9 +190,17 @@ func (kr *KeyReader) parseCSI(r *bufio.Reader) {
 		kr.send(Key{Type: KeyHome})
 	case 'F':
 		kr.send(Key{Type: KeyEnd})
+	case 'P':
+		kr.send(Key{Type: KeyF1})
+	case 'Q':
+		kr.send(Key{Type: KeyF2})
+	case 'R':
+		kr.send(Key{Type: KeyF3})
+	case 'S':
+		kr.send(Key{Type: KeyF4})
 	case 'Z':
 		kr.send(Key{Type: KeyBackTab})
-	case '1', '2', '3', '4', '5', '6', '7', '8':
+	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 		// Extended sequence like ESC [ 3 ~ or ESC [ 1 ; 2 A
 		var params []byte
 		params = append(params, b)
@@ -211,19 +237,30 @@ func (kr *KeyReader) parseCSI(r *bufio.Reader) {
 				return
 			}
 			if (nb >= 'A' && nb <= 'Z') || (nb >= 'a' && nb <= 'z') {
-				if nb == 'A' {
+				switch nb {
+				case 'A':
 					kr.send(Key{Type: KeyUp})
-				} else if nb == 'B' {
+				case 'B':
 					kr.send(Key{Type: KeyDown})
-				} else if nb == 'C' {
+				case 'C':
 					kr.send(Key{Type: KeyRight})
-				} else if nb == 'D' {
+				case 'D':
 					kr.send(Key{Type: KeyLeft})
+				case 'P':
+					kr.send(Key{Type: KeyF1})
+				case 'Q':
+					kr.send(Key{Type: KeyF2})
+				case 'R':
+					kr.send(Key{Type: KeyF3})
+				case 'S':
+					kr.send(Key{Type: KeyF4})
+				case 'Z':
+					kr.send(Key{Type: KeyBackTab})
 				}
 				return
 			}
 			params = append(params, nb)
-			if len(params) > 10 {
+			if len(params) > 24 {
 				return
 			}
 		}

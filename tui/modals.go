@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"mycalendar/calendar"
+	"mycalendar/config"
 	"mycalendar/models"
 	"mycalendar/parser"
 	"mycalendar/service"
@@ -255,14 +256,22 @@ func (m *ModalStatusPicker) HandleKey(k Key, app *App) bool {
 }
 
 func (m *ModalStatusPicker) applyStatus(app *App, status string) {
+	if app.cfg != nil && status != "" {
+		app.cfg.AddCustomStatus(status)
+		app.persistConfig()
+	}
+
 	if m.targetID != "" {
 		// Single session update
 		patch := calendar.Patch{
 			Status: &status,
 		}
 		_ = app.svc.Update(m.targetID, patch)
-		_ = app.svc.Save(app.ctx)
-		app.setStatusMsg("Статус записи изменён на: " + status)
+		if err := app.svc.Save(app.ctx); err != nil {
+			app.setStatusMsg("⚠ Ошибка сохранения: " + err.Error())
+		} else {
+			app.setStatusMsg("Статус записи изменён на: " + status)
+		}
 	} else if len(app.selectedIDs) > 0 {
 		// Batch update
 		count := 0
@@ -274,8 +283,11 @@ func (m *ModalStatusPicker) applyStatus(app *App, status string) {
 				count++
 			}
 		}
-		_ = app.svc.Save(app.ctx)
-		app.setStatusMsg(fmt.Sprintf("Статус обновлён для %d записей", count))
+		if err := app.svc.Save(app.ctx); err != nil {
+			app.setStatusMsg("⚠ Ошибка сохранения: " + err.Error())
+		} else {
+			app.setStatusMsg(fmt.Sprintf("Статус обновлён для %d записей", count))
+		}
 	}
 	app.reloadSessions()
 }
@@ -295,12 +307,6 @@ type ModalQuickEditField struct {
 	pickerScroll int
 	pickerList   []string
 	pickerTitle  string
-
-	// Legacy aliases for test compatibility
-	catPickerOpen   bool
-	catPickerIdx    int
-	catPickerScroll int
-	catPickerList   []string
 }
 
 func NewModalQuickEditField(targetID string) *ModalQuickEditField {
@@ -466,7 +472,6 @@ func (m *ModalQuickEditField) HandleKey(k Key, app *App) bool {
 			switch {
 			case k.Type == KeyEsc || k.Type == KeyLeft:
 				m.pickerOpen = false
-				m.catPickerOpen = false
 				return true
 			case k.Type == KeyUp || k.Matches('k', 'л'):
 				if m.pickerIdx > 0 {
@@ -474,8 +479,6 @@ func (m *ModalQuickEditField) HandleKey(k Key, app *App) bool {
 					if m.pickerIdx < m.pickerScroll {
 						m.pickerScroll = m.pickerIdx
 					}
-					m.catPickerIdx = m.pickerIdx
-					m.catPickerScroll = m.pickerScroll
 				}
 				return true
 			case k.Type == KeyDown || k.Matches('j', 'о'):
@@ -485,8 +488,6 @@ func (m *ModalQuickEditField) HandleKey(k Key, app *App) bool {
 					if m.pickerIdx >= m.pickerScroll+visibleRows {
 						m.pickerScroll = m.pickerIdx - visibleRows + 1
 					}
-					m.catPickerIdx = m.pickerIdx
-					m.catPickerScroll = m.pickerScroll
 				}
 				return true
 			case k.Matches('d', 'в') || k.Type == KeyDelete:
@@ -514,7 +515,6 @@ func (m *ModalQuickEditField) HandleKey(k Key, app *App) bool {
 					m.value = m.pickerList[m.pickerIdx]
 				}
 				m.pickerOpen = false
-				m.catPickerOpen = false
 				return true
 			}
 			return true
@@ -610,19 +610,12 @@ func (m *ModalQuickEditField) openCatPicker(app *App) {
 	m.pickerScroll = 0
 	m.pickerIdx = 0
 
-	m.catPickerList = list
-	m.catPickerOpen = true
-	m.catPickerScroll = 0
-	m.catPickerIdx = 0
-
 	cur := strings.TrimSpace(m.value)
 	for i, item := range m.pickerList {
 		if strings.EqualFold(item, cur) {
 			m.pickerIdx = i
-			m.catPickerIdx = i
 			if m.pickerIdx >= 5 {
 				m.pickerScroll = m.pickerIdx - 4
-				m.catPickerScroll = m.pickerScroll
 			}
 			break
 		}
@@ -712,12 +705,13 @@ func (m *ModalQuickEditField) initValue(app *App) {
 func (m *ModalQuickEditField) applyValue(app *App) {
 	val := strings.TrimSpace(m.value)
 	var patch calendar.Patch
+	var newDatePtr *time.Time
 
 	switch m.selected {
 	case 0: // Name
 		patch.Name = &val
 	case 1: // Cash
-		if c, err := strconv.ParseFloat(val, 64); err == nil {
+		if c, err := calendar.ParseCash(val); err == nil {
 			patch.Cash = &c
 		} else {
 			zero := 0.0
@@ -731,41 +725,58 @@ func (m *ModalQuickEditField) applyValue(app *App) {
 		if tm, err := parser.ParseTime(val); err == nil {
 			tStr := parser.FormatTime(tm)
 			patch.Time = &tStr
+		} else {
+			app.setStatusMsg("⚠ Неверный формат времени (ожидается ЧЧ:ММ)")
+			return
 		}
 	case 5: // Duration
 		if d, err := strconv.Atoi(val); err == nil && d > 0 {
 			patch.Duration = &d
+		} else {
+			app.setStatusMsg("⚠ Длительность должна быть больше 0")
+			return
+		}
+	case 6: // Date
+		if d, err := parser.ParseDate(val, app.today()); err == nil {
+			newDatePtr = &d
+		} else {
+			app.setStatusMsg("⚠ Неверный формат даты")
+			return
 		}
 	case 7: // Notes
 		patch.Notes = &val
 	}
 
 	if m.targetID != "" {
-		if m.selected == 6 { // Date move
-			if d, err := parser.ParseDate(val, time.Now()); err == nil {
-				sess, ok := app.svc.ByID(m.targetID)
-				if ok {
-					tm, _ := parser.ParseTime(sess.Time)
-					_ = app.svc.Delete(sess.ID)
-					sess.ID = app.svc.GenerateID(d, tm)
-					_ = app.svc.Add(sess)
-				}
-			}
+		if _, _, err := app.svc.UpdateEntry(app.ctx, app.cfg, m.targetID, calendar.UpdateInput{
+			Patch:   patch,
+			NewDate: newDatePtr,
+		}); err != nil {
+			app.setStatusMsg("⚠ Ошибка сохранения: " + err.Error())
 		} else {
-			_ = app.svc.Update(m.targetID, patch)
+			app.persistConfig()
+			app.setStatusMsg("Поле успешно обновлено")
 		}
-		_ = app.svc.Save(app.ctx)
-		app.setStatusMsg("Поле успешно обновлено")
 	} else if len(app.selectedIDs) > 0 {
 		count := 0
+		var lastErr error
 		for id := range app.selectedIDs {
-			if err := app.svc.Update(id, patch); err == nil {
+			if _, _, err := app.svc.UpdateEntry(app.ctx, app.cfg, id, calendar.UpdateInput{
+				Patch:   patch,
+				NewDate: newDatePtr,
+			}); err == nil {
 				count++
+			} else {
+				lastErr = err
 			}
 		}
-		_ = app.svc.Save(app.ctx)
+		app.persistConfig()
 		app.selectedIDs = map[string]bool{}
-		app.setStatusMsg(fmt.Sprintf("Поле обновлено для %d записей", count))
+		if lastErr != nil && count == 0 {
+			app.setStatusMsg("⚠ Ошибка сохранения: " + lastErr.Error())
+		} else {
+			app.setStatusMsg(fmt.Sprintf("Поле обновлено для %d записей", count))
+		}
 	}
 	app.reloadSessions()
 }
@@ -793,12 +804,6 @@ type ModalSessionForm struct {
 	pickerScroll int
 	pickerList   []string
 	pickerTitle  string
-
-	// Legacy aliases for test compatibility
-	catPickerOpen   bool
-	catPickerIdx    int
-	catPickerScroll int
-	catPickerList   []string
 }
 
 func NewModalSessionForm(sess *models.Session, initialDate string) *ModalSessionForm {
@@ -1032,7 +1037,6 @@ func (m *ModalSessionForm) HandleKey(k Key, app *App) bool {
 		switch {
 		case k.Type == KeyEsc || k.Type == KeyLeft:
 			m.pickerOpen = false
-			m.catPickerOpen = false
 			return true
 
 		case k.Type == KeyUp || k.Matches('k', 'л'):
@@ -1041,8 +1045,6 @@ func (m *ModalSessionForm) HandleKey(k Key, app *App) bool {
 				if m.pickerIdx < m.pickerScroll {
 					m.pickerScroll = m.pickerIdx
 				}
-				m.catPickerIdx = m.pickerIdx
-				m.catPickerScroll = m.pickerScroll
 			}
 			return true
 
@@ -1053,8 +1055,6 @@ func (m *ModalSessionForm) HandleKey(k Key, app *App) bool {
 				if m.pickerIdx >= m.pickerScroll+visibleRows {
 					m.pickerScroll = m.pickerIdx - visibleRows + 1
 				}
-				m.catPickerIdx = m.pickerIdx
-				m.catPickerScroll = m.pickerScroll
 			}
 			return true
 
@@ -1099,12 +1099,10 @@ func (m *ModalSessionForm) HandleKey(k Key, app *App) bool {
 				}
 			}
 			m.pickerOpen = false
-			m.catPickerOpen = false
 			return true
 
 		case k.Type == KeyTab:
 			m.pickerOpen = false
-			m.catPickerOpen = false
 			if m.fieldIdx < maxField {
 				m.fieldIdx++
 			} else {
@@ -1156,8 +1154,9 @@ func (m *ModalSessionForm) HandleKey(k Key, app *App) bool {
 		return true
 
 	case KeyEnter:
-		m.save(app)
-		app.activeModal = nil
+		if m.save(app) {
+			app.activeModal = nil
+		}
 		return true
 
 	case KeyBackspace:
@@ -1304,19 +1303,12 @@ func (m *ModalSessionForm) openCatPicker(app *App) {
 	m.pickerScroll = 0
 	m.pickerIdx = 0
 
-	m.catPickerList = list
-	m.catPickerOpen = true
-	m.catPickerScroll = 0
-	m.catPickerIdx = 0
-
 	cur := strings.TrimSpace(m.typeStr)
 	for i, item := range m.pickerList {
 		if strings.EqualFold(item, cur) {
 			m.pickerIdx = i
-			m.catPickerIdx = i
 			if m.pickerIdx >= 6 {
 				m.pickerScroll = m.pickerIdx - 5
-				m.catPickerScroll = m.pickerScroll
 			}
 			break
 		}
@@ -1419,11 +1411,30 @@ func (m *ModalSessionForm) backspace() {
 	}
 }
 
-func (m *ModalSessionForm) save(app *App) {
-	d, err := parser.ParseDate(strings.TrimSpace(m.dateStr), time.Now())
+func (m *ModalSessionForm) save(app *App) bool {
+	refDate := app.today()
+	rawDate := strings.TrimSpace(m.dateStr)
+	d, valid, err := calendar.CheckDateInput(rawDate, refDate)
 	if err != nil {
-		d = time.Now()
+		d = refDate
+		valid = true
+	} else if !valid && app.cfg != nil && app.cfg.DateCheckMode != models.DateCheckOff {
+		correctedDot := fmt.Sprintf("%02d.%02d.%04d", d.Day(), d.Month(), d.Year())
+		switch app.cfg.DateCheckMode {
+		case models.DateCheckReask:
+			m.fieldIdx = 0
+			app.setStatusMsg(fmt.Sprintf("Некорректная дата %q — введите дату заново", rawDate))
+			return false
+		case models.DateCheckAsk:
+			m.dateStr = correctedDot
+			m.fieldIdx = 0
+			app.setStatusMsg(fmt.Sprintf("Дата %q исправлена на %s — нажмите Enter для подтверждения", rawDate, correctedDot))
+			return false
+		case models.DateCheckFix:
+			m.dateStr = correctedDot
+		}
 	}
+
 	tm, err := parser.ParseTime(strings.TrimSpace(m.timeStr))
 	if err != nil {
 		tm, _ = parser.ParseTime("10:00")
@@ -1434,7 +1445,7 @@ func (m *ModalSessionForm) save(app *App) {
 		dur = 60
 	}
 
-	cashVal, _ := strconv.ParseFloat(strings.TrimSpace(m.cashStr), 64)
+	cashVal, _ := calendar.ParseCash(m.cashStr)
 
 	nameVal := strings.TrimSpace(m.name)
 	if nameVal == "" {
@@ -1447,103 +1458,67 @@ func (m *ModalSessionForm) save(app *App) {
 	}
 	notesVal := strings.TrimSpace(m.notes)
 
-	if app.cfg != nil {
-		if typeVal != "" {
-			app.cfg.AddCustomType(typeVal)
-		}
-		if statusVal != "" {
-			app.cfg.AddCustomStatus(statusVal)
-		}
-		app.persistConfig()
-	}
-
 	var savedID string
 	if m.isEdit {
-		sess, ok := app.svc.ByID(m.targetID)
-		if ok {
-			origDate := sess.Date()
-			newDate := parser.FormatDate(d)
-			patch := calendar.Patch{
-				Name:     &nameVal,
-				Type:     &typeVal,
-				Duration: &dur,
-				Cash:     &cashVal,
-				Status:   &statusVal,
-				Notes:    &notesVal,
-			}
-			tStr := parser.FormatTime(tm)
-			patch.Time = &tStr
-
-			if origDate != newDate {
-				_ = app.svc.Delete(sess.ID)
-				savedID = app.svc.GenerateID(d, tm)
-				sess.ID = savedID
-				sess.Time = tStr
-				sess.Name = nameVal
-				sess.Type = typeVal
-				sess.Duration = dur
-				sess.Cash = cashVal
-				sess.Status = statusVal
-				sess.Notes = notesVal
-				_ = app.svc.Add(sess)
-				app.calYear = d.Year()
-				app.calMonth = int(d.Month())
-				app.calDay = d.Day()
-			} else {
-				savedID = sess.ID
-				_ = app.svc.Update(sess.ID, patch)
-			}
-			_ = app.svc.Save(app.ctx)
-			app.setStatusMsg("Запись успешно сохранена")
+		tStr := parser.FormatTime(tm)
+		patch := calendar.Patch{
+			Time:     &tStr,
+			Name:     &nameVal,
+			Type:     &typeVal,
+			Duration: &dur,
+			Cash:     &cashVal,
+			Status:   &statusVal,
+			Notes:    &notesVal,
 		}
+		updated, _, err := app.svc.UpdateEntry(app.ctx, app.cfg, m.targetID, calendar.UpdateInput{
+			Patch:   patch,
+			NewDate: &d,
+		})
+		if err != nil {
+			app.setStatusMsg("⚠ Ошибка сохранения: " + err.Error())
+			return false
+		}
+		savedID = updated.ID
+		app.calYear = d.Year()
+		app.calMonth = int(d.Month())
+		app.calDay = d.Day()
+		app.persistConfig()
+		app.setStatusMsg("Запись успешно сохранена")
 	} else {
-		var names []string
-		for _, part := range strings.FieldsFunc(m.name, func(r rune) bool {
-			return r == '\n' || r == ';'
-		}) {
-			p := strings.TrimSpace(part)
-			if p != "" {
-				names = append(names, p)
+		var repMode string
+		var repUntil time.Time
+		if m.repeatStr != "" && m.repeatStr != "none" {
+			repMode = m.repeatStr
+			if repMode == "m" {
+				repUntil = calendar.AddMonths(d, 12)
+			} else {
+				repUntil = calendar.AddMonths(d, 1)
 			}
 		}
-		if len(names) == 0 {
-			names = []string{nameVal}
+		res, err := app.svc.CreateEntries(app.ctx, app.cfg, calendar.EntryInput{
+			Date:        d,
+			Time:        tm,
+			RawName:     nameVal,
+			Type:        typeVal,
+			Duration:    dur,
+			Cash:        cashVal,
+			Status:      statusVal,
+			Notes:       notesVal,
+			RepeatMode:  repMode,
+			RepeatUntil: repUntil,
+		})
+		if err != nil {
+			app.setStatusMsg("⚠ Ошибка создания записи: " + err.Error())
+			return false
 		}
-
-		if len(names) > 1 {
-			createdCount := 0
-			for _, nameItem := range names {
-				savedID = app.svc.GenerateID(d, tm)
-				sess := models.Session{
-					ID:       savedID,
-					Time:     parser.FormatTime(tm),
-					Name:     nameItem,
-					Type:     typeVal,
-					Duration: dur,
-					Cash:     cashVal,
-					Status:   statusVal,
-					Notes:    notesVal,
-				}
-				_ = app.svc.Add(sess)
-				createdCount++
+		if len(res.Sessions) > 0 {
+			app.persistConfig()
+			savedID = res.Sessions[len(res.Sessions)-1].ID
+			if len(res.Sessions) > 1 {
+				app.setStatusMsg(fmt.Sprintf("Успешно создано записей: %d", len(res.Sessions)))
+			} else {
+				app.setStatusMsg("Запись успешно создана: ID " + savedID)
 			}
-			_ = app.svc.Save(app.ctx)
-			app.setStatusMsg(fmt.Sprintf("Успешно создано записей: %d", createdCount))
-		} else {
-			savedID = app.svc.GenerateID(d, tm)
-			sess := models.Session{
-				ID:       savedID,
-				Time:     parser.FormatTime(tm),
-				Name:     names[0],
-				Type:     typeVal,
-				Duration: dur,
-				Cash:     cashVal,
-				Status:   statusVal,
-				Notes:    notesVal,
-			}
-			_ = app.svc.Add(sess)
-			_ = app.svc.Save(app.ctx)
-			app.setStatusMsg("Запись успешно создана: ID " + savedID)
 		}
 
 		app.calYear = d.Year()
@@ -1564,6 +1539,7 @@ func (m *ModalSessionForm) save(app *App) {
 			}
 		}
 	}
+	return true
 }
 
 // ----------------- CONFIRM DELETE MODAL -----------------
@@ -1615,8 +1591,11 @@ func (m *ModalConfirmDelete) HandleKey(k Key, app *App) bool {
 	case KeyEnter:
 		if m.targetID != "" {
 			_ = app.svc.Delete(m.targetID)
-			_ = app.svc.Save(app.ctx)
-			app.setStatusMsg("Запись удалена")
+			if err := app.svc.Save(app.ctx); err != nil {
+				app.setStatusMsg("⚠ Ошибка сохранения: " + err.Error())
+			} else {
+				app.setStatusMsg("Запись удалена")
+			}
 		} else if len(app.selectedIDs) > 0 {
 			delCount := 0
 			for id := range app.selectedIDs {
@@ -1624,9 +1603,12 @@ func (m *ModalConfirmDelete) HandleKey(k Key, app *App) bool {
 					delCount++
 				}
 			}
-			_ = app.svc.Save(app.ctx)
-			app.selectedIDs = map[string]bool{}
-			app.setStatusMsg(fmt.Sprintf("Удалено записей: %d", delCount))
+			if err := app.svc.Save(app.ctx); err != nil {
+				app.setStatusMsg("⚠ Ошибка сохранения: " + err.Error())
+			} else {
+				app.selectedIDs = map[string]bool{}
+				app.setStatusMsg(fmt.Sprintf("Удалено записей: %d", delCount))
+			}
 		}
 		app.activeModal = nil
 		app.reloadSessions()
@@ -1641,6 +1623,7 @@ type ModalYearCalendar struct {
 	year             int
 	selMonth         int
 	selDay           int
+	todayDate        time.Time
 	rangeAnchor      *time.Time
 	startDate        time.Time
 	endDate          time.Time
@@ -1662,10 +1645,11 @@ func NewModalYearCalendar(year, selMonth, selDay int, sessions []models.Session)
 		selDay = now.Day()
 	}
 	m := &ModalYearCalendar{
-		year:     year,
-		selMonth: selMonth,
-		selDay:   selDay,
-		sessions: sessions,
+		year:      year,
+		selMonth:  selMonth,
+		selDay:    selDay,
+		todayDate: now,
+		sessions:  sessions,
 	}
 	m.updateDaysWithSessions()
 	m.syncRange()
@@ -1674,12 +1658,13 @@ func NewModalYearCalendar(year, selMonth, selDay int, sessions []models.Session)
 
 func (m *ModalYearCalendar) updateDaysWithSessions() {
 	m.daysWithSessions = make(map[int]bool)
-	now := time.Now()
+	yrPrefix := fmt.Sprintf("%04d-", m.year)
 	for _, sess := range m.sessions {
-		if d, err := parser.ParseDate(sess.Date(), now); err == nil {
-			if d.Year() == m.year {
-				key := int(d.Month())*100 + d.Day()
-				m.daysWithSessions[key] = true
+		if dStr := sess.Date(); len(dStr) == 10 && strings.HasPrefix(dStr, yrPrefix) {
+			mo, err1 := strconv.Atoi(dStr[5:7])
+			da, err2 := strconv.Atoi(dStr[8:10])
+			if err1 == nil && err2 == nil {
+				m.daysWithSessions[mo*100+da] = true
 			}
 		}
 	}
@@ -1757,7 +1742,10 @@ func (m *ModalYearCalendar) Draw(s *Screen) {
 	}
 
 	wide := (w >= 90)
-	now := time.Now()
+	now := m.todayDate
+	if now.IsZero() {
+		now = time.Now()
+	}
 
 	startRow := 0
 	numRows := 3
@@ -2040,6 +2028,10 @@ func (m *ModalYearCalendar) HandleKey(k Key, app *App) bool {
 
 	case k.Type == KeyHome || k.Matches('t', 'е'):
 		now := time.Now()
+		if app != nil {
+			now = app.today()
+		}
+		m.todayDate = now
 		oldYear := m.year
 		m.year = now.Year()
 		m.selMonth = int(now.Month())
@@ -2176,16 +2168,16 @@ type ModalSettingsOption struct {
 }
 
 type ModalSettings struct {
-	defaultMode    string // "cli", "tui", "web"
-	portStr        string
-	durationStr    string
-	durationUnit   string // "min" or "hours"
-	defaultType    string
-	dateCheckMode  string // "", "ask", "fix", "reask"
-	askOnConflict  bool
-	silentAddNames bool
-	splitMode      string // "none", "year", "month"
+	defaultMode      string // "cli", "tui", "web"
+	portStr          string
+	durationStr      string
+	durationUnit     string // "min" or "hours"
+	defaultType      string
+	dateCheckMode    string // "", "ask", "fix", "reask"
+	askOnConflict    bool
+	splitMode        string // "none", "year", "month"
 	useSystemDate    bool
+	customDate       string // "YYYY-MM-DD" or "DD.MM.YYYY"
 	dataPath         string
 	tuiDefaultPeriod string // "today", "all", "week", "month"
 	svcStatus        *service.StatusInfo
@@ -2211,10 +2203,10 @@ func NewModalSettings(cfg *models.Config) *ModalSettings {
 	defaultType := ""
 	dateCheckMode := ""
 	askOnConflict := false
-	silentAddNames := false
 	splitMode := models.SplitNone
 	useSystemDate := true
-	dataPath := "~/.mycal"
+	customDate := time.Now().Format("2006-01-02")
+	dataPath := ""
 	tuiDefaultPeriod := "today"
 
 	if cfg != nil {
@@ -2233,11 +2225,13 @@ func NewModalSettings(cfg *models.Config) *ModalSettings {
 		defaultType = cfg.DefaultType
 		dateCheckMode = cfg.DateCheckMode
 		askOnConflict = cfg.AskOnConflict
-		silentAddNames = cfg.SilentAddNames
-		if cfg.SplitMode != "" {
-			splitMode = cfg.SplitMode
+		if cfg.ActiveSplitMode() != "" {
+			splitMode = cfg.ActiveSplitMode()
 		}
 		useSystemDate = cfg.UseSystemDate
+		if cfg.CustomDate != "" {
+			customDate = cfg.CustomDate
+		}
 		if cfg.DataPath != "" {
 			dataPath = cfg.DataPath
 		}
@@ -2253,9 +2247,9 @@ func NewModalSettings(cfg *models.Config) *ModalSettings {
 		defaultType:      defaultType,
 		dateCheckMode:    dateCheckMode,
 		askOnConflict:    askOnConflict,
-		silentAddNames:   silentAddNames,
 		splitMode:        splitMode,
 		useSystemDate:    useSystemDate,
+		customDate:       customDate,
 		dataPath:         dataPath,
 		tuiDefaultPeriod: tuiDefaultPeriod,
 		selectedIdx:      0,
@@ -2266,7 +2260,7 @@ func NewModalSettings(cfg *models.Config) *ModalSettings {
 
 func (m *ModalSettings) canHavePicker(fieldIdx int) bool {
 	switch fieldIdx {
-	case 0, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12:
+	case 0, 2, 3, 4, 5, 6, 7, 8, 11, 12:
 		return true
 	default:
 		return false
@@ -2341,14 +2335,6 @@ func (m *ModalSettings) openPicker(fieldIdx int, app *App) {
 		curCode = strconv.FormatBool(m.askOnConflict)
 
 	case 7:
-		title = " Автосохранение имён [Enter] "
-		list = []ModalSettingsOption{
-			{Code: "false", Label: "Выкл (спрашивать подтверждение)"},
-			{Code: "true", Label: "Вкл (сохранять автоматически)"},
-		}
-		curCode = strconv.FormatBool(m.silentAddNames)
-
-	case 8:
 		title = " Режим хранения на диске [Enter] "
 		list = []ModalSettingsOption{
 			{Code: models.SplitNone, Label: "Один файл (mycal.json)"},
@@ -2357,7 +2343,7 @@ func (m *ModalSettings) openPicker(fieldIdx int, app *App) {
 		}
 		curCode = m.splitMode
 
-	case 9:
+	case 8:
 		title = " Системная дата [Enter] "
 		list = []ModalSettingsOption{
 			{Code: "true", Label: "Вкл (текущее системное время)"},
@@ -2423,10 +2409,8 @@ func (m *ModalSettings) applyPickerOption(opt ModalSettingsOption, app *App) {
 	case 6:
 		m.askOnConflict = (opt.Code == "true")
 	case 7:
-		m.silentAddNames = (opt.Code == "true")
-	case 8:
 		m.splitMode = opt.Code
-	case 9:
+	case 8:
 		m.useSystemDate = (opt.Code == "true")
 	case 11:
 		m.tuiDefaultPeriod = opt.Code
@@ -2504,11 +2488,6 @@ func (m *ModalSettings) Draw(s *Screen) {
 		conflictDisplay = "Вкл (предупреждать)"
 	}
 
-	silentDisplay := "Выкл (спрашивать)"
-	if m.silentAddNames {
-		silentDisplay = "Вкл (автосохранение)"
-	}
-
 	splitDisplay := "Один файл (mycal.json)"
 	switch m.splitMode {
 	case models.SplitYear:
@@ -2522,9 +2501,18 @@ func (m *ModalSettings) Draw(s *Screen) {
 		dateDisplay = "Фиксированная (ручной ввод)"
 	}
 
+	customDateDisplay := m.customDate
+	if customDateDisplay == "" {
+		customDateDisplay = time.Now().Format("2006-01-02")
+	}
+
 	pathDisplay := m.dataPath
-	if pathDisplay == "" || pathDisplay == "." {
-		pathDisplay = "~/.mycal"
+	if pathDisplay == "" {
+		pathDisplay = config.DataPathDisplay("")
+	} else if pathDisplay == "." || pathDisplay == "./" || pathDisplay == `.\` {
+		if m.selectedIdx != 10 {
+			pathDisplay = config.DataPathDisplay(pathDisplay)
+		}
 	}
 
 	tuiPeriodDisplay := "Сегодня (по умолч.)"
@@ -2550,9 +2538,9 @@ func (m *ModalSettings) Draw(s *Screen) {
 		{"5. Категория по умолчанию:  ", typeDisplay},
 		{"6. Проверка даты (опечатки):", dateCheckDisplay},
 		{"7. Конфликт времени:        ", conflictDisplay},
-		{"8. Автосохранение имён:     ", silentDisplay},
-		{"9. Режим хранения записей:  ", splitDisplay},
-		{"10. Системная дата:         ", dateDisplay},
+		{"8. Режим хранения записей:  ", splitDisplay},
+		{"9. Системная дата:          ", dateDisplay},
+		{"10. Фиксированная дата:     ", customDateDisplay},
 		{"11. Путь к данным:          ", pathDisplay},
 		{"12. Период по умолч. в TUI: ", tuiPeriodDisplay},
 		{"13. Фоновая служба:         ", m.svcStatusText()},
@@ -2603,7 +2591,7 @@ func (m *ModalSettings) Draw(s *Screen) {
 		if valW > 0 {
 			s.Fill(valX, rowY, valW, 1, ' ', valFg, valBg)
 			disp := f.val
-			if isCur && (fieldIdx == 1 || fieldIdx == 2 || fieldIdx == 10) {
+			if isCur && (fieldIdx == 1 || fieldIdx == 2 || fieldIdx == 9 || fieldIdx == 10) {
 				disp += "█"
 			}
 			s.DrawText(valX+1, rowY, disp, valFg, valBg, valW-2, isCur, false, false)
@@ -2773,8 +2761,12 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 		} else if m.selectedIdx == 2 && len(m.durationStr) > 0 {
 			m.durationStr = m.durationStr[:len(m.durationStr)-1]
 			return true
+		} else if m.selectedIdx == 9 && len(m.customDate) > 0 {
+			m.customDate = m.customDate[:len(m.customDate)-1]
+			return true
 		} else if m.selectedIdx == 10 && len(m.dataPath) > 0 {
-			m.dataPath = m.dataPath[:len(m.dataPath)-1]
+			runes := []rune(m.dataPath)
+			m.dataPath = string(runes[:len(runes)-1])
 			return true
 		}
 
@@ -2785,7 +2777,11 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 		} else if m.selectedIdx == 2 && k.Rune >= '0' && k.Rune <= '9' && len(m.durationStr) < 4 {
 			m.durationStr += string(k.Rune)
 			return true
-		} else if m.selectedIdx == 10 && k.Rune >= 32 && len(m.dataPath) < 120 {
+		} else if m.selectedIdx == 9 && ((k.Rune >= '0' && k.Rune <= '9') || k.Rune == '-' || k.Rune == '.') && len(m.customDate) < 10 {
+			m.customDate += string(k.Rune)
+			m.useSystemDate = false
+			return true
+		} else if m.selectedIdx == 10 && k.Rune >= 32 && len([]rune(m.dataPath)) < 120 {
 			m.dataPath += string(k.Rune)
 			return true
 		}
@@ -2848,10 +2844,6 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 			m.askOnConflict = !m.askOnConflict
 			return true
 		case 7:
-			// Toggle silent add names
-			m.silentAddNames = !m.silentAddNames
-			return true
-		case 8:
 			// Cycle split mode
 			switch m.splitMode {
 			case models.SplitNone, "":
@@ -2864,7 +2856,7 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 				m.splitMode = models.SplitNone
 			}
 			return true
-		case 9:
+		case 8:
 			// Toggle use system date
 			m.useSystemDate = !m.useSystemDate
 			return true
@@ -2932,24 +2924,34 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 		app.cfg.DefaultType = m.defaultType
 		app.cfg.DateCheckMode = m.dateCheckMode
 		app.cfg.AskOnConflict = m.askOnConflict
-		app.cfg.SilentAddNames = m.silentAddNames
-		oldSplit := app.cfg.SplitMode
-		app.cfg.SplitMode = m.splitMode
+		oldSplit := app.cfg.ActiveSplitMode()
+		app.cfg.SetActiveSplitMode(m.splitMode)
 		app.cfg.UseSystemDate = m.useSystemDate
+		if strings.TrimSpace(m.customDate) != "" {
+			if parsedDate, err := parser.ParseDate(strings.TrimSpace(m.customDate), time.Now()); err == nil {
+				app.cfg.CustomDate = parsedDate.Format("2006-01-02")
+			}
+		}
+		if !app.cfg.UseSystemDate && app.cfg.CustomDate != "" {
+			eff := config.EffectiveToday(app.cfg)
+			app.calYear = eff.Year()
+			app.calMonth = int(eff.Month())
+			app.calDay = eff.Day()
+		}
 		if app.svc != nil && oldSplit != m.splitMode {
 			app.svc.SetMode(m.splitMode)
 			_ = app.svc.Save(app.ctx)
 		}
-		newDataPath := strings.TrimSpace(m.dataPath)
-		if newDataPath != "" {
-			newDataPath = storage.ExpandPath(newDataPath)
-			if err := storage.EnsureWritableDir(newDataPath); err == nil {
-				if app.cfg.DataPath != newDataPath {
-					app.cfg.DataPath = newDataPath
-					if newSvc, err := calendar.NewService(app.ctx, newDataPath, app.cfg.DataFileName, app.cfg.SplitMode); err == nil {
-						app.svc = newSvc
-					}
-				}
+		normPath := storage.NormalizeDataPath(m.dataPath)
+		if normPath != app.cfg.DataPath {
+			targetDir := config.EffectiveDataDir(normPath, app.cfgPath)
+			if err := storage.EnsureWritableDir(targetDir); err != nil {
+				app.setStatusMsg("⚠ " + err.Error())
+				return true
+			}
+			app.cfg.DataPath = normPath
+			if newSvc, err := calendar.NewService(app.ctx, targetDir, app.cfg.ActiveEffectiveBaseName(), app.cfg.ActiveSplitMode()); err == nil {
+				app.svc = newSvc
 			}
 		}
 		app.persistConfig()
@@ -3112,8 +3114,12 @@ func (m *ModalDateRange) HandleKey(k Key, app *App) bool {
 			return true
 		}
 		// Apply
-		dFrom, err1 := parser.ParseDate(m.fromStr, time.Now())
-		dTo, err2 := parser.ParseDate(m.toStr, time.Now())
+		refNow := time.Now()
+		if app != nil {
+			refNow = app.today()
+		}
+		dFrom, err1 := parser.ParseDate(m.fromStr, refNow)
+		dTo, err2 := parser.ParseDate(m.toStr, refNow)
 		if err1 != nil || err2 != nil {
 			m.errMsg = "Неверная дата! Пример: 01.10.2026"
 			return true
@@ -3202,6 +3208,8 @@ func (m *ModalHelp) Draw(s *Screen) {
 		{"f / а", "Быстрая правка любого поля (одиночно или пачкой)"},
 		{"d / в", "Удалить выбранную запись (или все отмеченные)"},
 		{"Tab / Shift+Tab", "Переключение блоков: Календарь / Периоды / Записи / Карточка"},
+		{"F1 / F2 / F3 / F4", "Календарь / Категории / Записи / Статистика (в узком: вкладки)"},
+		{"[ / ], х / ъ", "Листание разделов влево/вправо (в вертикальном/узком окне)"},
 		{"< / >, б / ю", "Листание месяцев календаря назад/вперёд"},
 		{"p / з", "Ввод произвольного периода дат (От и До)"},
 		{"t / е", "Блок категорий (переход / перебор фильтра)"},
@@ -3209,7 +3217,7 @@ func (m *ModalHelp) Draw(s *Screen) {
 		{"1 .. 4", "Быстрый выбор периода: Все / День / Неделя / Месяц"},
 		{"y / н", "Годовой календарь со всеми месяцами"},
 		{"o / щ", "Настройки MyCal (режим, служба, порт, хранение...)"},
-		{"? / F1", "Справка по горячим клавишам (это окно)"},
+		{"?", "Справка по горячим клавишам (это окно)"},
 		{"q / й, Ctrl+C", "Выход из полноэкранного режима TUI"},
 	}
 
@@ -3466,3 +3474,573 @@ func (m *ModalSort) applySort(app *App, idx int) {
 	app.activeModal = nil
 }
 
+// ----------------- CALENDAR MANAGER MODAL -----------------
+
+type ModalCalendarManager struct {
+	calendars  []models.CalendarInfo
+	baseName   string
+	selected   int
+	scroll     int
+	creating   bool
+	newKey     string
+	newSplit   string
+	focusField int // 0: newKey, 1: newSplit, 2: Create btn, 3: Cancel btn
+	errMsg     string
+}
+
+func NewModalCalendarManager(app *App) *ModalCalendarManager {
+	var cals []models.CalendarInfo
+	base := "mycal"
+	if app != nil {
+		if app.cfg != nil && strings.TrimSpace(app.cfg.DataFileName) != "" {
+			if clean := config.SanitizeBaseName(app.cfg.DataFileName); clean != "" {
+				base = clean
+			}
+		}
+		if app.svc != nil {
+			cals = app.svc.ListCalendars(app.cfg)
+		}
+	}
+	sel := 0
+	for i, c := range cals {
+		if c.Active {
+			sel = i
+			break
+		}
+	}
+	return &ModalCalendarManager{
+		calendars: cals,
+		baseName:  base,
+		selected:  sel,
+		newSplit:  models.SplitNone,
+	}
+}
+
+func (m *ModalCalendarManager) refreshList(app *App) {
+	if app == nil || app.svc == nil {
+		return
+	}
+	m.calendars = app.svc.ListCalendars(app.cfg)
+	for i, c := range m.calendars {
+		if c.Active {
+			m.selected = i
+			break
+		}
+	}
+}
+
+func (m *ModalCalendarManager) Draw(s *Screen) {
+	if m.creating {
+		m.drawCreateView(s)
+		return
+	}
+
+	totalRows := len(m.calendars) + 1 // +1 for "+ Создать календарь записей..."
+	visibleRows := totalRows
+	if visibleRows > 10 {
+		visibleRows = 10
+	}
+	w := 62
+	h := visibleRows + 7
+	if w > s.Width-2 {
+		w = s.Width - 2
+	}
+	if h > s.Height-2 {
+		h = s.Height - 2
+	}
+	x := (s.Width - w) / 2
+	y := (s.Height - h) / 2
+	if x < 1 {
+		x = 1
+	}
+	if y < 1 {
+		y = 1
+	}
+
+	s.DrawBox(x, y, w, h, "Календари записей [b]", FgCyan, BorderBright, BgModal, true)
+	s.DrawText(x+2, y+1, "Выбор переключает календарь в реальном времени:", FgMuted, BgModal, w-4, false, false, false)
+
+	maxListRows := h - 6
+	if maxListRows < 1 {
+		maxListRows = 1
+	}
+	if m.selected < m.scroll {
+		m.scroll = m.selected
+	} else if m.selected >= m.scroll+maxListRows {
+		m.scroll = m.selected - maxListRows + 1
+	}
+	if m.scroll < 0 {
+		m.scroll = 0
+	}
+
+	for row := 0; row < maxListRows; row++ {
+		idx := m.scroll + row
+		if idx >= totalRows {
+			break
+		}
+		rowY := y + 3 + row
+		isCur := idx == m.selected
+
+		if idx < len(m.calendars) {
+			cal := m.calendars[idx]
+			bg := BgModal
+			fg := FgMain
+			prefix := "  "
+			if isCur {
+				bg = BgSelected
+				fg = FgWhite
+				prefix = "► "
+			} else if cal.Active {
+				fg = FgCyan
+				prefix = "• "
+			}
+			s.Fill(x+2, rowY, w-4, 1, ' ', fg, bg)
+			numStr := fmt.Sprintf("[%d] ", idx+1)
+			s.DrawText(x+2, rowY, prefix+numStr, FgCyan, bg, 8, isCur, false, false)
+
+			modeLabel := config.SplitModeLabels[cal.SplitMode]
+			if modeLabel == "" {
+				modeLabel = config.SplitModeLabels[models.SplitNone]
+			}
+			rightBadge := "[" + modeLabel + "]"
+			rightW := StringVisualWidth(rightBadge)
+			nameAvail := (w - 4) - 8 - rightW - 2
+			if nameAvail < 8 {
+				nameAvail = 8
+			}
+			s.DrawText(x+9, rowY, TruncateString(cal.Label, nameAvail, "…"), fg, bg, nameAvail, isCur || cal.Active, false, false)
+			s.DrawText(x+w-2-rightW, rowY, rightBadge, FgYellow, bg, rightW, isCur, false, false)
+		} else {
+			// "+ Создать календарь записей..."
+			bg := BgModal
+			fg := FgGreen
+			prefix := "  "
+			if isCur {
+				bg = BgSelected
+				fg = FgWhite
+				prefix = "► "
+			}
+			s.Fill(x+2, rowY, w-4, 1, ' ', fg, bg)
+			s.DrawText(x+2, rowY, prefix+"+ Создать календарь записей...", fg, bg, w-4, isCur, false, false)
+		}
+	}
+
+	hint := "[↑↓/1-9] Выбор (сразу)  [+ / n] Создать  [m] Режим (файл/год)  [Enter/Esc] Готово"
+	s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, hint, FgDim, BgModal)
+}
+
+func (m *ModalCalendarManager) drawCreateView(s *Screen) {
+	w := 58
+	h := 14
+	if w > s.Width-2 {
+		w = s.Width - 2
+	}
+	if h > s.Height-2 {
+		h = s.Height - 2
+	}
+	x := (s.Width - w) / 2
+	y := (s.Height - h) / 2
+	if x < 1 {
+		x = 1
+	}
+	if y < 1 {
+		y = 1
+	}
+
+	s.DrawBox(x, y, w, h, "Создать календарь записей", FgGreen, BorderBright, BgModal, true)
+
+	// Field 0: Prefix
+	lbl0Fg := FgMuted
+	if m.focusField == 0 {
+		lbl0Fg = FgYellow
+	}
+	s.DrawText(x+2, y+2, "Префикс имени (напр. work, sport):", lbl0Fg, BgModal, w-4, m.focusField == 0, false, false)
+	inpBg := BgInput
+	if m.focusField == 0 {
+		inpBg = BgSelected
+	}
+	s.Fill(x+2, y+3, w-4, 1, ' ', FgWhite, inpBg)
+	dispKey := m.newKey
+	if m.focusField == 0 {
+		dispKey += "█"
+	}
+	s.DrawText(x+3, y+3, dispKey, FgWhite, inpBg, w-6, true, false, false)
+
+	// Preview filename
+	base := m.baseName
+	if base == "" {
+		base = "mycal"
+	}
+	previewKey := config.SanitizeCalendarKey(m.newKey)
+	if previewKey == "" {
+		previewKey = "префикс"
+	}
+	previewFile := fmt.Sprintf("%s--%s.json", base, previewKey)
+	if m.newSplit == models.SplitYear {
+		previewFile = fmt.Sprintf("%s_%s--%s.json", time.Now().Format("2006"), base, previewKey)
+	} else if m.newSplit == models.SplitMonth {
+		previewFile = fmt.Sprintf("%s_%s--%s.json", time.Now().Format("2006-01"), base, previewKey)
+	}
+	s.DrawText(x+2, y+4, "Файл: "+previewFile, FgDim, BgModal, w-4, false, false, false)
+
+	// Field 1: Split mode
+	lbl1Fg := FgMuted
+	if m.focusField == 1 {
+		lbl1Fg = FgYellow
+	}
+	s.DrawText(x+2, y+6, "Режим хранения:", lbl1Fg, BgModal, 18, m.focusField == 1, false, false)
+	splitBg := BgInput
+	if m.focusField == 1 {
+		splitBg = BgSelected
+	}
+	splitLbl := "◄ " + config.SplitModeLabels[m.newSplit] + " ►"
+	s.Fill(x+20, y+6, w-22, 1, ' ', FgCyan, splitBg)
+	s.DrawText(x+21, y+6, splitLbl, FgCyan, splitBg, w-24, true, false, false)
+
+	if m.errMsg != "" {
+		s.DrawText(x+2, y+8, m.errMsg, FgRed, BgModal, w-4, true, false, false)
+	}
+
+	// Buttons
+	btnY := y + h - 4
+	createBg := BgInput
+	createFg := FgGreen
+	if m.focusField == 2 {
+		createBg = BgSelected
+		createFg = FgWhite
+	}
+	cancelBg := BgInput
+	cancelFg := FgMuted
+	if m.focusField == 3 {
+		cancelBg = BgSelected
+		cancelFg = FgWhite
+	}
+	s.DrawText(x+4, btnY, " [ Создать ] ", createFg, createBg, 14, true, false, false)
+	s.DrawText(x+20, btnY, " [ Отмена ] ", cancelFg, cancelBg, 13, false, false, false)
+
+	s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab/↑↓] Поле  [←→/Space] Режим  [Enter] Создать  [Esc] Назад", FgDim, BgModal)
+}
+
+func (m *ModalCalendarManager) switchRealtime(app *App, idx int) {
+	if app == nil || app.svc == nil || idx < 0 || idx >= len(m.calendars) {
+		return
+	}
+	target := m.calendars[idx]
+	if err := app.svc.SwitchCalendar(app.ctx, app.cfg, target.Key); err != nil {
+		app.setStatusMsg("Ошибка переключения календаря: " + err.Error())
+		return
+	}
+	app.lastDataMod = app.svc.DataFilesModTime()
+	app.persistConfig()
+	app.reloadSessions()
+	m.calendars = app.svc.ListCalendars(app.cfg)
+	app.setStatusMsg(fmt.Sprintf("Календарь: %s [%s] (%d зап.)",
+		target.Label, config.SplitModeLabels[app.cfg.ActiveSplitMode()], len(app.allSessions)))
+}
+
+func (m *ModalCalendarManager) HandleKey(k Key, app *App) bool {
+	if m.creating {
+		switch {
+		case k.Type == KeyEsc:
+			m.creating = false
+			m.errMsg = ""
+			return true
+
+		case k.Type == KeyTab || k.Type == KeyDown:
+			m.focusField = (m.focusField + 1) % 4
+			return true
+
+		case k.Type == KeyBackTab || k.Type == KeyUp:
+			m.focusField = (m.focusField + 3) % 4
+			return true
+
+		case (k.Type == KeyLeft || k.Type == KeyRight || k.Type == KeySpace) && m.focusField == 1:
+			switch m.newSplit {
+			case models.SplitNone:
+				m.newSplit = models.SplitYear
+			case models.SplitYear:
+				m.newSplit = models.SplitMonth
+			default:
+				m.newSplit = models.SplitNone
+			}
+			return true
+
+		case k.Type == KeyBackspace && m.focusField == 0:
+			if len(m.newKey) > 0 {
+				runes := []rune(m.newKey)
+				m.newKey = string(runes[:len(runes)-1])
+			}
+			return true
+
+		case k.Type == KeyRune && m.focusField == 0:
+			m.newKey += string(k.Rune)
+			m.errMsg = ""
+			return true
+
+		case k.Type == KeyEnter:
+			if m.focusField == 3 {
+				m.creating = false
+				m.errMsg = ""
+				return true
+			}
+			cleanKey := config.SanitizeCalendarKey(m.newKey)
+			if cleanKey == "" {
+				m.errMsg = "Введите непустой префикс календаря!"
+				m.focusField = 0
+				return true
+			}
+			if app != nil && app.svc != nil {
+				if err := app.svc.CreateCalendar(app.ctx, app.cfg, cleanKey, m.newSplit); err != nil {
+					m.errMsg = err.Error()
+					return true
+				}
+				app.lastDataMod = app.svc.DataFilesModTime()
+				app.persistConfig()
+				app.reloadSessions()
+				app.setStatusMsg(fmt.Sprintf("Создан и выбран календарь: %s [%s]",
+					app.cfg.ActiveCalendarDisplayName(), config.SplitModeLabels[app.cfg.ActiveSplitMode()]))
+			}
+			m.creating = false
+			m.refreshList(app)
+			app.activeModal = nil
+			return true
+		}
+		return true
+	}
+
+	totalRows := len(m.calendars) + 1
+	switch {
+	case k.Type == KeyEsc || k.Matches('b', 'и') || k.Matches('q', 'й'):
+		app.activeModal = nil
+		return true
+
+	case k.Matches('+', '=') || k.Matches('n', 'т'):
+		m.creating = true
+		m.newKey = ""
+		m.newSplit = models.SplitNone
+		m.focusField = 0
+		m.errMsg = ""
+		return true
+
+	case k.Matches('m', 'ь') && m.selected < len(m.calendars):
+		// Cycle split mode for the highlighted calendar
+		cal := m.calendars[m.selected]
+		nextMode := models.SplitYear
+		switch cal.SplitMode {
+		case models.SplitNone:
+			nextMode = models.SplitYear
+		case models.SplitYear:
+			nextMode = models.SplitMonth
+		default:
+			nextMode = models.SplitNone
+		}
+		if app != nil && app.cfg != nil && app.svc != nil {
+			_ = app.svc.SwitchCalendar(app.ctx, app.cfg, cal.Key)
+			app.cfg.SetCalendarSplitMode(cal.Key, nextMode)
+			app.svc.SetMode(nextMode)
+			if err := app.svc.Save(app.ctx); err != nil {
+				app.setStatusMsg("⚠ Ошибка сохранения: " + err.Error())
+				return true
+			}
+			app.lastDataMod = app.svc.DataFilesModTime()
+			app.persistConfig()
+			app.reloadSessions()
+			m.calendars = app.svc.ListCalendars(app.cfg)
+			app.setStatusMsg(fmt.Sprintf("Календарь %s: режим хранения → %s",
+				cal.Label, config.SplitModeLabels[nextMode]))
+		}
+		return true
+
+	case k.Type == KeyUp || k.Matches('k', 'л'):
+		if m.selected > 0 {
+			m.selected--
+		} else {
+			m.selected = totalRows - 1
+		}
+		if m.selected < len(m.calendars) {
+			m.switchRealtime(app, m.selected)
+		}
+		return true
+
+	case k.Type == KeyDown || k.Matches('j', 'о'):
+		if m.selected < totalRows-1 {
+			m.selected++
+		} else {
+			m.selected = 0
+		}
+		if m.selected < len(m.calendars) {
+			m.switchRealtime(app, m.selected)
+		}
+		return true
+
+	case k.Type == KeyRune && k.Rune >= '1' && k.Rune <= '9':
+		idx := int(k.Rune - '1')
+		if idx < len(m.calendars) {
+			m.selected = idx
+			m.switchRealtime(app, idx)
+			app.activeModal = nil
+		}
+		return true
+
+	case k.Type == KeyEnter || k.Type == KeySpace:
+		if m.selected == len(m.calendars) {
+			m.creating = true
+			m.newKey = ""
+			m.newSplit = models.SplitNone
+			m.focusField = 0
+			m.errMsg = ""
+			return true
+		}
+		m.switchRealtime(app, m.selected)
+		if k.Type == KeyEnter {
+			app.activeModal = nil
+		}
+		return true
+	}
+	return false
+}
+
+// ----------------- STATS MODAL (F4 in Wide Mode) -----------------
+
+type ModalStats struct {
+	appRef *App
+}
+
+func NewModalStats(app *App) *ModalStats {
+	return &ModalStats{appRef: app}
+}
+
+func (m *ModalStats) Draw(s *Screen) {
+	w := 62
+	h := 24
+	if w > s.Width-2 {
+		w = s.Width - 2
+	}
+	if h > s.Height-2 {
+		h = s.Height - 2
+	}
+	x := (s.Width - w) / 2
+	y := (s.Height - h) / 2
+	if x < 1 {
+		x = 1
+	}
+	if y < 1 {
+		y = 1
+	}
+
+	s.DrawBox(x, y, w, h, "Статистика за период", FgYellow, BorderFocus, BgModal, true)
+
+	var sessions []models.Session
+	periodMode := "all"
+	if m.appRef != nil {
+		sessions = m.appRef.sessions
+		periodMode = m.appRef.periodMode
+	}
+
+	stSummary := calendar.ComputeStats(sessions)
+	totalEntries := stSummary.TotalEntries
+	totalMin := stSummary.TotalMinutes
+	totalCash := stSummary.TotalCash
+	statusCounts := stSummary.StatusCounts
+	typeCounts := stSummary.TypeCounts
+	totalHours := stSummary.TotalHours
+	avgMin := int(stSummary.AvgMinutes)
+
+	pLabel := "Все записи"
+	switch periodMode {
+	case "today", "day":
+		pLabel = "Сегодня / День"
+	case "week":
+		pLabel = "Эта неделя"
+	case "month":
+		pLabel = "Этот месяц"
+	case "custom":
+		pLabel = "Выбранный период"
+	}
+
+	curY := y + 2
+	s.DrawText(x+2, curY, fmt.Sprintf("Период:            %s", pLabel), FgWhite, BgModal, w-4, true, false, false)
+	curY++
+	s.DrawText(x+2, curY, fmt.Sprintf("Всего записей:     %d шт.", totalEntries), FgWhite, BgModal, w-4, true, false, false)
+	curY++
+	s.DrawText(x+2, curY, fmt.Sprintf("Общее время:       %.1f ч (%d мин)", totalHours, totalMin), FgCyan, BgModal, w-4, true, false, false)
+	curY++
+	s.DrawText(x+2, curY, fmt.Sprintf("Среднее на запись: %d мин (%02d:%02d)", avgMin, avgMin/60, avgMin%60), FgDim, BgModal, w-4, false, false, false)
+	curY++
+	cashFg := FgGreen
+	if totalCash < 0 {
+		cashFg = FgRed
+	}
+	s.DrawText(x+2, curY, fmt.Sprintf("Суммарный кэш:     %s", strconv.FormatFloat(totalCash, 'f', -1, 64)), cashFg, BgModal, w-4, true, false, false)
+	curY += 2
+
+	s.DrawHLine(x+1, x+w-2, curY, BoxH, BorderDim, BgModal)
+	s.DrawText(x+2, curY, "┤ Распределение по статусам ├", FgDim, BgModal, w-4, false, false, false)
+	curY++
+
+	statusOrder := []string{"Активно", "Завершено", "Запланировано", "В процессе", "Отменено"}
+	for _, st := range statusOrder {
+		c := statusCounts[st]
+		if c > 0 || totalEntries == 0 {
+			bText, bFg, _ := StatusBadge(st)
+			s.DrawText(x+2, curY, bText, bFg, BgModal, 16, true, false, false)
+			s.DrawText(x+18, curY, fmt.Sprintf("%d записей", c), FgWhite, BgModal, w-20, false, false, false)
+			curY++
+		}
+	}
+	for st, c := range statusCounts {
+		isDefault := false
+		for _, def := range statusOrder {
+			if def == st {
+				isDefault = true
+				break
+			}
+		}
+		if !isDefault && c > 0 {
+			bText, bFg, _ := StatusBadge(st)
+			s.DrawText(x+2, curY, bText, bFg, BgModal, 16, true, false, false)
+			s.DrawText(x+18, curY, fmt.Sprintf("%d записей", c), FgWhite, BgModal, w-20, false, false, false)
+			curY++
+		}
+	}
+
+	curY++
+	if len(typeCounts) > 0 && curY < y+h-3 {
+		s.DrawHLine(x+1, x+w-2, curY, BoxH, BorderDim, BgModal)
+		s.DrawText(x+2, curY, "┤ Распределение по категориям ├", FgDim, BgModal, w-4, false, false, false)
+		curY++
+		for tName, c := range typeCounts {
+			if curY >= y+h-2 {
+				break
+			}
+			s.DrawText(x+2, curY, fmt.Sprintf("• %s:", tName), FgMuted, BgModal, 20, false, false, false)
+			s.DrawText(x+24, curY, fmt.Sprintf("%d записей", c), FgCyan, BgModal, w-26, true, false, false)
+			curY++
+		}
+	}
+
+	s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Esc / Enter / F4] Закрыть окно статистики", FgDim, BgModal)
+}
+
+func (m *ModalStats) HandleKey(k Key, app *App) bool {
+	switch {
+	case k.Type == KeyEsc || k.Type == KeyEnter || k.Type == KeySpace || k.Type == KeyF4 || k.Matches('q', 'й'):
+		app.activeModal = nil
+		return true
+	case k.Type == KeyF1:
+		app.activeModal = nil
+		app.focusPanel = PanelCalendar
+		app.lastLeftPanel = PanelCalendar
+		return true
+	case k.Type == KeyF2:
+		app.activeModal = nil
+		app.focusPanel = PanelSidebar
+		app.lastLeftPanel = PanelSidebar
+		return true
+	case k.Type == KeyF3:
+		app.activeModal = nil
+		app.focusPanel = PanelFeed
+		return true
+	}
+	return false
+}

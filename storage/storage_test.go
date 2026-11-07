@@ -321,3 +321,34 @@ func TestSplitModeMissingFileRestoredFromBackup(t *testing.T) {
 		t.Errorf("missing year file was not recreated on disk: %v", err)
 	}
 }
+
+func TestRenameFamilyDataFilesAndExpandPath(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	// Create default and named calendars under "mycal"
+	if err := Save(ctx, dir, "mycal", sample(), models.SplitNone); err != nil {
+		t.Fatalf("Save default: %v", err)
+	}
+	if err := Save(ctx, dir, "mycal--work", sample(), models.SplitNone); err != nil {
+		t.Fatalf("Save work: %v", err)
+	}
+	if err := Save(ctx, dir, "mycal--sport", sample(), models.SplitYear); err != nil {
+		t.Fatalf("Save sport: %v", err)
+	}
+
+	RenameFamilyDataFiles(dir, "mycal", "notes")
+
+	cals := DiscoverCalendars(dir, "notes", nil)
+	if len(cals) != 3 {
+		t.Fatalf("expected 3 calendars discovered under 'notes', got %d: %+v", len(cals), cals)
+	}
+
+	// Verify Windows %VAR% expansion in ExpandPath
+	t.Setenv("MYCAL_TEST_WIN_DIR", filepath.Join(dir, "win_sub"))
+	got := ExpandPath(`%MYCAL_TEST_WIN_DIR%/data`)
+	want := filepath.Join(dir, "win_sub", "data")
+	if got != want {
+		t.Fatalf("ExpandPath with %%VAR%% = %q, want %q", got, want)
+	}
+}

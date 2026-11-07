@@ -2,6 +2,8 @@ package calendar
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -299,4 +301,154 @@ func TestFormatDuration(t *testing.T) {
 	}
 }
 
+func TestUnifiedCreateUpdateStatsAndCSVExport(t *testing.T) {
+	s := newSvc(t)
+	cfg := &models.Config{DefaultDuration: 60, DefaultType: "Стрельба из лука"}
+	cfg.Normalize()
 
+	d := time.Date(2026, 11, 7, 0, 0, 0, 0, time.UTC)
+	tm := time.Date(0, 1, 1, 10, 30, 0, 0, time.UTC)
+
+	// 1. Create multiple entries via semicolon/newline split in CreateEntries
+	res, err := s.CreateEntries(context.Background(), cfg, EntryInput{
+		Date:     d,
+		Time:     tm,
+		RawName:  "Иван; Мария",
+		Type:     "Стрельба из лука",
+		Duration: 60,
+		Cash:     1500.5,
+		Status:   "Активно",
+		Notes:    "Индивидуальное занятие",
+	})
+	if err != nil {
+		t.Fatalf("CreateEntries: %v", err)
+	}
+	if res.AddedCount != 2 || len(res.Sessions) != 2 {
+		t.Fatalf("expected 2 sessions created, got %d", res.AddedCount)
+	}
+
+	// 2. Update first entry including date relocation and cash update
+	newDate := time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC)
+	newCash := 2000.0
+	newName := "Иван Петров"
+	updated, n, err := s.UpdateEntry(context.Background(), cfg, res.Sessions[0].ID, UpdateInput{
+		Patch: Patch{
+			Name: &newName,
+			Cash: &newCash,
+		},
+		NewDate: &newDate,
+	})
+	if err != nil {
+		t.Fatalf("UpdateEntry: %v", err)
+	}
+	if n != 1 || updated.Date() != "2026-11-08" || updated.Cash != 2000.0 || updated.Name != "Иван Петров" {
+		t.Fatalf("unexpected updated session: %+v", updated)
+	}
+
+	// 3. ComputeStats
+	st := ComputeStats(s.All())
+	if st.TotalEntries != 2 || st.TotalMinutes != 120 || st.TotalCash != 3500.5 {
+		t.Fatalf("unexpected stats: %+v", st)
+	}
+
+	// 4. ExportCSV
+	csvPath, err := s.ExportCSV(s.All())
+	if err != nil || csvPath == "" {
+		t.Fatalf("ExportCSV failed: %v", err)
+	}
+}
+
+func TestMultiCalendarCreateDiscoverAndSwitch(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfg := &models.Config{DataFileName: "mycal", SplitMode: models.SplitNone}
+	cfg.Normalize()
+
+	svc, err := NewService(ctx, dir, cfg.ActiveEffectiveBaseName(), cfg.ActiveSplitMode())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	// Add 1 session to default calendar ("mycal.json")
+	d := time.Date(2026, 11, 7, 0, 0, 0, 0, time.UTC)
+	tm := time.Date(0, 1, 1, 9, 0, 0, 0, time.UTC)
+	_, err = svc.CreateEntries(ctx, cfg, EntryInput{
+		Date:     d,
+		Time:     tm,
+		RawName:  "Запись в основном",
+		Type:     "Стрельба из лука",
+		Duration: 60,
+	})
+	if err != nil {
+		t.Fatalf("CreateEntries default: %v", err)
+	}
+	if err := svc.Save(ctx); err != nil {
+		t.Fatalf("Save default: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "mycal.json")); err != nil {
+		t.Fatalf("expected mycal.json on disk: %v", err)
+	}
+
+	// Create a second calendar "work" with SplitNone ("mycal--work.json")
+	if err := svc.CreateCalendar(ctx, cfg, "work", models.SplitNone); err != nil {
+		t.Fatalf("CreateCalendar work: %v", err)
+	}
+	if cfg.ActiveCalendar != "work" || svc.BaseName() != "mycal--work" {
+		t.Fatalf("unexpected active calendar after create: cfg=%q svc=%q", cfg.ActiveCalendar, svc.BaseName())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "mycal--work.json")); err != nil {
+		t.Fatalf("expected mycal--work.json on disk: %v", err)
+	}
+	if svc.Count() != 0 {
+		t.Fatalf("expected new calendar to be empty, got %d", svc.Count())
+	}
+
+	// Add 2 sessions to "work"
+	_, err = svc.CreateEntries(ctx, cfg, EntryInput{
+		Date:     d,
+		Time:     tm,
+		RawName:  "Созвон; Отчёт",
+		Type:     "Работа",
+		Duration: 45,
+	})
+	if err != nil {
+		t.Fatalf("CreateEntries work: %v", err)
+	}
+	if err := svc.Save(ctx); err != nil {
+		t.Fatalf("Save work: %v", err)
+	}
+
+	// Create a third calendar "sport" with SplitYear ("YYYY_mycal--sport.json")
+	if err := svc.CreateCalendar(ctx, cfg, "sport", models.SplitYear); err != nil {
+		t.Fatalf("CreateCalendar sport: %v", err)
+	}
+	yearFile := filepath.Join(dir, time.Now().Format("2006")+"_mycal--sport.json")
+	if _, err := os.Stat(yearFile); err != nil {
+		t.Fatalf("expected yearly file %s on disk: %v", yearFile, err)
+	}
+
+	// Discover calendars: should find "", "sport", "work"
+	cals := svc.ListCalendars(cfg)
+	if len(cals) != 3 {
+		t.Fatalf("expected 3 calendars, got %d (%+v)", len(cals), cals)
+	}
+	if cals[0].Key != "" || cals[1].Key != "sport" || cals[1].SplitMode != models.SplitYear || cals[2].Key != "work" || cals[2].SplitMode != models.SplitNone {
+		t.Fatalf("unexpected discovered calendars: %+v", cals)
+	}
+
+	// Switch back to "work" -> should have 2 sessions
+	if err := svc.SwitchCalendar(ctx, cfg, "work"); err != nil {
+		t.Fatalf("SwitchCalendar work: %v", err)
+	}
+	if svc.Count() != 2 {
+		t.Fatalf("expected 2 sessions in work, got %d", svc.Count())
+	}
+
+	// Switch back to default "" -> should have 1 session
+	if err := svc.SwitchCalendar(ctx, cfg, ""); err != nil {
+		t.Fatalf("SwitchCalendar default: %v", err)
+	}
+	if svc.Count() != 1 || svc.All()[0].Name != "Запись в основном" {
+		t.Fatalf("expected 1 session in default calendar, got %+v", svc.All())
+	}
+}

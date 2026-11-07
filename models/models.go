@@ -29,47 +29,255 @@ const (
 	DateCheckReask = "reask"
 )
 
+// DefaultSettingModes returns the canonical mapping of setting keys to the
+// interfaces (modes) where each setting is applicable and displayed.
+func DefaultSettingModes() map[string][]string {
+	return map[string][]string{
+		"default_mode":       {ModeCLI, ModeTUI, ModeWeb},
+		"web_port":           {ModeCLI, ModeTUI, ModeWeb},
+		"default_duration":   {ModeCLI, ModeTUI, ModeWeb},
+		"duration_unit":      {ModeCLI, ModeTUI, ModeWeb},
+		"default_type":       {ModeCLI, ModeTUI, ModeWeb},
+		"data_path":          {ModeCLI, ModeTUI, ModeWeb},
+		"data_file_name":     {ModeCLI, ModeTUI, ModeWeb},
+		"split_mode":         {ModeCLI, ModeTUI, ModeWeb},
+		"ask_on_conflict":    {ModeCLI, ModeTUI, ModeWeb},
+		"use_system_date":    {ModeCLI, ModeTUI, ModeWeb},
+		"custom_date":        {ModeCLI, ModeTUI, ModeWeb},
+		"date_check_mode":    {ModeCLI, ModeTUI},
+		"tui_default_period": {ModeTUI},
+		"sort_field":         {ModeTUI},
+		"sort_asc":           {ModeTUI},
+		"show_hints":         {ModeCLI},
+		"silent_add_names":   {ModeCLI},
+	}
+}
+
 // DefaultConfig is the single source of truth for configuration defaults.
 var DefaultConfig = Config{
-	DefaultDuration: 60,
-	SplitMode:       SplitNone,
-	DataFileName:    "mycal",
-	DateCheckMode:   DateCheckOff,
-	UseSystemDate:   true,
-	AskOnConflict:   false,
-	ShowHints:       false,
-	DefaultMode:     ModeCLI,
-	WebPort:         8080,
-	SortField:       "date",
-	SortAsc:         false,
-	DurationUnit:    "min",
+	DefaultDuration:  60,
+	SplitMode:        SplitNone,
+	DataFileName:     "mycal",
+	DateCheckMode:    DateCheckOff,
+	UseSystemDate:    true,
+	AskOnConflict:    false,
+	ShowHints:        false,
+	DefaultMode:      ModeCLI,
+	WebPort:          8080,
+	SortField:        "date",
+	SortAsc:          false,
+	DurationUnit:     "min",
 	TUIDefaultPeriod: "today",
+	ActiveCalendar:   "",
+	CalendarSplits:   map[string]string{},
+	SettingModes:     DefaultSettingModes(),
+}
+
+// CalendarInfo describes one calendar discovered on disk or configured in settings.
+type CalendarInfo struct {
+	Key       string `json:"key"`        // "" for default calendar, or suffix after "--" (e.g. "work")
+	Label     string `json:"label"`      // human-readable label (e.g. "Основной (mycal)" or "work (mycal--work)")
+	BaseName  string `json:"base_name"`  // effective base filename before .json (e.g. "mycal" or "mycal--work")
+	SplitMode string `json:"split_mode"` // "none", "year", "month"
+	Active    bool   `json:"active"`     // true if currently active
 }
 
 // Config mirrors config_mycal.json.
 type Config struct {
-	DefaultDuration  int      `json:"default_duration"`
-	DefaultType      string   `json:"default_type"`
-	DataPath         string   `json:"data_path"`
-	SplitMode        string   `json:"split_mode"`
-	DataFileName     string   `json:"data_file_name"`
-	DateCheckMode    string   `json:"date_check_mode"`
-	UseSystemDate    bool     `json:"use_system_date"`
-	CustomDate       string   `json:"custom_date"`
-	CustomStatuses   []string `json:"custom_statuses"`
-	CustomNames      []string `json:"custom_names"`
-	CustomTypes      []string `json:"custom_types,omitempty"`
-	ExcludedTypes    []string `json:"excluded_types,omitempty"`
-	ExcludedStatuses []string `json:"excluded_statuses,omitempty"`
-	SilentAddNames   bool     `json:"silent_add_names"`
-	AskOnConflict    bool     `json:"ask_on_conflict"`
-	ShowHints        bool     `json:"show_hints"`
-	DefaultMode      string   `json:"default_mode"`
-	WebPort          int      `json:"web_port"`
-	SortField        string   `json:"sort_field,omitempty"`
-	SortAsc          bool     `json:"sort_asc,omitempty"`
-	DurationUnit     string   `json:"duration_unit,omitempty"`
-	TUIDefaultPeriod string   `json:"tui_default_period,omitempty"`
+	DefaultDuration  int                 `json:"default_duration"`
+	DefaultType      string              `json:"default_type"`
+	DataPath         string              `json:"data_path"`
+	SplitMode        string              `json:"split_mode"`
+	DataFileName     string              `json:"data_file_name"`
+	DateCheckMode    string              `json:"date_check_mode"`
+	UseSystemDate    bool                `json:"use_system_date"`
+	CustomDate       string              `json:"custom_date"`
+	CustomStatuses   []string            `json:"custom_statuses"`
+	CustomNames      []string            `json:"custom_names"`
+	CustomTypes      []string            `json:"custom_types,omitempty"`
+	ExcludedTypes    []string            `json:"excluded_types,omitempty"`
+	ExcludedStatuses []string            `json:"excluded_statuses,omitempty"`
+	SilentAddNames   bool                `json:"silent_add_names"`
+	AskOnConflict    bool                `json:"ask_on_conflict"`
+	ShowHints        bool                `json:"show_hints"`
+	DefaultMode      string              `json:"default_mode"`
+	WebPort          int                 `json:"web_port"`
+	SortField        string              `json:"sort_field"`
+	SortAsc          bool                `json:"sort_asc"`
+	DurationUnit     string              `json:"duration_unit"`
+	TUIDefaultPeriod string              `json:"tui_default_period"`
+	ActiveCalendar   string              `json:"active_calendar"`
+	CalendarSplits   map[string]string   `json:"calendar_splits"`
+	SettingModes     map[string][]string `json:"setting_modes"`
+}
+
+// SanitizeBaseName cleans a filename base, removing path separators, ".json",
+// and reserved "--" sequences.
+func SanitizeBaseName(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimSuffix(s, ".json")
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '/', '\\', ':', '*', '?', '"', '<', '>', '|', 0:
+		default:
+			b.WriteRune(r)
+		}
+	}
+	res := strings.Trim(b.String(), ". ")
+	for strings.Contains(res, "--") {
+		res = strings.ReplaceAll(res, "--", "-")
+	}
+	return strings.Trim(res, "- ")
+}
+
+// SanitizeCalendarKey cleans a calendar suffix/prefix identifier so it can be
+// safely used in `<base>--<key>.json`.
+func SanitizeCalendarKey(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimSuffix(s, ".json")
+	s = strings.TrimPrefix(s, "--")
+	s = strings.TrimSuffix(s, "--")
+	return SanitizeBaseName(s)
+}
+
+// EffectiveBaseName returns the on-disk base file name for the given calendar key.
+// For the default calendar (""), it returns DataFileName (e.g. "mycal").
+// For a named calendar ("work"), it returns DataFileName + "--" + calKey (e.g. "mycal--work").
+func (c *Config) EffectiveBaseName(calKey string) string {
+	base := "mycal"
+	if c != nil && strings.TrimSpace(c.DataFileName) != "" {
+		base = strings.TrimSpace(c.DataFileName)
+	}
+	calKey = strings.TrimSpace(calKey)
+	if calKey == "" {
+		return base
+	}
+	return base + "--" + calKey
+}
+
+// ActiveEffectiveBaseName returns the on-disk base file name for the active calendar.
+func (c *Config) ActiveEffectiveBaseName() string {
+	if c == nil {
+		return "mycal"
+	}
+	return c.EffectiveBaseName(c.ActiveCalendar)
+}
+
+// GetCalendarSplitMode returns the configured split mode for the given calendar key.
+func (c *Config) GetCalendarSplitMode(calKey string) string {
+	if c == nil {
+		return SplitNone
+	}
+	calKey = strings.TrimSpace(calKey)
+	if c.CalendarSplits != nil {
+		if m, ok := c.CalendarSplits[calKey]; ok {
+			switch m {
+			case SplitNone, SplitYear, SplitMonth:
+				return m
+			}
+		}
+	}
+	if calKey == "" {
+		switch c.SplitMode {
+		case SplitNone, SplitYear, SplitMonth:
+			return c.SplitMode
+		}
+	}
+	return SplitNone
+}
+
+// ActiveSplitMode returns the split mode of the currently active calendar.
+func (c *Config) ActiveSplitMode() string {
+	if c == nil {
+		return SplitNone
+	}
+	return c.GetCalendarSplitMode(c.ActiveCalendar)
+}
+
+// SetCalendarSplitMode sets the split mode for a specific calendar key.
+// For the default calendar (""), it also updates SplitMode.
+func (c *Config) SetCalendarSplitMode(calKey, mode string) {
+	if c == nil {
+		return
+	}
+	calKey = strings.TrimSpace(calKey)
+	switch mode {
+	case SplitNone, SplitYear, SplitMonth:
+	default:
+		mode = SplitNone
+	}
+	if c.CalendarSplits == nil {
+		c.CalendarSplits = make(map[string]string)
+	}
+	c.CalendarSplits[calKey] = mode
+	if calKey == "" {
+		c.SplitMode = mode
+	}
+}
+
+// SetActiveSplitMode sets the split mode for the currently active calendar.
+func (c *Config) SetActiveSplitMode(mode string) {
+	if c == nil {
+		return
+	}
+	c.SetCalendarSplitMode(c.ActiveCalendar, mode)
+}
+
+// CalendarDisplayName returns a human-readable display title for the given calendar key.
+func (c *Config) CalendarDisplayName(calKey string) string {
+	calKey = strings.TrimSpace(calKey)
+	base := c.EffectiveBaseName(calKey)
+	if calKey == "" {
+		return "Основной (" + base + ")"
+	}
+	return calKey + " (" + base + ")"
+}
+
+// ActiveCalendarDisplayName returns a human-readable display title for the active calendar.
+func (c *Config) ActiveCalendarDisplayName() string {
+	if c == nil {
+		return "Основной (mycal)"
+	}
+	return c.CalendarDisplayName(c.ActiveCalendar)
+}
+
+// IsSettingForMode reports whether settingKey should be shown in the given interface mode.
+func (c *Config) IsSettingForMode(settingKey, mode string) bool {
+	if mode == "" {
+		return true
+	}
+	var modes []string
+	if c != nil && c.SettingModes != nil {
+		modes = c.SettingModes[settingKey]
+	}
+	if len(modes) == 0 {
+		modes = DefaultSettingModes()[settingKey]
+	}
+	if len(modes) == 0 {
+		return true
+	}
+	for _, m := range modes {
+		if strings.EqualFold(m, mode) || strings.EqualFold(m, "all") {
+			return true
+		}
+	}
+	return false
+}
+
+// AddCustomName adds a frequent name to CustomNames if not already present.
+func (c *Config) AddCustomName(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return false
+	}
+	for _, cn := range c.CustomNames {
+		if strings.EqualFold(cn, name) {
+			return false
+		}
+	}
+	c.CustomNames = append(c.CustomNames, name)
+	return true
 }
 
 // AddCustomType adds a custom type and ensures it is not in ExcludedTypes.
@@ -167,6 +375,8 @@ func (c *Config) RemoveStatus(s string) {
 func (c *Config) UnmarshalJSON(data []byte) error {
 	type alias Config
 	tmp := alias(DefaultConfig)
+	tmp.SettingModes = nil
+	tmp.CalendarSplits = nil
 	if err := json.Unmarshal(data, &tmp); err != nil {
 		return err
 	}
@@ -201,6 +411,9 @@ func (c *Config) Normalize() {
 	if c.WebPort <= 0 {
 		c.WebPort = 8080
 	}
+	if c.SortField == "" {
+		c.SortField = DefaultConfig.SortField
+	}
 	switch c.DurationUnit {
 	case "hours", "min":
 	default:
@@ -210,6 +423,27 @@ func (c *Config) Normalize() {
 	case "today", "day", "all", "week", "month":
 	default:
 		c.TUIDefaultPeriod = "today"
+	}
+	c.ActiveCalendar = strings.TrimSpace(c.ActiveCalendar)
+	if c.CalendarSplits == nil {
+		c.CalendarSplits = make(map[string]string)
+	}
+	for k, v := range c.CalendarSplits {
+		switch v {
+		case SplitNone, SplitYear, SplitMonth:
+		default:
+			c.CalendarSplits[k] = SplitNone
+		}
+	}
+	defModes := DefaultSettingModes()
+	if c.SettingModes == nil {
+		c.SettingModes = defModes
+	} else {
+		for k, v := range defModes {
+			if len(c.SettingModes[k]) == 0 {
+				c.SettingModes[k] = v
+			}
+		}
 	}
 }
 

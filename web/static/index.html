@@ -18,6 +18,12 @@
         <span class="brand-title">MyCal <span class="brand-badge">Web</span></span>
       </div>
       <div class="nav-clock" id="liveClock">--:--:--</div>
+      <div class="calendar-switch-wrap" style="display:flex; align-items:center; gap:6px; margin-left:6px;">
+        <select id="calendarSelect" class="form-select" style="padding:4px 8px; font-size:0.82rem; min-width:165px; height:32px;" onchange="onCalendarSelectChange(this.value)" title="Выбрать календарь записей (переключение в реальном времени)">
+          <option value="">Основной (mycal)</option>
+        </select>
+        <button type="button" class="btn btn-subtle" style="padding:4px 10px; font-size:0.8rem; height:32px; white-space:nowrap;" onclick="openCreateCalendarModal()" title="Создать календарь записей">+ Календарь</button>
+      </div>
     </div>
 
     <!-- Period presets in top bar (visible on tablet/desktop) -->
@@ -248,7 +254,6 @@
           <div style="text-align: center;">
             <div class="stat-lbl">КЭШ</div>
             <div class="stat-val-big stat-yellow" id="statsTotalCash">0.0</div>
-            <div class="stat-sub" id="statsAvgCash">средн. 0.0</div>
           </div>
           <div style="text-align: right;">
             <div class="stat-lbl">ЗАПИСЕЙ</div>
@@ -605,12 +610,12 @@
         </div>
       </div>
 
-      <div class="form-group">
+      <div class="form-group" data-setting-key="default_duration">
         <label for="cfgDefaultDuration" class="form-label">Длительность по умолчанию (мин):</label>
         <input type="number" id="cfgDefaultDuration" class="form-input" min="5" max="720" value="60">
       </div>
 
-      <div class="form-group">
+      <div class="form-group" data-setting-key="duration_unit">
         <label for="cfgDurationUnit" class="form-label">Отображение длительности:</label>
         <select id="cfgDurationUnit" class="form-select">
           <option value="min">Минуты (60 мин) — по умолчанию</option>
@@ -618,14 +623,14 @@
         </select>
       </div>
 
-      <div class="form-group">
+      <div class="form-group" data-setting-key="default_type">
         <label for="cfgDefaultType" class="form-label">Категория события по умолчанию:</label>
         <select id="cfgDefaultType" class="form-select">
           <option value="">(Автоматически / первая доступная)</option>
         </select>
       </div>
 
-      <div class="form-group">
+      <div class="form-group" data-setting-key="date_check_mode">
         <label for="cfgDateCheckMode" class="form-label">Реакция на опечатки в дате (32.01):</label>
         <select id="cfgDateCheckMode" class="form-select">
           <option value="">Выключена (автоматический сдвиг на след. месяц)</option>
@@ -635,7 +640,7 @@
         </select>
       </div>
 
-      <div class="form-group">
+      <div class="form-group" data-setting-key="ask_on_conflict">
         <label for="cfgAskConflict" class="form-label">Спрашивать при совпадении времени:</label>
         <select id="cfgAskConflict" class="form-select">
           <option value="false">Выкл (добавлять сразу без лишних вопросов)</option>
@@ -643,7 +648,7 @@
         </select>
       </div>
 
-      <div class="form-group">
+      <div class="form-group" data-setting-key="silent_add_names">
         <label for="cfgSilentAddNames" class="form-label">Автосохранение частых имён:</label>
         <select id="cfgSilentAddNames" class="form-select">
           <option value="false">Выкл (спрашивать подтверждение)</option>
@@ -651,7 +656,7 @@
         </select>
       </div>
 
-      <div class="form-group">
+      <div class="form-group" data-setting-key="split_mode">
         <label for="cfgSplitMode" class="form-label">Режим хранения данных на диске:</label>
         <select id="cfgSplitMode" class="form-select">
           <option value="none">Один файл (mycal.json)</option>
@@ -660,21 +665,26 @@
         </select>
       </div>
 
-      <div class="form-group">
+      <div class="form-group" data-setting-key="use_system_date">
         <label for="cfgUseSystemDate" class="form-label">Использовать системное время:</label>
-        <select id="cfgUseSystemDate" class="form-select">
+        <select id="cfgUseSystemDate" class="form-select" onchange="toggleCustomDateInput()">
           <option value="true">Вкл (текущее системное время)</option>
           <option value="false">Выкл (ручной ввод / фиксированная дата)</option>
         </select>
       </div>
 
-      <div class="form-group">
+      <div class="form-group" id="cfgCustomDateGroup" data-setting-key="custom_date" style="display: none;">
+        <label for="cfgCustomDate" class="form-label">Фиксированная дата (ГГГГ-ММ-ДД):</label>
+        <input type="date" id="cfgCustomDate" class="form-input">
+      </div>
+
+      <div class="form-group" data-setting-key="data_path">
         <label for="cfgDataPath" class="form-label">Каталог хранения файлов записей:</label>
         <input type="text" id="cfgDataPath" class="form-input" placeholder="~/Sync/myCal или ~/.mycal" style="font-family: var(--font-mono);">
         <p class="settings-hint">Путь к каталогу, где хранятся файлы mycal.json (поддерживает тильду ~, напр. ~/Sync/myCal)</p>
       </div>
 
-      <div class="form-group">
+      <div class="form-group" data-setting-key="tui_default_period">
         <label for="cfgTUIDefaultPeriod" class="form-label">Период запуска по умолчанию в TUI:</label>
         <select id="cfgTUIDefaultPeriod" class="form-select">
           <option value="today">Сегодня (по умолч.)</option>
@@ -865,6 +875,37 @@
       <button type="button" class="btn btn-secondary" onclick="closeModal('modalBatchDelete')">Отмена</button>
       <button type="button" class="btn btn-danger" onclick="confirmBatchDelete()">Удалить выбранные</button>
     </div>
+  </div>
+</dialog>
+
+<!-- CREATE CALENDAR MODAL -->
+<dialog id="modalCreateCalendar" aria-labelledby="modalCreateCalTitle">
+  <div class="modal-card">
+    <div class="modal-hdr">
+      <h3 id="modalCreateCalTitle">Создать календарь записей</h3>
+      <button type="button" class="btn-close" onclick="closeModal('modalCreateCalendar')">✕</button>
+    </div>
+    <form id="createCalendarForm" onsubmit="handleCreateCalendarSubmit(event)">
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="newCalPrefix" class="form-label">Префикс календаря:</label>
+          <input type="text" id="newCalPrefix" class="form-input" placeholder="напр. work, sport, личное" oninput="updateNewCalPreview()" required>
+          <div class="settings-hint" id="newCalFilePreview" style="margin-top:6px;">Файл на диске: <code>mycal--префикс.json</code></div>
+        </div>
+        <div class="form-group" style="margin-top:12px;">
+          <label for="newCalSplitMode" class="form-label">Режим хранения календаря:</label>
+          <select id="newCalSplitMode" class="form-select" onchange="updateNewCalPreview()">
+            <option value="none">В одном файле (mycal--префикс.json)</option>
+            <option value="year">По годам (ГГГГ_mycal--префикс.json)</option>
+            <option value="month">По месяцам (ГГГГ-ММ_mycal--префикс.json)</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeModal('modalCreateCalendar')">Отмена</button>
+        <button type="submit" class="btn btn-primary">Создать и выбрать</button>
+      </div>
+    </form>
   </div>
 </dialog>
 

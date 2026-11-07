@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"mycalendar/calendar"
 	"mycalendar/color"
 	"mycalendar/models"
 	"mycalendar/parser"
@@ -112,12 +113,12 @@ func (a *App) askDate(title, help string) (time.Time, bool) {
 		if isCancel(in) || a.stdinClosed {
 			return time.Time{}, false
 		}
-		date, err := parser.ParseDate(in, a.today())
+		date, valid, err := calendar.CheckDateInput(in, a.today())
 		if err != nil {
 			fmt.Println(color.Red(errMark + " Не удалось распознать дату"))
 			continue
 		}
-		if a.cfg.DateCheckMode == models.DateCheckOff || parser.ValidateDate(in, date) {
+		if a.cfg.DateCheckMode == models.DateCheckOff || valid {
 			return date, true
 		}
 		if corrected, done := a.handleBadDate(in, date); done {

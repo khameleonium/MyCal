@@ -30,22 +30,8 @@ const (
 	statFmt = "  %-24s %s"
 )
 
-var splitModeLabels = map[string]string{
-	models.SplitNone:  "В одном файле",
-	models.SplitYear:  "По годам",
-	models.SplitMonth: "По месяцам",
-}
-
-var dateCheckLabels = map[string]string{
-	models.DateCheckOff:   "Выключена",
-	models.DateCheckAsk:   "Спрашивать",
-	models.DateCheckFix:   "Исправлять авто",
-	models.DateCheckReask: "Переспрашивать",
-}
-
-var dateCheckOrder = []string{
-	models.DateCheckOff, models.DateCheckAsk, models.DateCheckFix, models.DateCheckReask,
-}
+var splitModeLabels = config.SplitModeLabels
+var dateCheckLabels = config.DateCheckLabels
 
 // App runs the interactive console menu.
 type App struct {
@@ -99,14 +85,10 @@ func (a *App) reportWarnings() {
 // parsed once and cached).
 func (a *App) today() time.Time {
 	if a.cfg.UseSystemDate || a.cfg.CustomDate == "" {
-		return time.Now()
+		return config.EffectiveToday(a.cfg)
 	}
 	if a.todayCache.IsZero() {
-		d, err := time.Parse("2006-01-02", a.cfg.CustomDate)
-		if err != nil {
-			return time.Now()
-		}
-		a.todayCache = d
+		a.todayCache = config.EffectiveToday(a.cfg)
 	}
 	return a.todayCache
 }
@@ -179,6 +161,8 @@ var mainMenuItems = []struct {
 	{[]string{"6", "s", "н"}, " s | 6. Настройки", "Параметры хранения, автоисправление дат, подсказки", func(a *App) bool { a.settingsMenu(); return true }},
 	{[]string{"7", "h", "?", "м"}, " h | 7. Справка", "Руководство пользователя, горячие клавиши и параметры CLI", func(a *App) bool { PrintHelp(); return true }},
 	{[]string{"8", "q", "в"}, " q | 8. Выход", "Завершение работы программы (также работает Ctrl+C)", func(a *App) bool { return false }},
+	{[]string{"9", "c", "к"}, " c | 9. Выбрать календарь записей", "Переключение между календарями записей в папке данных", func(a *App) bool { a.selectCalendarDialog(); return true }},
+	{[]string{"10", "n", "сз"}, " n | 10. Создать календарь записей", "Создание нового календаря с префиксом (единый или погодовой файл)", func(a *App) bool { a.createCalendarDialog(); return true }},
 }
 
 func mainMenuKeys() [][]string {
@@ -194,7 +178,7 @@ func (a *App) mainMenu() {
 	keys := mainMenuKeys()
 	for {
 		fmt.Println()
-		fmt.Println(color.Yellow(hdrSep + " Мои записи " + hdrSep))
+		fmt.Printf("%s\n", color.Yellow(fmt.Sprintf("%s Мои записи [%s] %s", hdrSep, a.cfg.ActiveCalendarDisplayName(), hdrSep)))
 		for _, it := range mainMenuItems {
 			fmt.Println(it.label)
 			if a.cfg.ShowHints {
@@ -209,7 +193,7 @@ func (a *App) mainMenu() {
 		}
 		idx := resolve(choice, keys)
 		if idx < 0 {
-			fmt.Println(color.Red(errMark + " Некорректный выбор (1–8)"))
+			fmt.Println(color.Red(errMark + " Некорректный выбор (1–10)"))
 			continue
 		}
 		if !mainMenuItems[idx].run(a) {
@@ -230,11 +214,6 @@ func isYes(s string) bool {
 func isCancel(s string) bool {
 	t := strings.TrimSpace(strings.ToLower(s))
 	return t == "0" || t == "отмена"
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
 }
 
 // explainFS turns a filesystem error into a short Russian phrase.

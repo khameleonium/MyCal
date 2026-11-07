@@ -3,7 +3,7 @@ package app
 import (
 	"fmt"
 	"strconv"
-	"strings"
+	"time"
 
 	"mycalendar/calendar"
 	"mycalendar/color"
@@ -41,11 +41,11 @@ func (a *App) editSession(id string) {
 	a.showSessionDetail(session)
 	fmt.Println()
 	fmt.Println("Что редактируем?")
-	fmt.Println("1. Наименование   4. Продолжительность   7. Кэш")
+	fmt.Println("1. Наименование   4. Продолжительность   7. Кэш         9. Дата")
 	fmt.Println("2. Тип            5. Комментарий          8. Полностью")
 	fmt.Println("3. Время          6. Статус              0. Отмена")
 	if a.cfg.ShowHints {
-		fmt.Println(color.Cyan("  → Номер поля (1–8) для изменения, Enter без ввода — оставить, '-' очистить, 0 отмена"))
+		fmt.Println(color.Cyan("  → Номер поля (1–9) для изменения, Enter без ввода — оставить, '-' очистить, 0 отмена"))
 	}
 
 	choice := a.prompt("")
@@ -55,6 +55,7 @@ func (a *App) editSession(id string) {
 	}
 
 	var patch calendar.Patch
+	var newDate *time.Time
 	cancelled := false
 	set := func(ok bool) bool {
 		if !ok {
@@ -96,8 +97,12 @@ func (a *App) editSession(id string) {
 		}
 	case "8", "full", "все", "всё", "all", "f", "п":
 		a.fullEdit(session, &patch, &cancelled)
+	case "9", "d", "д", "date", "дата":
+		if d, ok, changed := a.askDateChange(session.Date()); set(ok) && changed {
+			newDate = &d
+		}
 	default:
-		fmt.Println(color.Red(errMark + " Некорректный выбор (0–8)"))
+		fmt.Println(color.Red(errMark + " Некорректный выбор (0–9)"))
 		return
 	}
 
@@ -105,27 +110,43 @@ func (a *App) editSession(id string) {
 		fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
 		return
 	}
-	if patch.Empty() {
+	if patch.Empty() && newDate == nil {
 		fmt.Println(color.Yellow(warnMark + " Изменений нет"))
 		return
 	}
 
-	if wholeSeries {
-		n := a.svc.UpdateSeries(session.SeriesID, patch)
-		if err := a.save(); err != nil {
-			return
-		}
-		fmt.Println(color.Green(okMark + fmt.Sprintf(" Обновлено записей в серии: %d", n)))
-		return
-	}
-	if err := a.svc.Update(id, patch); err != nil {
+	_, n, err := a.svc.UpdateEntry(a.ctx, a.cfg, id, calendar.UpdateInput{
+		NewDate:      newDate,
+		Patch:        patch,
+		UpdateSeries: wholeSeries,
+	})
+	if err != nil {
 		fmt.Println(color.Red(errMark + " " + err.Error()))
 		return
 	}
-	if err := a.save(); err != nil {
+	a.saveConfig()
+	if wholeSeries {
+		fmt.Println(color.Green(okMark + fmt.Sprintf(" Обновлено записей в серии: %d", n)))
 		return
 	}
 	fmt.Println(color.Green(okMark + " Запись обновлена"))
+}
+
+func (a *App) askDateChange(currentISO string) (time.Time, bool, bool) {
+	curFmt := parser.FormatDate(mustISO(currentISO))
+	v := a.dialog("Дата ["+color.Magenta(curFmt)+"]:", "Enter — без изменений, 0 — отмена")
+	if isCancel(v) || a.stdinClosed {
+		return time.Time{}, false, false
+	}
+	if v == "" {
+		return time.Time{}, true, false
+	}
+	d, err := parser.ParseDate(v, a.today())
+	if err != nil {
+		fmt.Println(color.Red(errMark + " " + err.Error()))
+		return time.Time{}, false, false
+	}
+	return d, true, d.Format("2006-01-02") != currentISO
 }
 
 func (a *App) fullEdit(s models.Session, patch *calendar.Patch, cancelled *bool) {
@@ -185,7 +206,7 @@ func (a *App) fullEdit(s models.Session, patch *calendar.Patch, cancelled *bool)
 
 // askCashChange returns (value, ok, changed).
 func (a *App) askCashChange(current float64) (float64, bool, bool) {
-	curStr := strconv.FormatFloat(current, 'f', -1, 64)
+	curStr := calendar.FormatCash(current)
 	v := a.dialog("Кэш ["+color.Yellow(curStr)+"]:",
 		"Enter — без изменений, '-' — сбросить в 0, 0 — отмена")
 	switch {
@@ -196,8 +217,7 @@ func (a *App) askCashChange(current float64) (float64, bool, bool) {
 	case v == "-" || v == "0.0" || v == "0,0":
 		return 0, true, current != 0
 	default:
-		v = strings.ReplaceAll(v, ",", ".")
-		c, err := strconv.ParseFloat(v, 64)
+		c, err := calendar.ParseCash(v)
 		if err != nil {
 			fmt.Println(color.Red(errMark + " Некорректная сумма (введите число, напр. 1500 или -300)"))
 			return a.askCashChange(current)

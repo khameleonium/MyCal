@@ -8,7 +8,6 @@ import (
 
 	"mycalendar/calendar"
 	"mycalendar/color"
-	"mycalendar/models"
 	"mycalendar/parser"
 )
 
@@ -151,53 +150,40 @@ func (a *App) addOne(presetDate *time.Time) bool {
 		until = u
 	}
 
-	base := models.Session{
-		Time: hhmm, Name: name, Type: typ,
-		Duration: duration, Cash: cash, Notes: notes, Status: status,
+	res, err := a.svc.CreateEntries(a.ctx, a.cfg, calendar.EntryInput{
+		Date:        date,
+		Time:        tm,
+		RawName:     name,
+		Type:        typ,
+		Duration:    duration,
+		Cash:        cash,
+		Status:      status,
+		Notes:       notes,
+		RepeatMode:  mode,
+		RepeatUntil: until,
+	})
+	if res.Truncated {
+		fmt.Println(color.Yellow(fmt.Sprintf(
+			"%s Достигнут предел в %d повторов — серия обрезана.", warnMark, calendar.MaxOccurrences)))
 	}
-
-	dates := []time.Time{date}
-	if mode != "" {
-		occurrences, truncated := calendar.RepeatDates(date, until, mode)
-		if truncated {
-			fmt.Println(color.Yellow(fmt.Sprintf(
-				"%s Достигнут предел в %d повторов — серия обрезана.", warnMark, calendar.MaxOccurrences)))
-		}
-		dates = append(dates, occurrences...)
-	}
-
-	first := base
-	first.ID = a.svc.GenerateID(date, tm)
-	seriesID := ""
-	if len(dates) > 1 {
-		seriesID = first.ID
-		first.SeriesID = seriesID
-	}
-
-	toAdd := []models.Session{first}
-	for _, d := range dates[1:] {
-		occ := base
-		occ.ID = a.svc.GenerateID(d, tm)
-		occ.SeriesID = seriesID
-		toAdd = append(toAdd, occ)
-	}
-
-	added, err := a.svc.AddBatch(toAdd)
 	if err != nil {
-		if added == 0 {
+		if res.Added == 0 {
 			fmt.Println(color.Red(errMark + " Не удалось добавить запись: " + err.Error()))
 			return false
 		}
 		fmt.Println(color.Red(errMark + " Не удалось добавить повтор: " + err.Error()))
 	}
-
-	if err := a.save(); err != nil {
-		return false
+	if res.ConfigMod {
+		a.saveConfig()
 	}
-	if added > 1 {
-		fmt.Println(color.Green(okMark + fmt.Sprintf(" Добавлено записей: %d (серия %s)", added, color.Yellow(seriesID))))
+	if res.Added > 1 {
+		if res.SeriesID != "" {
+			fmt.Println(color.Green(okMark + fmt.Sprintf(" Добавлено записей: %d (серия %s)", res.Added, color.Yellow(res.SeriesID))))
+		} else {
+			fmt.Println(color.Green(okMark + fmt.Sprintf(" Добавлено записей: %d", res.Added)))
+		}
 	} else {
-		fmt.Println(color.Green(okMark + " Запись добавлена  ID: " + color.Yellow(first.ID)))
+		fmt.Println(color.Green(okMark + " Запись добавлена  ID: " + color.Yellow(res.First.ID)))
 	}
 	return true
 }
@@ -287,8 +273,7 @@ func (a *App) askCashAdd() (float64, bool, bool) {
 	case val == "" || val == "0" || val == "0.0" || val == "0,0":
 		return 0, true, false
 	default:
-		val = strings.ReplaceAll(val, ",", ".")
-		c, err := strconv.ParseFloat(val, 64)
+		c, err := calendar.ParseCash(val)
 		if err != nil {
 			fmt.Println(color.Red(errMark + " Некорректная сумма (введите число, напр. 1500 или -300)"))
 			return a.askCashAdd()

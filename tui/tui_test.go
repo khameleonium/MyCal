@@ -730,17 +730,17 @@ func TestCategoryPickerDropdownInSessionForm(t *testing.T) {
 
 	// 1. Pressing KeyRight opens category picker
 	m.HandleKey(Key{Type: KeyRight}, app)
-	if !m.catPickerOpen {
-		t.Fatalf("expected catPickerOpen == true on KeyRight on field 3")
+	if !m.pickerOpen {
+		t.Fatalf("expected pickerOpen == true on KeyRight on field 3")
 	}
-	if len(m.catPickerList) == 0 {
-		t.Fatalf("expected non-empty catPickerList")
+	if len(m.pickerList) == 0 {
+		t.Fatalf("expected non-empty pickerList")
 	}
 
 	// Check that custom categories from sessions exist in list
 	hasFin := false
 	hasMkt := false
-	for _, c := range m.catPickerList {
+	for _, c := range m.pickerList {
 		if c == "Финансы" {
 			hasFin = true
 		}
@@ -749,15 +749,15 @@ func TestCategoryPickerDropdownInSessionForm(t *testing.T) {
 		}
 	}
 	if !hasFin || !hasMkt {
-		t.Fatalf("expected custom categories in list, got: %v", m.catPickerList)
+		t.Fatalf("expected custom categories in list, got: %v", m.pickerList)
 	}
 
 	// 2. Select first item
-	m.catPickerIdx = 0
-	expectedCat := m.catPickerList[0]
+	m.pickerIdx = 0
+	expectedCat := m.pickerList[0]
 	m.HandleKey(Key{Type: KeyEnter}, app)
-	if m.catPickerOpen {
-		t.Fatalf("expected catPickerOpen == false after Enter")
+	if m.pickerOpen {
+		t.Fatalf("expected pickerOpen == false after Enter")
 	}
 	if m.typeStr != expectedCat {
 		t.Fatalf("expected typeStr == %q, got %q", expectedCat, m.typeStr)
@@ -765,13 +765,13 @@ func TestCategoryPickerDropdownInSessionForm(t *testing.T) {
 
 	// 3. Test Esc closes picker without modifying
 	m.HandleKey(Key{Type: KeyRight}, app)
-	if !m.catPickerOpen {
-		t.Fatalf("expected catPickerOpen == true")
+	if !m.pickerOpen {
+		t.Fatalf("expected pickerOpen == true")
 	}
-	m.catPickerIdx = 1
+	m.pickerIdx = 1
 	m.HandleKey(Key{Type: KeyEsc}, app)
-	if m.catPickerOpen {
-		t.Fatalf("expected catPickerOpen == false after Esc")
+	if m.pickerOpen {
+		t.Fatalf("expected pickerOpen == false after Esc")
 	}
 	if m.typeStr != expectedCat {
 		t.Fatalf("typeStr should remain %q on Esc, got %q", expectedCat, m.typeStr)
@@ -791,17 +791,17 @@ func TestCategoryPickerDropdownInQuickEditField(t *testing.T) {
 
 	// Pressing KeyRight opens picker
 	m.HandleKey(Key{Type: KeyRight}, app)
-	if !m.catPickerOpen {
-		t.Fatalf("expected catPickerOpen == true")
+	if !m.pickerOpen {
+		t.Fatalf("expected pickerOpen == true")
 	}
 
 	// Navigate and select
 	m.HandleKey(Key{Type: KeyDown}, app)
-	expectedVal := m.catPickerList[m.catPickerIdx]
+	expectedVal := m.pickerList[m.pickerIdx]
 	m.HandleKey(Key{Type: KeyEnter}, app)
 
-	if m.catPickerOpen {
-		t.Fatalf("expected catPickerOpen == false after Enter")
+	if m.pickerOpen {
+		t.Fatalf("expected pickerOpen == false after Enter")
 	}
 	if m.value != expectedVal {
 		t.Fatalf("expected value == %q, got %q", expectedVal, m.value)
@@ -1698,26 +1698,23 @@ func TestModalSettingsComprehensive(t *testing.T) {
 		t.Fatalf("expected askOnConflict true")
 	}
 
-	// Test field 7 (silent add names): toggle from false to true
+	// Test field 7 (split mode): toggle from none to year
 	m.selectedIdx = 7
-	m.HandleKey(Key{Type: KeySpace}, app)
-	if !m.silentAddNames {
-		t.Fatalf("expected silentAddNames true")
-	}
-
-	// Test field 8 (split mode): toggle from none to year
-	m.selectedIdx = 8
 	m.HandleKey(Key{Type: KeySpace}, app)
 	if m.splitMode != models.SplitYear {
 		t.Fatalf("expected splitMode 'year', got %q", m.splitMode)
 	}
 
-	// Test field 9 (use system date): toggle from true to false
-	m.selectedIdx = 9
+	// Test field 8 (use system date): toggle from true to false
+	m.selectedIdx = 8
 	m.HandleKey(Key{Type: KeySpace}, app)
 	if m.useSystemDate != false {
 		t.Fatalf("expected useSystemDate false")
 	}
+
+	// Test field 9 (custom date): set fixed date
+	m.selectedIdx = 9
+	m.customDate = "2026-10-20"
 
 	// Save all via Enter
 	m.HandleKey(Key{Type: KeyEnter}, app)
@@ -1731,14 +1728,14 @@ func TestModalSettingsComprehensive(t *testing.T) {
 	if !app.cfg.AskOnConflict {
 		t.Fatalf("expected app.cfg.AskOnConflict true")
 	}
-	if !app.cfg.SilentAddNames {
-		t.Fatalf("expected app.cfg.SilentAddNames true")
-	}
 	if app.cfg.SplitMode != models.SplitYear {
 		t.Fatalf("expected app.cfg.SplitMode 'year', got %q", app.cfg.SplitMode)
 	}
 	if app.cfg.UseSystemDate != false {
 		t.Fatalf("expected app.cfg.UseSystemDate false")
+	}
+	if app.cfg.CustomDate != "2026-10-20" {
+		t.Fatalf("expected app.cfg.CustomDate '2026-10-20', got %q", app.cfg.CustomDate)
 	}
 }
 
@@ -2007,6 +2004,131 @@ func TestTUIDefaultPeriodStartupAndSettings(t *testing.T) {
 	}
 }
 
+func TestCompactTabAndPeriodKeys(t *testing.T) {
+	app := newTestApp(t)
+	app.width = 80 // Compact / vertical mode (< 115)
+	app.height = 25
 
+	if app.activeTab != TabFeed {
+		t.Fatalf("expected initial activeTab TabFeed, got %d", app.activeTab)
+	}
 
+	// 1. Cycle tabs forward with ']' and backward with '['
+	app.handleKey(Key{Type: KeyRune, Rune: ']'})
+	if app.activeTab != TabCalendar || app.focusPanel != PanelCalendar {
+		t.Fatalf("expected TabCalendar after ']', got tab=%d focus=%d", app.activeTab, app.focusPanel)
+	}
+	app.handleKey(Key{Type: KeyRune, Rune: ']'})
+	if app.activeTab != TabInspector || app.focusPanel != PanelInspector {
+		t.Fatalf("expected TabInspector after second ']', got tab=%d focus=%d", app.activeTab, app.focusPanel)
+	}
+	app.handleKey(Key{Type: KeyRune, Rune: '['})
+	if app.activeTab != TabCalendar || app.focusPanel != PanelCalendar {
+		t.Fatalf("expected TabCalendar after '[', got tab=%d focus=%d", app.activeTab, app.focusPanel)
+	}
 
+	// 2. While inside TabCalendar in compact mode, pressing '1', '2', '3', '4'
+	// must select periods (all, day, week, month) and NOT switch activeTab!
+	app.handleKey(Key{Type: KeyRune, Rune: '1'})
+	if app.activeTab != TabCalendar || app.periodMode != "all" {
+		t.Fatalf("expected '1' in compact TabCalendar to set periodMode='all' and stay on TabCalendar, got tab=%d period=%q", app.activeTab, app.periodMode)
+	}
+	app.handleKey(Key{Type: KeyRune, Rune: '3'})
+	if app.activeTab != TabCalendar || app.periodMode != "week" {
+		t.Fatalf("expected '3' in compact TabCalendar to set periodMode='week' and stay on TabCalendar, got tab=%d period=%q", app.activeTab, app.periodMode)
+	}
+	app.handleKey(Key{Type: KeyRune, Rune: '4'})
+	if app.activeTab != TabCalendar || app.periodMode != "month" {
+		t.Fatalf("expected '4' in compact TabCalendar to set periodMode='month' and stay on TabCalendar, got tab=%d period=%q", app.activeTab, app.periodMode)
+	}
+	app.handleKey(Key{Type: KeyRune, Rune: '2'})
+	if app.activeTab != TabCalendar || app.periodMode != "day" {
+		t.Fatalf("expected '2' in compact TabCalendar to set periodMode='day' and stay on TabCalendar, got tab=%d period=%q", app.activeTab, app.periodMode)
+	}
+
+	// 3. F1..F4 jumps directly to the corresponding tab in compact mode
+	app.handleKey(Key{Type: KeyF4})
+	if app.activeTab != TabStats {
+		t.Fatalf("expected TabStats after KeyF4, got %d", app.activeTab)
+	}
+	app.handleKey(Key{Type: KeyF1})
+	if app.activeTab != TabFeed || app.focusPanel != PanelFeed || app.activeModal != nil {
+		t.Fatalf("expected TabFeed (and no help modal) after KeyF1 in compact mode, got tab=%d focus=%d modal=%v", app.activeTab, app.focusPanel, app.activeModal)
+	}
+	app.handleKey(Key{Type: KeyF3})
+	if app.activeTab != TabInspector || app.focusPanel != PanelInspector {
+		t.Fatalf("expected TabInspector after KeyF3, got tab=%d focus=%d", app.activeTab, app.focusPanel)
+	}
+	app.handleKey(Key{Type: KeyF2})
+	if app.activeTab != TabCalendar || app.focusPanel != PanelCalendar {
+		t.Fatalf("expected TabCalendar after KeyF2, got tab=%d focus=%d", app.activeTab, app.focusPanel)
+	}
+
+	// 4. Wide mode (width >= 115): F1=Calendar, F2=Categories/Sidebar, F3=Feed, F4=ModalStats
+	app.width = 130
+	app.handleKey(Key{Type: KeyF1})
+	if app.focusPanel != PanelCalendar {
+		t.Fatalf("expected PanelCalendar after KeyF1 in wide mode, got %d", app.focusPanel)
+	}
+	app.handleKey(Key{Type: KeyF2})
+	if app.focusPanel != PanelSidebar {
+		t.Fatalf("expected PanelSidebar after KeyF2 in wide mode, got %d", app.focusPanel)
+	}
+	app.handleKey(Key{Type: KeyF3})
+	if app.focusPanel != PanelFeed {
+		t.Fatalf("expected PanelFeed after KeyF3 in wide mode, got %d", app.focusPanel)
+	}
+	app.handleKey(Key{Type: KeyF4})
+	if _, ok := app.activeModal.(*ModalStats); !ok {
+		t.Fatalf("expected ModalStats after KeyF4 in wide mode, got %T", app.activeModal)
+	}
+	s := NewScreen(130, 30)
+	app.activeModal.Draw(s)
+	// Pressing F4 again closes ModalStats
+	app.handleKey(Key{Type: KeyF4})
+	if app.activeModal != nil {
+		t.Fatalf("expected activeModal nil after second KeyF4, got %T", app.activeModal)
+	}
+}
+
+func TestSettingsModalPreservesEmptyDataPathAndCalendarSplitKeepsSessions(t *testing.T) {
+	app := newTestApp(t)
+	origDir := app.svc.DataDir()
+	app.cfg.DataPath = ""
+
+	// 1. Open ModalSettings and press Enter without modifying DataPath
+	m := NewModalSettings(app.cfg)
+	if m.dataPath != "" {
+		t.Fatalf("expected initial m.dataPath == \"\", got %q", m.dataPath)
+	}
+	m.HandleKey(Key{Type: KeyEnter}, app)
+	if app.cfg.DataPath != "" {
+		t.Fatalf("expected app.cfg.DataPath to remain \"\", got %q", app.cfg.DataPath)
+	}
+	if app.svc.DataDir() != origDir {
+		t.Fatalf("expected app.svc.DataDir() to remain %q, got %q", origDir, app.svc.DataDir())
+	}
+
+	// 2. Create a named calendar with sessions and cycle split mode via 'm'
+	if err := app.svc.CreateCalendar(app.ctx, app.cfg, "work", models.SplitNone); err != nil {
+		t.Fatalf("CreateCalendar: %v", err)
+	}
+	_ = app.svc.Add(models.Session{
+		ID:       "20261107100000",
+		Time:     "10:00",
+		Name:     "Важная встреча",
+		Type:     "Работа",
+		Duration: 60,
+		Status:   "Активно",
+	})
+	_ = app.svc.Save(app.ctx)
+
+	cm := NewModalCalendarManager(app)
+	cm.HandleKey(Key{Type: KeyRune, Rune: 'm'}, app)
+	if app.cfg.ActiveSplitMode() != models.SplitYear {
+		t.Fatalf("expected split mode SplitYear after 'm', got %q", app.cfg.ActiveSplitMode())
+	}
+	if app.svc.Count() != 1 {
+		t.Fatalf("expected 1 session preserved after split mode switch, got %d", app.svc.Count())
+	}
+}

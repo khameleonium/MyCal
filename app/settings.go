@@ -13,51 +13,81 @@ import (
 	"mycalendar/storage"
 )
 
-var defaultModeLabels = map[string]string{
-	models.ModeCLI: "Классический (CLI)",
-	models.ModeTUI: "Интерактивный (TUI)",
-	models.ModeWeb: "Веб-интерфейс (Web)",
-}
-var defaultModeOrder = []string{models.ModeCLI, models.ModeTUI, models.ModeWeb}
+var defaultModeLabels = config.DefaultModeLabels
 
 func (a *App) settingsMenu() {
-	startMode := a.cfg.SplitMode
+	startMode := a.cfg.ActiveSplitMode()
 	startName := a.cfg.DataFileName
+	startEffName := a.cfg.ActiveEffectiveBaseName()
 	startPath := a.cfg.DataPath
 	for {
 		fmt.Println()
 		fmt.Println(color.Yellow(hdrSep + " Настройки " + hdrSep))
-		fmt.Printf(" m | 1. Режим хранения          [%s]\n", splitModeLabels[a.cfg.SplitMode])
-		a.hint("Способ сохранения на диске (в одном файле, по годам или по месяцам)")
-		fmt.Printf(" n | 2. Имя файла данных        [%s]\n", a.cfg.DataFileName)
-		a.hint("Базовое имя файла базы (по умолчанию \"mycal\")")
-		fmt.Printf(" l | 3. Продолж. по умолчанию   [%d мин]\n", a.cfg.DefaultDuration)
-		a.hint("Длительность события при нажатии Enter (напр. 30, 45, 60 мин)")
-		fmt.Printf(" t | 4. Тип по умолчанию        [%s]\n", a.cfg.DefaultType)
-		a.hint("Категория события, подставляемая по умолчанию")
-		fmt.Printf(" p | 5. Путь к данным           [%s]\n", dataPathDisplay(a.cfg.DataPath))
-		a.hint("Каталог, где сохраняются json-файлы записей")
-		fmt.Printf(" c | 6. Проверка даты           [%s]\n", dateCheckLabels[a.cfg.DateCheckMode])
-		a.hint(dateCheckHint(a.cfg.DateCheckMode))
-		fmt.Printf(" d | 7. Дата                    [%s]\n", a.dateDisplay())
-		a.hint("Использовать системное время или ручной ввод фиксированной даты")
+		if a.cfg.IsSettingForMode("split_mode", models.ModeCLI) {
+			fmt.Printf(" m | 1. Режим хранения          [%s]\n", splitModeLabels[a.cfg.ActiveSplitMode()])
+			a.hint("Способ сохранения текущего календаря (в одном файле, по годам или по месяцам)")
+		}
+		if a.cfg.IsSettingForMode("data_file_name", models.ModeCLI) {
+			fmt.Printf(" n | 2. Имя файла данных        [%s]\n", a.cfg.DataFileName)
+			a.hint("Базовое имя файла базы (по умолчанию \"mycal\")")
+		}
+		if a.cfg.IsSettingForMode("default_duration", models.ModeCLI) {
+			fmt.Printf(" l | 3. Продолж. по умолчанию   [%d мин]\n", a.cfg.DefaultDuration)
+			a.hint("Длительность события при нажатии Enter (напр. 30, 45, 60 мин)")
+		}
+		if a.cfg.IsSettingForMode("default_type", models.ModeCLI) {
+			fmt.Printf(" t | 4. Тип по умолчанию        [%s]\n", a.cfg.DefaultType)
+			a.hint("Категория события, подставляемая по умолчанию")
+		}
+		if a.cfg.IsSettingForMode("data_path", models.ModeCLI) {
+			fmt.Printf(" p | 5. Путь к данным           [%s]\n", dataPathDisplay(a.cfg.DataPath))
+			a.hint("Каталог, где сохраняются json-файлы записей")
+		}
+		if a.cfg.IsSettingForMode("date_check_mode", models.ModeCLI) {
+			fmt.Printf(" c | 6. Проверка даты           [%s]\n", dateCheckLabels[a.cfg.DateCheckMode])
+			a.hint(config.DateCheckHint(a.cfg.DateCheckMode))
+		}
+		if a.cfg.IsSettingForMode("use_system_date", models.ModeCLI) || a.cfg.IsSettingForMode("custom_date", models.ModeCLI) {
+			fmt.Printf(" d | 7. Дата                    [%s]\n", a.dateDisplay())
+			a.hint("Использовать системное время или ручной ввод фиксированной даты")
+		}
 		fmt.Printf(" u | 8. Свои списки             [имён: %d, статусов: %d]\n",
 			len(a.cfg.CustomNames), len(a.cfg.CustomStatuses))
 		a.hint("Настройка списков для быстрого выбора")
-		fmt.Printf(" i | 9. Молча добавлять частые имена [%s]\n", onOff(a.cfg.SilentAddNames))
-		a.hint("Автоматическое сохранение часто используемых имён")
-		fmt.Printf(" k | 10. Спрашивать при совпадении   [%s]\n", onOff(a.cfg.AskOnConflict))
-		a.hint("Предупреждать ли, если на это же время уже есть запись")
-		fmt.Printf(" h | 11. Подсказки                   [%s]\n", onOff(a.cfg.ShowHints))
-		a.hint("Пояснения и примеры под каждым пунктом меню и действием")
-		fmt.Printf(" w | 12. Интерфейс по умолчанию      [%s]\n", defaultModeLabels[a.cfg.DefaultMode])
-		a.hint("Что открывать при запуске 'mycal' без параметров (CLI / TUI / Web)")
+		if a.cfg.IsSettingForMode("silent_add_names", models.ModeCLI) {
+			fmt.Printf(" i | 9. Молча добавлять частые имена [%s]\n", onOff(a.cfg.SilentAddNames))
+			a.hint("Автоматическое сохранение часто используемых имён")
+		}
+		if a.cfg.IsSettingForMode("ask_on_conflict", models.ModeCLI) {
+			fmt.Printf(" k | 10. Спрашивать при совпадении   [%s]\n", onOff(a.cfg.AskOnConflict))
+			a.hint("Предупреждать ли, если на это же время уже есть запись")
+		}
+		if a.cfg.IsSettingForMode("show_hints", models.ModeCLI) {
+			fmt.Printf(" h | 11. Подсказки                   [%s]\n", onOff(a.cfg.ShowHints))
+			a.hint("Пояснения и примеры под каждым пунктом меню и действием")
+		}
+		if a.cfg.IsSettingForMode("default_mode", models.ModeCLI) {
+			fmt.Printf(" w | 12. Интерфейс по умолчанию      [%s]\n", defaultModeLabels[a.cfg.DefaultMode])
+			a.hint("Что открывать при запуске 'mycal' без параметров (CLI / TUI / Web)")
+		}
 		fmt.Println(" s | 13. Служба автозапуска (Сервис)")
 		a.hint("Управление работой MyCal как фоновой системной службы")
-		fmt.Printf(" f | 14. Формат длительности         [%s]\n", durationUnitDisplay(a.cfg.DurationUnit))
-		a.hint("Отображение продолжительности (в минутах или часах)")
-		fmt.Printf(" e | 15. Период запуска в TUI        [%s]\n", tuiDefaultPeriodDisplay(a.cfg.TUIDefaultPeriod))
-		a.hint("Основной период при запуске в TUI (Сегодня, Все записи, Неделя, Месяц)")
+		if a.cfg.IsSettingForMode("duration_unit", models.ModeCLI) {
+			fmt.Printf(" f | 14. Формат длительности         [%s]\n", durationUnitDisplay(a.cfg.DurationUnit))
+			a.hint("Отображение продолжительности (в минутах или часах)")
+		}
+		if a.cfg.IsSettingForMode("web_port", models.ModeCLI) {
+			fmt.Printf(" o | 15. Порт веб-сервера            [%d]\n", a.cfg.WebPort)
+			a.hint("TCP-порт для запуска веб-интерфейса (1–65535)")
+		}
+		if a.cfg.IsSettingForMode("tui_default_period", models.ModeCLI) {
+			fmt.Printf(" e | 16. Период запуска в TUI        [%s]\n", tuiDefaultPeriodDisplay(a.cfg.TUIDefaultPeriod))
+			a.hint("Основной период при запуске в TUI (Сегодня, Все записи, Неделя, Месяц)")
+		}
+		fmt.Printf(" b | 17. Выбрать календарь записей   [%s]\n", a.cfg.ActiveCalendarDisplayName())
+		a.hint("Переключение активного календаря записей")
+		fmt.Println(" g | 18. Создать календарь записей")
+		a.hint("Создать новый календарь с префиксом (единый или погодовой файл)")
 		fmt.Println(" q | 0. Сохранить и выйти")
 		a.hint("Применить изменения и вернуться в главное меню")
 
@@ -67,11 +97,11 @@ func (a *App) settingsMenu() {
 		}
 		switch {
 		case match(choice, "1", "m"):
-			a.cfg.SplitMode = nextInCycle([]string{models.SplitNone, models.SplitYear, models.SplitMonth}, a.cfg.SplitMode)
+			config.CycleSetting(a.cfg, "split_mode", nil)
 		case match(choice, "2", "n"):
 			if v := a.dialog(fmt.Sprintf("Имя файла данных [%s]:", a.cfg.DataFileName),
 				"без расширения и путей; 0 — отмена"); v != "" && !isCancel(v) {
-				if clean := sanitizeBaseName(v); clean == "" {
+				if clean := config.SanitizeBaseName(v); clean == "" {
 					fmt.Println(color.Yellow(warnMark + " Недопустимое имя файла"))
 				} else {
 					a.cfg.DataFileName = clean
@@ -91,44 +121,61 @@ func (a *App) settingsMenu() {
 			}
 		case match(choice, "5", "p"):
 			if v := a.dialog(fmt.Sprintf("Путь к данным [%s]:", dataPathDisplay(a.cfg.DataPath)), "0 — отмена"); v != "" && !isCancel(v) {
+				norm := storage.NormalizeDataPath(v)
 				// Checked here, not at next launch: an unusable path saved to
 				// the config would stop the program from starting at all.
-				if err := storage.EnsureWritableDir(v); err != nil {
+				checkDir := norm
+				if checkDir == "" {
+					checkDir = config.EffectiveDataDir("", a.cfgPath)
+				}
+				if err := storage.EnsureWritableDir(checkDir); err != nil {
 					fmt.Println(color.Red(errMark + " " + err.Error()))
 					fmt.Println(color.Yellow(warnMark + " Путь не изменён"))
 				} else {
-					a.cfg.DataPath = v
+					a.cfg.DataPath = norm
 				}
 			}
 		case match(choice, "6", "c"):
-			a.cfg.DateCheckMode = nextInCycle(dateCheckOrder, a.cfg.DateCheckMode)
+			config.CycleSetting(a.cfg, "date_check_mode", nil)
 		case match(choice, "7", "d"):
 			a.dateSettings()
 		case match(choice, "8", "u"):
 			a.listsSettings()
 		case match(choice, "9", "i"):
-			a.cfg.SilentAddNames = !a.cfg.SilentAddNames
+			config.CycleSetting(a.cfg, "silent_add_names", nil)
 		case match(choice, "10", "k", "с"):
-			a.cfg.AskOnConflict = !a.cfg.AskOnConflict
+			config.CycleSetting(a.cfg, "ask_on_conflict", nil)
 		case match(choice, "11", "h", "п"):
-			a.cfg.ShowHints = !a.cfg.ShowHints
+			config.CycleSetting(a.cfg, "show_hints", nil)
 		case match(choice, "12", "w"):
-			a.cfg.DefaultMode = nextInCycle(defaultModeOrder, a.cfg.DefaultMode)
+			config.CycleSetting(a.cfg, "default_mode", nil)
 		case match(choice, "13", "s"):
 			a.serviceSettings()
 		case match(choice, "14", "f"):
-			if a.cfg.DurationUnit == "hours" {
-				a.cfg.DurationUnit = "min"
-			} else {
-				a.cfg.DurationUnit = "hours"
+			config.CycleSetting(a.cfg, "duration_unit", nil)
+		case match(choice, "15", "o", "о"):
+			if v := a.dialog(fmt.Sprintf("Порт веб-сервера (1–65535) [%d]:", a.cfg.WebPort), "0 — отмена"); v != "" && !isCancel(v) {
+				if p, err := strconv.Atoi(v); err == nil && p > 0 && p <= 65535 {
+					a.cfg.WebPort = p
+				} else {
+					fmt.Println(color.Yellow(warnMark + " Некорректный порт (допустимо 1–65535)"))
+				}
 			}
-		case match(choice, "15", "e", "у"):
-			a.cfg.TUIDefaultPeriod = nextInCycle([]string{"today", "all", "week", "month"}, a.cfg.TUIDefaultPeriod)
+		case match(choice, "16", "e", "у"):
+			config.CycleSetting(a.cfg, "tui_default_period", nil)
+		case match(choice, "17", "b"):
+			a.selectCalendarDialog()
+			startMode = a.cfg.ActiveSplitMode()
+			startEffName = a.cfg.ActiveEffectiveBaseName()
+		case match(choice, "18", "g"):
+			a.createCalendarDialog()
+			startMode = a.cfg.ActiveSplitMode()
+			startEffName = a.cfg.ActiveEffectiveBaseName()
 		case match(choice, "0", "q"):
-			a.persistSettings(startMode, startName, startPath)
+			a.persistSettings(startMode, startName, startEffName, startPath)
 			return
 		default:
-			fmt.Println(color.Red(errMark + " Некорректный выбор (0–15)"))
+			fmt.Println(color.Red(errMark + " Некорректный выбор (0–18)"))
 		}
 	}
 }
@@ -136,8 +183,8 @@ func (a *App) settingsMenu() {
 // persistSettings writes the config and migrates data on disk when the split
 // mode or the data file name changed. A data-path change only takes effect on
 // the next launch (files are not moved between directories).
-func (a *App) persistSettings(startMode, startName, startPath string) {
-	modeChanged := a.cfg.SplitMode != startMode
+func (a *App) persistSettings(startMode, startName, startEffName, startPath string) {
+	modeChanged := a.cfg.ActiveSplitMode() != startMode
 	nameChanged := a.cfg.DataFileName != startName
 
 	if modeChanged || nameChanged {
@@ -149,13 +196,14 @@ func (a *App) persistSettings(startMode, startName, startPath string) {
 		case nameChanged:
 			fmt.Println(color.Yellow(warnMark + " Имя файла данных изменено — данные перенесены."))
 		}
-		a.svc.SetMode(a.cfg.SplitMode)
-		a.svc.SetBaseName(a.cfg.DataFileName)
+		a.svc.SetMode(a.cfg.ActiveSplitMode())
+		a.svc.SetBaseName(a.cfg.ActiveEffectiveBaseName())
 		if a.save() != nil {
 			return
 		}
 		if nameChanged {
-			a.svc.RemoveDataFiles(startName)
+			a.svc.RemoveDataFiles(startEffName)
+			storage.RenameFamilyDataFiles(a.svc.DataDir(), startName, a.cfg.DataFileName)
 		}
 	}
 
@@ -170,19 +218,111 @@ func (a *App) persistSettings(startMode, startName, startPath string) {
 	fmt.Println(color.Green(okMark + " Настройки сохранены"))
 }
 
-// sanitizeBaseName strips any directory part and extension so the data file
-// name stays a plain base name in the data directory.
-func sanitizeBaseName(v string) string {
-	v = strings.TrimSpace(v)
-	v = strings.ReplaceAll(v, "\\", "/")
-	if i := strings.LastIndexByte(v, '/'); i >= 0 {
-		v = v[i+1:]
+// selectCalendarDialog displays all calendars in the data directory and switches
+// to the chosen calendar.
+func (a *App) selectCalendarDialog() {
+	cals := a.svc.ListCalendars(a.cfg)
+	fmt.Println()
+	fmt.Println(color.Yellow(hdrSep + " Выбрать календарь записей " + hdrSep))
+	for i, c := range cals {
+		modeLbl := splitModeLabels[c.SplitMode]
+		if modeLbl == "" {
+			modeLbl = splitModeLabels[models.SplitNone]
+		}
+		activeTag := ""
+		if c.Active {
+			activeTag = color.Green(" ← активный")
+		}
+		fmt.Printf("  %d. %s [%s]%s\n", i+1, c.Label, modeLbl, activeTag)
 	}
-	v = strings.TrimSuffix(v, ".json")
-	if v == "" || v == "." || v == ".." || strings.ContainsAny(v, `:*?"<>|[]`) {
-		return ""
+	fmt.Println("  n. Создать новый календарь записей")
+	fmt.Println("  0. Отмена")
+
+	v := a.dialog("Номер календаря (или префикс):", "1..N, n — создать новый, 0 — отмена")
+	if v == "" || isCancel(v) {
+		return
 	}
-	return v
+	if strings.EqualFold(v, "n") || strings.EqualFold(v, "+") || strings.EqualFold(v, "н") {
+		a.createCalendarDialog()
+		return
+	}
+
+	var targetKey string
+	var matched bool
+	if idx, err := strconv.Atoi(v); err == nil && idx >= 1 && idx <= len(cals) {
+		targetKey = cals[idx-1].Key
+		matched = true
+	} else {
+		for _, c := range cals {
+			if strings.EqualFold(c.Key, v) || strings.EqualFold(c.BaseName, v) {
+				targetKey = c.Key
+				matched = true
+				break
+			}
+		}
+	}
+	if !matched {
+		fmt.Println(color.Red(errMark + " Календарь не найден"))
+		return
+	}
+	if err := a.svc.SwitchCalendar(a.ctx, a.cfg, targetKey); err != nil {
+		fmt.Println(color.Red(errMark + " Не удалось открыть календарь: " + err.Error()))
+		return
+	}
+	a.saveConfig()
+	fmt.Println(color.Green(fmt.Sprintf("%s Выбран календарь: %s [%s] (записей: %d)",
+		okMark, a.cfg.ActiveCalendarDisplayName(), splitModeLabels[a.cfg.ActiveSplitMode()], a.svc.Count())))
+}
+
+// createCalendarDialog prompts for a calendar prefix and split mode, creates
+// the new calendar file on disk, and switches to it.
+func (a *App) createCalendarDialog() {
+	fmt.Println()
+	fmt.Println(color.Yellow(hdrSep + " Создать календарь записей " + hdrSep))
+	base := a.cfg.DataFileName
+	if strings.TrimSpace(base) == "" {
+		base = "mycal"
+	}
+	rawKey := a.dialog(
+		fmt.Sprintf("Префикс нового календаря (файл %s--<префикс>.json):", base),
+		"напр. work, sport, личное; 0 — отмена",
+	)
+	if rawKey == "" || isCancel(rawKey) {
+		return
+	}
+	calKey := config.SanitizeCalendarKey(rawKey)
+	if calKey == "" {
+		fmt.Println(color.Yellow(warnMark + " Недопустимое имя (префикс) календаря"))
+		return
+	}
+
+	fmt.Println("  Режим хранения для календаря «" + calKey + "»:")
+	fmt.Printf("    1. В одном файле (%s--%s.json) [по умолчанию]\n", base, calKey)
+	fmt.Printf("    2. По годам      (ГГГГ_%s--%s.json)\n", base, calKey)
+	fmt.Printf("    3. По месяцам    (ГГГГ-ММ_%s--%s.json)\n", base, calKey)
+	modeIn := a.dialog("Выбор (1–3, Enter = 1):", "0 — отмена")
+	if isCancel(modeIn) {
+		return
+	}
+	splitMode := models.SplitNone
+	switch strings.TrimSpace(modeIn) {
+	case "", "1", "none":
+		splitMode = models.SplitNone
+	case "2", "year":
+		splitMode = models.SplitYear
+	case "3", "month":
+		splitMode = models.SplitMonth
+	default:
+		fmt.Println(color.Yellow(warnMark + " Неизвестный выбор, используется режим «В одном файле»"))
+	}
+
+	if err := a.svc.CreateCalendar(a.ctx, a.cfg, calKey, splitMode); err != nil {
+		fmt.Println(color.Red(errMark + " Не удалось создать календарь: " + err.Error()))
+		return
+	}
+	a.saveConfig()
+	fmt.Println(color.Green(fmt.Sprintf("%s Создан и выбран календарь: %s [%s]",
+		okMark, a.cfg.ActiveCalendarDisplayName(), splitModeLabels[a.cfg.ActiveSplitMode()])))
 }
 
 func (a *App) dateSettings() {
@@ -380,17 +520,11 @@ func containsFold(list []string, v string) bool {
 }
 
 func (a *App) dateDisplay() string {
-	if a.cfg.UseSystemDate || a.cfg.CustomDate == "" {
-		return "Системная"
-	}
-	return a.cfg.CustomDate
+	return config.FormatCustomDateDisplay(a.cfg)
 }
 
 func dataPathDisplay(p string) string {
-	if p == "" || p == "." {
-		return "~/.mycal"
-	}
-	return p
+	return config.DataPathDisplay(p)
 }
 
 func onOff(v bool) string {
@@ -405,33 +539,6 @@ func durationUnitDisplay(u string) string {
 		return "Часы (1 ч / 1.5 ч)"
 	}
 	return "Минуты (мин)"
-}
-
-func nextInCycle(order []string, current string) string {
-	for i, v := range order {
-		if v == current {
-			return order[(i+1)%len(order)]
-		}
-	}
-	if len(order) > 0 {
-		return order[0]
-	}
-	return current
-}
-
-func dateCheckHint(mode string) string {
-	switch mode {
-	case models.DateCheckOff:
-		return "Реакция на ошибки (32.01, 31.02). Сейчас [Выключена]: молча сдвигать на след. месяц (32.01 → 01.02)"
-	case models.DateCheckAsk:
-		return "Реакция на ошибки (32.01, 31.02). Сейчас [Спрашивать]: спросить — принять сдвиг на 01.02 или ввести заново"
-	case models.DateCheckFix:
-		return "Реакция на ошибки (32.01, 31.02). Сейчас [Исправлять авто]: автоматически сдвинуть на 01.02 с предупреждением"
-	case models.DateCheckReask:
-		return "Реакция на ошибки (32.01, 31.02). Сейчас [Переспрашивать]: отклонить 32.01 и потребовать ввести дату заново"
-	default:
-		return "Реакция на ошибки в дате (напр. 32.01): Выключена, Спрашивать, Исправлять авто, Переспрашивать"
-	}
 }
 
 func tuiDefaultPeriodDisplay(p string) string {
