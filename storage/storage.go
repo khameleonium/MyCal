@@ -24,8 +24,10 @@ import (
 // backup that was set aside. A non-nil error means loading genuinely failed
 // (no permission, context cancelled) and the program should not continue.
 func Load(ctx context.Context, dir, baseName, mode string) (cal *models.Calendar, warnings []string, err error) {
-	if err := ctx.Err(); err != nil {
-		return nil, nil, err
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	var files []string
@@ -150,8 +152,10 @@ func decode(data []byte) (*models.Calendar, bool) {
 // Save writes the calendar for the given split mode and deletes data files that
 // belong to the other modes, so switching modes never leaves stale copies.
 func Save(ctx context.Context, dir, baseName string, cal *models.Calendar, mode string) error {
-	if err := ctx.Err(); err != nil {
-		return err
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 	}
 	SortSessions(cal.Sessions)
 
@@ -682,7 +686,7 @@ func EnsureWritableDir(dir string) error {
 func SortSessions(sessions []models.Session) {
 	sort.Slice(sessions, func(i, j int) bool {
 		a, b := sessions[i], sessions[j]
-		if da, db := a.Date(), b.Date(); da != db {
+		if da, db := a.DateKey(), b.DateKey(); da != db {
 			return da < db
 		}
 		if a.Time != b.Time {

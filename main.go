@@ -108,6 +108,17 @@ func run(ctx context.Context) error {
 	// Discover calendars in dataDir so any per-calendar split mode on disk is synced.
 	_ = storage.DiscoverCalendars(dataDir, cfg.DataFileName, cfg)
 
+	args, calFlag, hasCalFlag := extractCalendarFlag(os.Args[1:])
+	origActiveCal := cfg.ActiveCalendar
+	if hasCalFlag {
+		switch strings.ToLower(strings.TrimSpace(calFlag)) {
+		case "", "main", "default", "-", "основной", "mycal":
+			cfg.ActiveCalendar = ""
+		default:
+			cfg.ActiveCalendar = models.SanitizeCalendarKey(calFlag)
+		}
+	}
+
 	svc, err := calendar.NewService(ctx, dataDir, cfg.ActiveEffectiveBaseName(), cfg.ActiveSplitMode())
 	if err != nil {
 		return fmt.Errorf("не удалось открыть календарь: %w", err)
@@ -115,11 +126,11 @@ func run(ctx context.Context) error {
 
 	application := app.NewApp(ctx, svc, cfg, cfgPath)
 
-	if len(os.Args) > 1 {
-		cmd := strings.ToLower(os.Args[1])
+	if len(args) > 0 {
+		cmd := strings.ToLower(args[0])
 		switch cmd {
 		case "service":
-			return handleServiceCmd(ctx, os.Args[2:], cfg)
+			return handleServiceCmd(ctx, args[1:], cfg)
 		case "tui", "-tui", "--tui":
 			tuiApp := tui.NewApp(svc, cfg, cfgPath, version)
 			return tuiApp.Run(ctx)
@@ -131,15 +142,20 @@ func run(ctx context.Context) error {
 			if port <= 0 {
 				port = 8080
 			}
-			if len(os.Args) > 2 {
-				if p, err := strconv.Atoi(os.Args[2]); err == nil && p > 0 {
+			if len(args) > 1 {
+				if p, err := strconv.Atoi(args[1]); err == nil && p > 0 {
 					port = p
 				}
 			}
 			webServer := web.NewServer(svc, cfg, cfgPath, version)
 			return webServer.Start(ctx, port, true)
 		default:
-			if !application.RunCLI(os.Args[1], os.Args[2:]) {
+			ok := application.RunCLI(args[0], args[1:])
+			if hasCalFlag && cfg.ActiveCalendar != origActiveCal {
+				cfg.ActiveCalendar = origActiveCal
+				_ = config.Save(ctx, cfgPath, cfg)
+			}
+			if !ok {
 				os.Exit(1)
 			}
 			return nil
@@ -270,4 +286,37 @@ func prepareDataDir(dataPath, defaultDir string) (string, error) {
 		return "", err
 	}
 	return dataPath, nil
+}
+
+// extractCalendarFlag parses and strips -c <prefix>, --calendar <prefix>, -cal <prefix>
+// (and their =<prefix> variants) from command-line arguments.
+func extractCalendarFlag(args []string) ([]string, string, bool) {
+	var clean []string
+	var cal string
+	var found bool
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		lower := strings.ToLower(arg)
+		if lower == "-c" || lower == "--calendar" || lower == "-cal" || lower == "--cal" {
+			if i+1 < len(args) {
+				cal = args[i+1]
+				found = true
+				i++
+				continue
+			}
+		}
+		matched := false
+		for _, prefix := range []string{"-c=", "--calendar=", "-cal=", "--cal="} {
+			if strings.HasPrefix(lower, prefix) {
+				cal = arg[len(prefix):]
+				found = true
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			clean = append(clean, arg)
+		}
+	}
+	return clean, strings.TrimSpace(cal), found
 }

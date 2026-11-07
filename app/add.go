@@ -303,12 +303,12 @@ func (a *App) askStatusAdd() (string, bool, bool) {
 
 	fmt.Println()
 	fmt.Println(color.Yellow("Статус:"))
-	fmt.Println("  0. <пусто>")
+	fmt.Println("  0. ~пусто~")
 	for i, st := range statuses {
 		fmt.Printf("  %d. %s\n", i+1, st)
 	}
 	fmt.Printf("  %d. Ручной ввод\n", len(statuses)+1)
-	fmt.Println("  Enter — пропустить (пусто)")
+	fmt.Println("  Enter — пропустить (~пусто~)")
 	fmt.Println("  8 — пропустить остальные вопросы и добавить, отмена — отмена")
 	if a.cfg.ShowHints {
 		fmt.Println(color.Cyan("  → Текущий статус (Активно, Пропущено, Отменено и др.)"))

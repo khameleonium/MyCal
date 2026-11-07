@@ -22,7 +22,58 @@ const (
 	FieldStatus   = "status"
 	FieldNotes    = "notes"
 	FieldSeries   = "series_id"
+
+	// EmptyStatusLabel is the universal label representing an empty status ("").
+	EmptyStatusLabel = "~пусто~"
 )
+
+// NormalizeStatus converts UI placeholders for an empty status ("~пусто~",
+// "<пусто>", "<очистить статус>", "-") into an empty string "".
+func NormalizeStatus(s string) string {
+	t := strings.TrimSpace(s)
+	low := strings.ToLower(t)
+	switch low {
+	case "", "-", "~пусто~", "<пусто>", "<очистить статус>", "пусто":
+		return ""
+	}
+	return t
+}
+
+// FormatStatusDisplay returns "~пусто~" when the status is empty, or the status itself.
+func FormatStatusDisplay(s string) string {
+	n := NormalizeStatus(s)
+	if n == "" {
+		return EmptyStatusLabel
+	}
+	return n
+}
+
+// NextStatusInCycle returns the next status in the cycle [available..., ""].
+// If current is "", the next status is available[0] (e.g. "Активно").
+// If current is "Активно" (available[0]), the next is available[1] (e.g. "Завершено"),
+// and after the last available status it cycles to "" ("~пусто~").
+func NextStatusInCycle(current string, available []string) string {
+	cur := NormalizeStatus(current)
+	var clean []string
+	seen := map[string]bool{}
+	for _, st := range available {
+		n := NormalizeStatus(st)
+		if n != "" && !seen[strings.ToLower(n)] {
+			seen[strings.ToLower(n)] = true
+			clean = append(clean, n)
+		}
+	}
+	if len(clean) == 0 {
+		clean = append(clean, DefaultStatuses...)
+	}
+	cycle := append(clean, "")
+	for i, item := range cycle {
+		if strings.EqualFold(item, cur) {
+			return cycle[(i+1)%len(cycle)]
+		}
+	}
+	return clean[0]
+}
 
 // FieldSpec describes a session field in one central registry.
 type FieldSpec struct {

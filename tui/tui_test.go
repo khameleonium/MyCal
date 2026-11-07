@@ -1215,8 +1215,9 @@ func TestStatusPickerDropdownInQuickEditField(t *testing.T) {
 	// Apply value to session
 	m.applyValue(app)
 	updated, ok := app.svc.ByID(sess.ID)
-	if !ok || updated.Status != expectedVal {
-		t.Fatalf("expected updated status == %q, got %q", expectedVal, updated.Status)
+	normExpected := calendar.NormalizeStatus(expectedVal)
+	if !ok || updated.Status != normExpected {
+		t.Fatalf("expected updated status == %q, got %q", normExpected, updated.Status)
 	}
 
 	s := NewScreen(80, 25)
@@ -2130,5 +2131,188 @@ func TestSettingsModalPreservesEmptyDataPathAndCalendarSplitKeepsSessions(t *tes
 	}
 	if app.svc.Count() != 1 {
 		t.Fatalf("expected 1 session preserved after split mode switch, got %d", app.svc.Count())
+	}
+}
+
+func TestStatusCycleVCloneCMoveMUndoUAndEmptyStatus(t *testing.T) {
+	app := newTestApp(t)
+	app.periodMode = "all"
+	s1 := models.Session{
+		ID:       "20261107100000",
+		Time:     "10:00",
+		Name:     "Оригинал",
+		Type:     "Работа",
+		Duration: 60,
+		Status:   "Активно",
+	}
+	_ = app.svc.Add(s1)
+	_ = app.svc.Save(app.ctx)
+	app.reloadSessions()
+
+	// 1. Pressing 'v' cycles status through available statuses and eventually to "" (~пусто~)
+	seenEmpty := false
+	for i := 0; i < 10; i++ {
+		app.handleKey(Key{Type: KeyRune, Rune: 'v'})
+		cur, _ := app.svc.ByID(s1.ID)
+		if cur.Status == "" {
+			seenEmpty = true
+			break
+		}
+	}
+	if !seenEmpty {
+		t.Fatalf("expected 'v' status cycle to reach empty status \"\"")
+	}
+
+	// 2. Editing a session with empty status in ModalSessionForm preserves empty status (does not overwrite with "Активно")
+	cur, _ := app.svc.ByID(s1.ID)
+	editModal := NewModalSessionForm(&cur, "")
+	if editModal.status != calendar.EmptyStatusLabel {
+		t.Fatalf("expected ModalSessionForm status field to display %q for empty status, got %q", calendar.EmptyStatusLabel, editModal.status)
+	}
+	editModal.save(app)
+	afterSave, _ := app.svc.ByID(s1.ID)
+	if afterSave.Status != "" {
+		t.Fatalf("expected empty status \"\" preserved after ModalSessionForm.save, got %q", afterSave.Status)
+	}
+
+	// 3. Pressing 'c' opens clone modal (NewModalCloneSessionForm) and saving creates a duplicate
+	app.handleKey(Key{Type: KeyRune, Rune: 'c'})
+	cloneModal, ok := app.activeModal.(*ModalSessionForm)
+	if !ok || cloneModal.isEdit {
+		t.Fatalf("expected ModalSessionForm with isEdit=false after 'c', got %T", app.activeModal)
+	}
+	cloneModal.dateStr = "08.11.2026"
+	cloneModal.HandleKey(Key{Type: KeyEnter}, app)
+	if app.svc.Count() != 2 {
+		t.Fatalf("expected 2 sessions after cloning, got %d", app.svc.Count())
+	}
+
+	// 4. Pressing 'u' undoes the clone creation
+	app.handleKey(Key{Type: KeyRune, Rune: 'u'})
+	if app.svc.Count() != 1 {
+		t.Fatalf("expected 1 session after Undo ('u'), got %d", app.svc.Count())
+	}
+
+	// 5. Pressing 'm' opens ModalMoveToCalendar and moves session to another calendar
+	_ = app.svc.CreateCalendar(app.ctx, app.cfg, "work", models.SplitNone)
+	_ = app.svc.SwitchCalendar(app.ctx, app.cfg, "")
+	app.reloadSessions()
+
+	app.handleKey(Key{Type: KeyRune, Rune: 'm'})
+	moveModal, ok := app.activeModal.(*ModalMoveToCalendar)
+	if !ok {
+		t.Fatalf("expected ModalMoveToCalendar after 'm', got %T", app.activeModal)
+	}
+	moveModal.HandleKey(Key{Type: KeyEnter}, app)
+	if app.svc.Count() != 0 {
+		t.Fatalf("expected 0 sessions in default calendar after move, got %d", app.svc.Count())
+	}
+}
+
+func TestCompleteEndToEndFunctionalAuditAllModes(t *testing.T) {
+	app := newTestApp(t)
+	app.width = 130
+	app.height = 35
+	app.periodMode = "all"
+
+	// 1. Create session via 'a' (ModalSessionForm) with empty status (~пусто~)
+	app.handleKey(Key{Type: KeyRune, Rune: 'a'})
+	addModal, ok := app.activeModal.(*ModalSessionForm)
+	if !ok {
+		t.Fatalf("expected ModalSessionForm on 'a', got %T", app.activeModal)
+	}
+	addModal.dateStr = "07.11.2026"
+	addModal.timeStr = "09:00"
+	addModal.name = "Утренний стендап"
+	addModal.typeStr = "Работа"
+	addModal.durStr = "30"
+	addModal.cashStr = "1500"
+	addModal.status = calendar.EmptyStatusLabel
+	addModal.notes = "Спринт 12"
+	addModal.HandleKey(Key{Type: KeyEnter}, app)
+	if app.svc.Count() != 1 {
+		t.Fatalf("expected 1 session after 'a' + Enter, got %d", app.svc.Count())
+	}
+	if app.sessions[0].Status != "" {
+		t.Fatalf("expected empty status \"\" saved for ~пусто~, got %q", app.sessions[0].Status)
+	}
+
+	// 2. Duplicate session via 'c' (NewModalCloneSessionForm)
+	app.handleKey(Key{Type: KeyRune, Rune: 'c'})
+	cloneModal, ok := app.activeModal.(*ModalSessionForm)
+	if !ok || cloneModal.isEdit {
+		t.Fatalf("expected clone ModalSessionForm on 'c', got %T", app.activeModal)
+	}
+	cloneModal.dateStr = "08.11.2026"
+	cloneModal.timeStr = "11:00"
+	cloneModal.HandleKey(Key{Type: KeyEnter}, app)
+	if app.svc.Count() != 2 {
+		t.Fatalf("expected 2 sessions after clone 'c', got %d", app.svc.Count())
+	}
+
+	// 3. Test 'v' / 'м' quick status cycle (single and batch via Space)
+	app.cursorIdx = 0
+	app.handleKey(Key{Type: KeyRune, Rune: 'v'})
+	if app.sessions[0].Status == "" {
+		t.Fatalf("expected non-empty status after first 'v' from empty status")
+	}
+	app.handleKey(Key{Type: KeySpace})
+	app.handleKey(Key{Type: KeyDown})
+	app.handleKey(Key{Type: KeySpace})
+	if len(app.selectedIDs) != 2 {
+		t.Fatalf("expected 2 selected sessions via Space, got %d", len(app.selectedIDs))
+	}
+	app.handleKey(Key{Type: KeyRune, Rune: 'м'})
+	if app.sessions[0].Status != app.sessions[1].Status {
+		t.Fatalf("expected batch 'м' to sync status of both selected sessions: %q vs %q", app.sessions[0].Status, app.sessions[1].Status)
+	}
+
+	// 4. Test Undo ('u') of batch status change
+	app.handleKey(Key{Type: KeyRune, Rune: 'u'})
+	app.selectedIDs = map[string]bool{}
+
+	// 5. Test 's' (ModalStatusPicker) choosing '0' (~пусто~)
+	app.handleKey(Key{Type: KeyRune, Rune: 's'})
+	stPicker, ok := app.activeModal.(*ModalStatusPicker)
+	if !ok {
+		t.Fatalf("expected ModalStatusPicker on 's', got %T", app.activeModal)
+	}
+	stPicker.HandleKey(Key{Type: KeyRune, Rune: '0'}, app)
+	if app.sessions[app.cursorIdx].Status != "" {
+		t.Fatalf("expected empty status after pressing '0' in ModalStatusPicker, got %q", app.sessions[app.cursorIdx].Status)
+	}
+
+	// 6. Test CSV export ('x') and Import ('X') with deduplication
+	app.handleKey(Key{Type: KeyRune, Rune: 'x'})
+	if !strings.Contains(app.statusMsg, "Экспортировано в CSV:") {
+		t.Fatalf("expected CSV export status message after 'x', got %q", app.statusMsg)
+	}
+	app.handleKey(Key{Type: KeyRune, Rune: 'X'})
+	impModal, ok := app.activeModal.(*ModalImport)
+	if !ok {
+		t.Fatalf("expected ModalImport on 'X', got %T", app.activeModal)
+	}
+	impModal.HandleKey(Key{Type: KeyEnter}, app)
+	if !strings.Contains(app.statusMsg, "пропущено дубликатов 2") {
+		t.Fatalf("expected 2 duplicates skipped on re-importing exported CSV, got %q", app.statusMsg)
+	}
+
+	// 7. Test moving session to another calendar ('m') and Undo ('u')
+	app.cursorIdx = 0
+	app.handleKey(Key{Type: KeyRune, Rune: 'm'})
+	mvModal, ok := app.activeModal.(*ModalMoveToCalendar)
+	if !ok {
+		t.Fatalf("expected ModalMoveToCalendar on 'm', got %T", app.activeModal)
+	}
+	for _, r := range "work" {
+		mvModal.HandleKey(Key{Type: KeyRune, Rune: r}, app)
+	}
+	mvModal.HandleKey(Key{Type: KeyEnter}, app)
+	if app.svc.Count() != 1 {
+		t.Fatalf("expected 1 session remaining in default calendar after moving 1 to 'work', got %d", app.svc.Count())
+	}
+	app.handleKey(Key{Type: KeyRune, Rune: 'u'})
+	if app.svc.Count() != 2 {
+		t.Fatalf("expected 2 sessions restored in default calendar after Undo of move, got %d", app.svc.Count())
 	}
 }

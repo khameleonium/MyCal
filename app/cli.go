@@ -21,8 +21,12 @@ func (a *App) RunCLI(cmd string, args []string) bool {
 		a.viewByArgs(args)
 	case "delete", "d", "del":
 		a.deleteByArgs(args)
-	case "export", "e":
+	case "export", "e", "x":
 		a.exportByArgs(args)
+	case "import", "i":
+		a.importByArgs(args)
+	case "undo", "u":
+		a.undoCLI()
 	case "today", "t":
 		a.todayView()
 	case "type", "types", "тип", "типы":

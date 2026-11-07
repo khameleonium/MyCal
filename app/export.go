@@ -2,9 +2,15 @@ package app
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
 
 	"mycalendar/color"
 	"mycalendar/models"
+	"mycalendar/storage"
 )
 
 func (a *App) exportMenu() {
@@ -112,4 +118,95 @@ func (a *App) exportCSV(sessions []models.Session) {
 		return
 	}
 	fmt.Println(color.Green(okMark + " Экспортировано: " + color.Green(path)))
+}
+
+func (a *App) importByArgs(args []string) {
+	if len(args) == 0 {
+		a.importMenu()
+		return
+	}
+	path := storage.ExpandPath(strings.Join(args, " "))
+	a.importFile(path)
+}
+
+func (a *App) importMenu() {
+	fmt.Println()
+	fmt.Println(color.Yellow(hdrSep + " Импорт из CSV / JSON " + hdrSep))
+	files := a.discoverImportFiles()
+	for i, f := range files {
+		fmt.Printf("  %d. %s\n", i+1, f)
+	}
+	fmt.Printf("  %d. Указать путь к файлу вручную\n", len(files)+1)
+	fmt.Println("  0. Назад")
+	a.hint("Импорт автоматически пропускает дубликаты по ID или совпадению (дата + время + наименование)")
+
+	choice := a.prompt("")
+	if choice == "" || choice == "0" || isCancel(choice) {
+		return
+	}
+	idx, err := strconv.Atoi(choice)
+	if err == nil && idx >= 1 && idx <= len(files) {
+		a.importFile(files[idx-1])
+		return
+	}
+	if err == nil && idx == len(files)+1 {
+		path := a.dialog("Путь к файлу (.csv или .json):", "0 — отмена")
+		if path == "" || isCancel(path) {
+			return
+		}
+		a.importFile(storage.ExpandPath(path))
+		return
+	}
+	// If the user pasted a file path directly at the prompt:
+	if strings.HasSuffix(strings.ToLower(choice), ".csv") || strings.HasSuffix(strings.ToLower(choice), ".json") {
+		a.importFile(storage.ExpandPath(choice))
+		return
+	}
+	fmt.Println(color.Red(errMark + " Некорректный выбор"))
+}
+
+func (a *App) importFile(path string) {
+	res, err := a.svc.ImportFile(a.ctx, a.cfg, path)
+	if err != nil {
+		fmt.Println(color.Red(errMark + " Ошибка импорта: " + err.Error()))
+		return
+	}
+	a.saveConfig()
+	fmt.Println(color.Green(fmt.Sprintf("%s Импорт завершён: добавлено %d, пропущено дубликатов %d (всего в файле: %d)",
+		okMark, res.Added, res.Skipped, res.Total)))
+}
+
+func (a *App) discoverImportFiles() []string {
+	seen := make(map[string]bool)
+	var out []string
+	activeBase := filepath.Base(a.svc.MainDataFilePath())
+	dirs := []string{a.svc.DataDir()}
+	if wd, err := os.Getwd(); err == nil && wd != a.svc.DataDir() {
+		dirs = append(dirs, wd)
+	}
+	for _, dir := range dirs {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			lower := strings.ToLower(name)
+			if lower == "config_mycal.json" || name == activeBase {
+				continue
+			}
+			if strings.HasSuffix(lower, ".csv") || strings.HasSuffix(lower, ".json") {
+				full := filepath.Join(dir, name)
+				if !seen[full] {
+					seen[full] = true
+					out = append(out, full)
+				}
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }

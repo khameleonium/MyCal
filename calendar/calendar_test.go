@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -450,5 +451,105 @@ func TestMultiCalendarCreateDiscoverAndSwitch(t *testing.T) {
 	}
 	if svc.Count() != 1 || svc.All()[0].Name != "Запись в основном" {
 		t.Fatalf("expected 1 session in default calendar, got %+v", svc.All())
+	}
+}
+
+func TestUndoMoveImportAndEmptyStatus(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	cfg := &models.Config{DataFileName: "mycal", SplitMode: models.SplitNone}
+	cfg.Normalize()
+
+	svc, err := NewService(ctx, dir, cfg.ActiveEffectiveBaseName(), cfg.ActiveSplitMode())
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	// 1. Status normalization & cycling
+	if NormalizeStatus("~пусто~") != "" || NormalizeStatus("<пусто>") != "" || NormalizeStatus("Активно") != "Активно" {
+		t.Fatalf("unexpected NormalizeStatus result")
+	}
+	if FormatStatusDisplay("") != EmptyStatusLabel {
+		t.Fatalf("expected %q for empty status display, got %q", EmptyStatusLabel, FormatStatusDisplay(""))
+	}
+	avail := []string{"Активно", "Завершено"}
+	s1 := NextStatusInCycle("Активно", avail)
+	s2 := NextStatusInCycle(s1, avail)
+	s3 := NextStatusInCycle(s2, avail)
+	if s1 != "Завершено" || s2 != "" || s3 != "Активно" {
+		t.Fatalf("unexpected status cycle: %q -> %q -> %q", s1, s2, s3)
+	}
+
+	// 2. Add & Undo
+	sess := models.Session{
+		ID:       "20261107100000",
+		Time:     "10:00",
+		Name:     "Тест Undo",
+		Type:     "Работа",
+		Duration: 60,
+		Status:   "",
+	}
+	if err := svc.Add(sess); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	_ = svc.Save(ctx)
+	if ok, _ := svc.CanUndo(); !ok {
+		t.Fatalf("expected CanUndo() == true after Add")
+	}
+
+	// Delete & Undo
+	if !svc.Delete(sess.ID) {
+		t.Fatalf("Delete failed")
+	}
+	_ = svc.Save(ctx)
+	if svc.Count() != 0 {
+		t.Fatalf("expected 0 sessions after delete, got %d", svc.Count())
+	}
+	desc, err := svc.Undo(ctx)
+	if err != nil || desc == "" {
+		t.Fatalf("Undo delete failed: %v", err)
+	}
+	if svc.Count() != 1 {
+		t.Fatalf("expected 1 session restored after Undo, got %d", svc.Count())
+	}
+
+	// 3. MoveEntriesToCalendar
+	moved, err := svc.MoveEntriesToCalendar(ctx, cfg, []string{sess.ID}, "work")
+	if err != nil || moved != 1 {
+		t.Fatalf("MoveEntriesToCalendar: moved=%d, err=%v", moved, err)
+	}
+	if svc.Count() != 0 {
+		t.Fatalf("expected 0 sessions in default calendar after move, got %d", svc.Count())
+	}
+	// Verify target calendar has the moved session
+	if err := svc.SwitchCalendar(ctx, cfg, "work"); err != nil {
+		t.Fatalf("SwitchCalendar work: %v", err)
+	}
+	if svc.Count() != 1 {
+		t.Fatalf("expected 1 session in work calendar after move, got %d", svc.Count())
+	}
+
+	// 4. ImportCSV and ImportJSON with deduplication
+	csvData := "Дата;Время;Наименование;Тип;Длительность_мин;Кэш;Статус;Повторение;Комментарии\n" +
+		"07.11.2026;10:00;Тест Undo;Работа;60;0;;Одиночная;\n" + // duplicate by Date+Time+Name
+		"08.11.2026;14:00;Новая из CSV;Спорт;45;500;~пусто~;Одиночная;Заметка\n"
+	resCSV, err := svc.ImportCSV(ctx, cfg, strings.NewReader(csvData))
+	if err != nil {
+		t.Fatalf("ImportCSV: %v", err)
+	}
+	if resCSV.Added != 1 || resCSV.Skipped != 1 {
+		t.Fatalf("expected Added=1, Skipped=1 from CSV, got %+v", resCSV)
+	}
+	// Verify imported session has empty status ("") when CSV had "~пусто~"
+	all := svc.All()
+	var csvSess *models.Session
+	for i := range all {
+		if all[i].Name == "Новая из CSV" {
+			csvSess = &all[i]
+			break
+		}
+	}
+	if csvSess == nil || csvSess.Status != "" {
+		t.Fatalf("expected imported CSV session with empty status, got %+v", csvSess)
 	}
 }

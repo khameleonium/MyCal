@@ -190,13 +190,19 @@ func (a *App) detailLoop(ordered []models.Session, currentLabel ...string) {
 	for {
 		fmt.Println()
 		if a.cfg.ShowHints {
-			fmt.Println(color.Cyan("  → '1' подробности, 't' фильтр по типам, '\\1' правка, '/лук' поиск, 'all' все карточки"))
+			fmt.Println(color.Cyan("  → '1' подробности, 't' фильтр по типам, '\\1' правка, 'c1' дубль, 'm1' перенос, 'u' отменить, '/лук' поиск, 'all' все"))
 		}
-		a.printPrompt("Номер/ID — подробности  |  t — по типам  |  \\N — правка  |  /текст — поиск  |  Enter — назад > ")
+		a.printPrompt("Номер/ID — подробности  |  t — по типам  |  \\N — правка  |  cN — дубль  |  mN — перенос  |  u — отмена действия  |  Enter — назад > ")
 		in, ok := a.readLine()
 		in = strings.TrimSpace(in)
 		if !ok || in == "" {
 			return
+		}
+
+		// Undo command: "u", "г", "undo"
+		if match(in, "u", "г", "undo") {
+			a.undoCLI()
+			continue
 		}
 
 		// Direct type filter command: "t", "т", "тип", "type"
@@ -242,7 +248,33 @@ func (a *App) detailLoop(ordered []models.Session, currentLabel ...string) {
 			continue
 		}
 
-		target, edit := strings.TrimPrefix(in, "\\"), strings.HasPrefix(in, "\\")
+		trimmedIn := strings.TrimPrefix(in, "\\")
+		isClone := false
+		isMove := false
+		for _, cp := range []string{"c", "с"} {
+			if strings.HasPrefix(strings.ToLower(trimmedIn), cp) && len(trimmedIn) > len(cp) {
+				rest := strings.TrimSpace(trimmedIn[len(cp):])
+				if _, err := strconv.Atoi(rest); err == nil || len(rest) >= 14 {
+					trimmedIn = rest
+					isClone = true
+					break
+				}
+			}
+		}
+		if !isClone {
+			for _, mp := range []string{"m", "ь"} {
+				if strings.HasPrefix(strings.ToLower(trimmedIn), mp) && len(trimmedIn) > len(mp) {
+					rest := strings.TrimSpace(trimmedIn[len(mp):])
+					if _, err := strconv.Atoi(rest); err == nil || len(rest) >= 14 {
+						trimmedIn = rest
+						isMove = true
+						break
+					}
+				}
+			}
+		}
+
+		target, edit := trimmedIn, strings.HasPrefix(in, "\\") && !isClone && !isMove
 		id := target
 		if idx, err := strconv.Atoi(target); err == nil && idx >= 1 && idx <= len(ordered) {
 			id = ordered[idx-1].ID
@@ -254,9 +286,14 @@ func (a *App) detailLoop(ordered []models.Session, currentLabel ...string) {
 			fmt.Println(color.Yellow(warnMark + " Запись не найдена (возможно, уже удалена)"))
 			continue
 		}
-		if edit {
+		switch {
+		case isClone:
+			a.duplicateSessionCLI(s)
+		case isMove:
+			a.moveSessionCLI(s)
+		case edit:
 			a.editSession(s.ID)
-		} else {
+		default:
 			a.showSessionDetail(s)
 		}
 	}

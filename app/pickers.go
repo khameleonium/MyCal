@@ -153,13 +153,15 @@ func (a *App) askStatus(current string) (string, bool) {
 
 	fmt.Println()
 	fmt.Println(color.Yellow("Статус:"))
-	fmt.Println("  0. <пусто>")
+	fmt.Println("  0. ~пусто~")
 	for i, st := range statuses {
 		fmt.Printf("  %d. %s\n", i+1, st)
 	}
 	fmt.Printf("  %d. Ручной ввод\n", len(statuses)+1)
 	if current != "" {
 		fmt.Println("  Enter — оставить: " + color.Green(current))
+	} else {
+		fmt.Println("  Enter — оставить: " + color.Green("~пусто~"))
 	}
 
 	for {
@@ -168,7 +170,7 @@ func (a *App) askStatus(current string) (string, bool) {
 		if a.stdinClosed || strings.EqualFold(strings.TrimSpace(input), "отмена") {
 			return "", false
 		}
-		if input == "0" {
+		if input == "0" || input == "-" || strings.EqualFold(strings.TrimSpace(input), "~пусто~") {
 			return "", true // explicit clear
 		}
 		if input == "" {

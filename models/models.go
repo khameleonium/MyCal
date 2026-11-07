@@ -475,5 +475,14 @@ func (s Session) Date() string {
 	return ""
 }
 
+// DateKey returns the zero-allocation YYYYMMDD prefix of the ID, or "" if too short.
+// Its lexicographical order is identical to Date().
+func (s Session) DateKey() string {
+	if len(s.ID) >= 10 {
+		return s.ID[0:8]
+	}
+	return ""
+}
+
 // IsRepeat reports whether the session belongs to a repeating series.
 func (s Session) IsRepeat() bool { return s.SeriesID != "" }

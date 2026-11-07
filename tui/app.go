@@ -76,6 +76,10 @@ type App struct {
 
 	sortField string
 	sortAsc   bool
+
+	// Cached render state updated on reloadSessions
+	cachedStats calendar.StatsSummary
+	screenBuf   *Screen
 }
 
 // NewApp creates a new TUI application instance.
@@ -125,6 +129,7 @@ func NewApp(svc *calendar.Service, cfg *models.Config, cfgPath, version string) 
 		cfg:           cfg,
 		cfgPath:       cfgPath,
 		version:       version,
+		ctx:           context.Background(),
 		focusPanel:    PanelFeed,
 		lastLeftPanel: PanelCalendar,
 		periodMode:    initialPeriod,
@@ -375,23 +380,30 @@ func (a *App) reloadSessions() {
 		// no date limits
 	}
 
-	var startISO, endISO string
+	var startKey, endKey string
 	if a.periodMode != "all" {
-		startISO = start.Format("2006-01-02")
-		endISO = end.Format("2006-01-02")
+		startKey = start.Format("20060102")
+		endKey = end.Format("20060102")
+	}
+
+	hasTypeFilter := a.hasActiveTypeFilters()
+	hasSearch := a.searchQuery != ""
+	var searchLow string
+	if hasSearch {
+		searchLow = strings.ToLower(a.searchQuery)
 	}
 
 	for _, s := range a.allSessions {
-		// Period check using direct ISO date string comparison
+		// Period check using zero-allocation YYYYMMDD date key comparison
 		if a.periodMode != "all" {
-			d := s.Date()
-			if d == "" || d < startISO || d > endISO {
+			d := s.DateKey()
+			if d == "" || d < startKey || d > endKey {
 				continue
 			}
 		}
 
 		// Type filter check (multi-category)
-		if a.hasActiveTypeFilters() {
+		if hasTypeFilter {
 			sessType := strings.ToLower(strings.TrimSpace(s.Type))
 			if !a.typeFilters[sessType] {
 				continue
@@ -399,11 +411,10 @@ func (a *App) reloadSessions() {
 		}
 
 		// Search query check
-		if a.searchQuery != "" {
-			q := strings.ToLower(a.searchQuery)
-			if !strings.Contains(strings.ToLower(s.Name), q) &&
-				!strings.Contains(strings.ToLower(s.Type), q) &&
-				!strings.Contains(strings.ToLower(s.Notes), q) {
+		if hasSearch {
+			if !strings.Contains(strings.ToLower(s.Name), searchLow) &&
+				!strings.Contains(strings.ToLower(s.Type), searchLow) &&
+				!strings.Contains(strings.ToLower(s.Notes), searchLow) {
 				continue
 			}
 		}
@@ -415,6 +426,7 @@ func (a *App) reloadSessions() {
 	calendar.SortSessions(filtered, a.sortField, a.sortAsc)
 
 	a.sessions = filtered
+	a.cachedStats = calendar.ComputeStats(filtered)
 
 	if a.cursorIdx >= len(a.sessions) {
 		a.cursorIdx = len(a.sessions) - 1
@@ -609,20 +621,37 @@ func (a *App) handleKey(k Key) bool {
 		a.activeModal = NewModalSort(a)
 		return false
 
-	case k.Matches('c', 'к'):
-		if a.width < 115 {
-			a.activeTab = TabCalendar
-			a.focusPanel = PanelCalendar
-			a.lastLeftPanel = PanelCalendar
-		} else {
-			if a.focusPanel == PanelCalendar {
-				a.focusPanel = PanelSidebar
-				a.lastLeftPanel = PanelSidebar
-			} else {
-				a.focusPanel = PanelCalendar
-				a.lastLeftPanel = PanelCalendar
-			}
+	case k.Matches('c', 'с'):
+		// Clone / duplicate focused session
+		if len(a.sessions) > 0 && a.cursorIdx < len(a.sessions) {
+			sess := a.sessions[a.cursorIdx]
+			a.activeModal = NewModalCloneSessionForm(&sess, "")
 		}
+		return false
+
+	case k.Matches('v', 'м'):
+		// Quick status cycling (including ~пусто~)
+		a.cycleSessionStatus()
+		return false
+
+	case k.Matches('m', 'ь'):
+		// Move session(s) to another calendar
+		a.openMoveToCalendarModal()
+		return false
+
+	case k.Matches('u', 'г'):
+		// Undo last action
+		a.undoLastAction()
+		return false
+
+	case k.Type == KeyRune && (k.Rune == 'X' || k.Rune == 'Ч'):
+		// Import from CSV / JSON
+		a.activeModal = NewModalImport(a)
+		return false
+
+	case k.Matches('x', 'ч'):
+		// Export current view to CSV
+		a.exportCurrentCSV()
 		return false
 
 	case k.Matches('i', 'ш'):
@@ -1291,6 +1320,105 @@ func (a *App) changeMonth(delta int) {
 	}
 }
 
+func (a *App) cycleSessionStatus() {
+	if a == nil || a.svc == nil {
+		return
+	}
+	avail := a.getAvailableStatuses()
+	if len(a.selectedIDs) > 0 {
+		a.svc.BeginUndoTx("быстрая смена статуса")
+		var next string
+		first := true
+		count := 0
+		for id := range a.selectedIDs {
+			sess, ok := a.svc.ByID(id)
+			if !ok {
+				continue
+			}
+			if first {
+				next = calendar.NextStatusInCycle(sess.Status, avail)
+				first = false
+			}
+			patch := calendar.Patch{Status: &next}
+			if err := a.svc.Update(id, patch); err == nil {
+				count++
+			}
+		}
+		a.svc.EndUndoTx()
+		if count > 0 {
+			if err := a.svc.Save(a.ctx); err != nil {
+				a.setStatusMsg("⚠ Ошибка сохранения: " + err.Error())
+			} else {
+				a.lastDataMod = a.svc.DataFilesModTime()
+				a.setStatusMsg(fmt.Sprintf("Статус обновлён для %d записей → %s", count, calendar.FormatStatusDisplay(next)))
+			}
+			a.reloadSessions()
+		}
+		return
+	}
+	if len(a.sessions) > 0 && a.cursorIdx < len(a.sessions) {
+		sess := a.sessions[a.cursorIdx]
+		next := calendar.NextStatusInCycle(sess.Status, avail)
+		patch := calendar.Patch{Status: &next}
+		if err := a.svc.Update(sess.ID, patch); err == nil {
+			if err := a.svc.Save(a.ctx); err != nil {
+				a.setStatusMsg("⚠ Ошибка сохранения: " + err.Error())
+			} else {
+				a.lastDataMod = a.svc.DataFilesModTime()
+				a.setStatusMsg("Статус записи → " + calendar.FormatStatusDisplay(next))
+			}
+			a.reloadSessions()
+		}
+	}
+}
+
+func (a *App) openMoveToCalendarModal() {
+	var ids []string
+	if len(a.selectedIDs) > 0 {
+		for id := range a.selectedIDs {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+	} else if len(a.sessions) > 0 && a.cursorIdx < len(a.sessions) {
+		ids = []string{a.sessions[a.cursorIdx].ID}
+	}
+	if len(ids) == 0 {
+		a.setStatusMsg("Нет выбранной записи для переноса")
+		return
+	}
+	a.activeModal = NewModalMoveToCalendar(a, ids)
+}
+
+func (a *App) undoLastAction() {
+	if a == nil || a.svc == nil {
+		return
+	}
+	desc, err := a.svc.Undo(a.ctx)
+	if err != nil {
+		a.setStatusMsg("⚠ " + err.Error())
+		return
+	}
+	a.lastDataMod = a.svc.DataFilesModTime()
+	a.reloadSessions()
+	a.setStatusMsg("↶ Отменено: " + desc)
+}
+
+func (a *App) exportCurrentCSV() {
+	if a == nil || a.svc == nil {
+		return
+	}
+	if len(a.sessions) == 0 {
+		a.setStatusMsg("Нет записей в текущем списке для экспорта")
+		return
+	}
+	path, err := a.svc.ExportCSV(a.sessions)
+	if err != nil {
+		a.setStatusMsg("⚠ Ошибка экспорта CSV: " + err.Error())
+		return
+	}
+	a.setStatusMsg("Экспортировано в CSV: " + path)
+}
+
 func (a *App) cycleTypeFilter() {
 	types := a.getAvailableTypes()
 	if len(types) == 0 {
@@ -1382,7 +1510,10 @@ func (a *App) render() {
 		return
 	}
 
-	screen := NewScreen(a.width, a.height)
+	if a.screenBuf == nil || a.screenBuf.Width != a.width || a.screenBuf.Height != a.height {
+		a.screenBuf = NewScreen(a.width, a.height)
+	}
+	screen := a.screenBuf
 	screen.Clear(BgPrimary)
 
 	// 1. Top Header Bar (row 0)
@@ -1567,7 +1698,11 @@ func (a *App) renderHeader(s *Screen) {
 		}
 	}
 
-	stSummary := calendar.ComputeStats(a.sessions)
+	stSummary := a.cachedStats
+	if stSummary.TotalEntries != len(a.sessions) {
+		stSummary = calendar.ComputeStats(a.sessions)
+		a.cachedStats = stSummary
+	}
 	totalHours := stSummary.TotalHours
 
 	startX := 2 + titleW + 2
@@ -1643,10 +1778,11 @@ func (a *App) renderCalendarBox(s *Screen, x, y, w, h int) {
 	isCurrentMonth := now.Year() == a.calYear && int(now.Month()) == a.calMonth
 
 	daysWithSessions := map[int]bool{}
-	ymPrefix := fmt.Sprintf("%04d-%02d-", a.calYear, a.calMonth)
+	ymPrefix := fmt.Sprintf("%04d%02d", a.calYear, a.calMonth)
 	for _, sess := range a.allSessions {
-		if dStr := sess.Date(); len(dStr) == 10 && strings.HasPrefix(dStr, ymPrefix) {
-			if day, err := strconv.Atoi(dStr[8:10]); err == nil {
+		if dStr := sess.DateKey(); len(dStr) == 8 && strings.HasPrefix(dStr, ymPrefix) {
+			day := int(dStr[6]-'0')*10 + int(dStr[7]-'0')
+			if day >= 1 && day <= 31 {
 				daysWithSessions[day] = true
 			}
 		}
@@ -2208,9 +2344,9 @@ func (a *App) renderInspector(s *Screen, x, y, w, h int) {
 	if actionTop > y+3 && actionTop < y+h-1 {
 		s.DrawHLine(x+1, x+w-2, actionTop, BoxH, BorderDim, BgSurface)
 		s.DrawText(x+2, actionTop, "┤ Действия ├", FgDim, BgSurface, maxContentW, false, false, false)
-		s.DrawText(x+2, actionTop+1, "[e] Редактировать", FgCyan, BgSurface, maxContentW, false, false, false)
-		s.DrawText(x+2, actionTop+2, "[s] Сменить статус", FgBlue, BgSurface, maxContentW, false, false, false)
-		s.DrawText(x+2, actionTop+3, "[f] Изменить поле", FgYellow, BgSurface, maxContentW, false, false, false)
+		s.DrawText(x+2, actionTop+1, "[e] Редактировать  [c] Дубль", FgCyan, BgSurface, maxContentW, false, false, false)
+		s.DrawText(x+2, actionTop+2, "[v/s] Статус       [m] В кал.", FgBlue, BgSurface, maxContentW, false, false, false)
+		s.DrawText(x+2, actionTop+3, "[f] Изменить поле  [u] Отмена", FgYellow, BgSurface, maxContentW, false, false, false)
 		delHint := "[d] Удалить запись"
 		if a.width < 115 {
 			delHint += "  [Esc] К списку"
@@ -2230,7 +2366,11 @@ func (a *App) renderStats(s *Screen, x, y, w, h int) {
 	s.DrawBox(x, y, w, h, title, FgYellow, borderCol, BgSurface, true)
 
 	// Calculate statistics via unified core
-	stSummary := calendar.ComputeStats(a.sessions)
+	stSummary := a.cachedStats
+	if stSummary.TotalEntries != len(a.sessions) {
+		stSummary = calendar.ComputeStats(a.sessions)
+		a.cachedStats = stSummary
+	}
 	totalEntries := stSummary.TotalEntries
 	totalMin := stSummary.TotalMinutes
 	totalCash := stSummary.TotalCash
@@ -2348,16 +2488,16 @@ func (a *App) layoutFooter() (statusLines []string, hintLines [][]footerHintItem
 			{"[↑↓←→]", "Навигация"},
 			{"[Space]", "Выбор"},
 			{"[Enter]", "Карточка"},
-			{"[< >]", "Месяц"},
-			{"[y]", "Год"},
+			{"[v/s]", "Статус"},
+			{"[a/c]", "Нов/Дуб"},
+			{"[e/f]", "Правка"},
+			{"[d]", "Удалить"},
+			{"[m]", "Перенос"},
+			{"[u]", "Отмена"},
+			{"[x/X]", "CSV"},
 			{"[1-4/p]", "Период"},
 			{"[t]", "Категории"},
-			{"[s]", "Статус"},
 			{"[l]", "Сорт."},
-			{"[a]", "Создать"},
-			{"[e]", "Правка"},
-			{"[f]", "Поле"},
-			{"[d]", "Удалить"},
 			{"[b]", "Календари"},
 			{"[o]", "Настройки"},
 			{"[?]", "Помощь"},
@@ -2371,12 +2511,15 @@ func (a *App) layoutFooter() (statusLines []string, hintLines [][]footerHintItem
 			{"[↑↓←→]", "Навигация"},
 			{"[Space]", "Выбор/Период"},
 			{"[Enter]", "Карточка"},
-			{"[s]", "Статус"},
-			{"[l]", "Сортировка"},
+			{"[v/s]", "Статус"},
 			{"[a]", "Создать"},
-			{"[e]", "Правка"},
-			{"[f]", "Поле"},
+			{"[c]", "Дубль"},
+			{"[e/f]", "Правка"},
 			{"[d]", "Удалить"},
+			{"[m]", "Перенос"},
+			{"[u]", "Отмена"},
+			{"[x/X]", "Эксп/Имп"},
+			{"[l]", "Сортировка"},
 			{"[Tab]", "Блок"},
 			{"[< >]", "Месяц"},
 			{"[1-4/p]", "Период"},
@@ -2395,8 +2538,11 @@ func (a *App) layoutFooter() (statusLines []string, hintLines [][]footerHintItem
 		availW = 10
 	}
 
-	maxHintLines := 3
-	if a.height < 24 {
+	maxHintLines := 4
+	if a.height < 28 {
+		maxHintLines = 3
+	}
+	if a.height < 22 {
 		maxHintLines = 2
 	}
 	if a.height < 14 {
