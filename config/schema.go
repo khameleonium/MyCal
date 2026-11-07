@@ -182,6 +182,32 @@ var SettingsSchema = []SettingSpec{
 		},
 	},
 	{
+		Key:        "web_lan",
+		CLIKey:     "a",
+		Label:      "Доступ к Web из локальной сети",
+		ShortLabel: "Доступ к Web из сети",
+		Hint:       "Разрешить открытие веб-интерфейса с других устройств в локальной сети (0.0.0.0)",
+		Kind:       "bool",
+		Modes:      []string{models.ModeCLI, models.ModeTUI, models.ModeWeb},
+		Options: func(_ *models.Config, _ []string) []OptionSpec {
+			return []OptionSpec{
+				{Value: "false", Label: "Выкл (только этот ПК, 127.0.0.1)"},
+				{Value: "true", Label: "Вкл (все устройства в сети, 0.0.0.0)"},
+			}
+		},
+		GetValue: func(cfg *models.Config) string { return strconv.FormatBool(cfg.WebLAN) },
+		GetDisplay: func(cfg *models.Config) string {
+			if cfg.WebLAN {
+				return "Вкл (0.0.0.0)"
+			}
+			return "Выкл (127.0.0.1)"
+		},
+		SetValue: func(cfg *models.Config, raw string) error {
+			cfg.WebLAN = parseBool(raw)
+			return nil
+		},
+	},
+	{
 		Key:        "default_duration",
 		CLIKey:     "l",
 		Label:      "Продолж. по умолчанию",

@@ -585,7 +585,15 @@
         </select>
         <div style="margin-top: 10px; display: flex; align-items: center; gap: 10px;">
           <label for="cfgWebPort" class="form-label" style="margin-bottom: 0; white-space: nowrap;">Порт веб-сервера:</label>
-          <input type="number" id="cfgWebPort" class="form-input" style="max-width: 120px;" min="1024" max="65535" value="8080">
+          <input type="number" id="cfgWebPort" class="form-input" style="max-width: 120px;" min="1024" max="65535" value="8080" oninput="updateLANUrlsHint()">
+        </div>
+        <div style="margin-top: 10px;" data-setting-key="web_lan">
+          <label for="cfgWebLAN" class="form-label" style="margin-bottom: 4px;">Доступ к Web из локальной сети (LAN):</label>
+          <select id="cfgWebLAN" class="form-select" onchange="updateLANUrlsHint()">
+            <option value="false">🔒 Выкл — только с этого компьютера (127.0.0.1)</option>
+            <option value="true">🌐 Вкл — со всех устройств в локальной сети (0.0.0.0)</option>
+          </select>
+          <div id="lanUrlsHint" class="settings-hint" style="margin-top: 6px; font-family: var(--font-mono); font-size: 0.78rem;"></div>
         </div>
       </div>
 

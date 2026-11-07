@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -142,13 +143,46 @@ func run(ctx context.Context) error {
 			if port <= 0 {
 				port = 8080
 			}
-			if len(args) > 1 {
-				if p, err := strconv.Atoi(args[1]); err == nil && p > 0 {
-					port = p
+			hostOverride := ""
+			openBrowserFlag := true
+			for i := 1; i < len(args); i++ {
+				arg := strings.TrimSpace(args[i])
+				low := strings.ToLower(arg)
+				switch low {
+				case "--lan", "-lan", "lan", "--public", "-public":
+					hostOverride = "0.0.0.0"
+				case "--local", "-local", "local":
+					hostOverride = "127.0.0.1"
+				case "--no-browser", "-no-browser", "--headless":
+					openBrowserFlag = false
+				case "--host", "-host":
+					if i+1 < len(args) {
+						hostOverride = strings.TrimSpace(args[i+1])
+						i++
+					}
+				default:
+					if strings.HasPrefix(low, "--host=") || strings.HasPrefix(low, "-host=") {
+						parts := strings.SplitN(arg, "=", 2)
+						if len(parts) == 2 {
+							hostOverride = strings.TrimSpace(parts[1])
+						}
+					} else if p, err := strconv.Atoi(arg); err == nil && p > 0 && p <= 65535 {
+						port = p
+					} else if h, pStr, err := net.SplitHostPort(arg); err == nil {
+						if h != "" {
+							hostOverride = h
+						}
+						if p, err := strconv.Atoi(pStr); err == nil && p > 0 && p <= 65535 {
+							port = p
+						}
+					}
 				}
 			}
 			webServer := web.NewServer(svc, cfg, cfgPath, version)
-			return webServer.Start(ctx, port, true)
+			if hostOverride != "" {
+				webServer.SetHost(hostOverride)
+			}
+			return webServer.Start(ctx, port, openBrowserFlag)
 		default:
 			ok := application.RunCLI(args[0], args[1:])
 			if hasCalFlag && cfg.ActiveCalendar != origActiveCal {
@@ -204,6 +238,11 @@ func handleServiceCmd(ctx context.Context, args []string, cfg *models.Config) er
 		}
 		fmt.Println(color.Green("[✓] Служба MyCal успешно установлена и запущена!"))
 		fmt.Printf("    Веб-интерфейс доступен по адресу: http://127.0.0.1:%d\n", port)
+		if cfg != nil && cfg.WebLAN {
+			for _, ip := range web.LocalLANIPs() {
+				fmt.Printf("    Доступ из локальной сети (LAN):   http://%s:%d\n", ip, port)
+			}
+		}
 		fmt.Println("    Для проверки статуса службы: mycal service status")
 		fmt.Println("    Для остановки службы:        mycal service stop")
 		return nil

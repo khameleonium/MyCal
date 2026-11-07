@@ -28,7 +28,7 @@ func PrintHelp() {
 	p(color.Green("  mycal today | week | month") + "   быстрый просмотр (кратко: t | w | m)")
 	p(color.Green("  mycal -c <префикс> ...") + "       выполнить команду для календаря с указанным префиксом")
 	p(color.Green("  mycal -tui") + "                 запуск интерактивного полноэкранного TUI")
-	p(color.Green("  mycal web [порт]") + "           запуск веб-интерфейса в браузере (по умолч. 8080)")
+	p(color.Green("  mycal web [--lan] [порт]") + "   запуск веб-интерфейса (--lan открывает доступ по сети)")
 	p(color.Green("  mycal service [команда]") + "    управление фоновой службой (install/status/stop/start)")
 	p(color.Green("  mycal help") + "              эта справка (также -h, --help, /?)")
 	p(color.Green("  mycal version") + "           версия программы (-v, --version)")

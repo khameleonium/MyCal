@@ -2278,6 +2278,7 @@ type ModalSettings struct {
 	customDate       string // "YYYY-MM-DD" or "DD.MM.YYYY"
 	dataPath         string
 	tuiDefaultPeriod string // "today", "all", "week", "month"
+	webLAN           bool
 	svcStatus        *service.StatusInfo
 	selectedIdx      int
 	scrollOffset     int
@@ -2306,8 +2307,10 @@ func NewModalSettings(cfg *models.Config) *ModalSettings {
 	customDate := time.Now().Format("2006-01-02")
 	dataPath := ""
 	tuiDefaultPeriod := "today"
+	webLAN := false
 
 	if cfg != nil {
+		webLAN = cfg.WebLAN
 		if cfg.DurationUnit == "hours" {
 			durUnit = "hours"
 		}
@@ -2350,6 +2353,7 @@ func NewModalSettings(cfg *models.Config) *ModalSettings {
 		customDate:       customDate,
 		dataPath:         dataPath,
 		tuiDefaultPeriod: tuiDefaultPeriod,
+		webLAN:           webLAN,
 		selectedIdx:      0,
 		scrollOffset:     0,
 		svcStatus:        st,
@@ -2358,7 +2362,7 @@ func NewModalSettings(cfg *models.Config) *ModalSettings {
 
 func (m *ModalSettings) canHavePicker(fieldIdx int) bool {
 	switch fieldIdx {
-	case 0, 2, 3, 4, 5, 6, 7, 8, 11, 12:
+	case 0, 2, 3, 4, 5, 6, 7, 8, 11, 12, 13:
 		return true
 	default:
 		return false
@@ -2467,6 +2471,14 @@ func (m *ModalSettings) openPicker(fieldIdx int, app *App) {
 			{Code: "restart", Label: "Перезапустить службу"},
 			{Code: "install", Label: "Установить службу (systemd)"},
 		}
+
+	case 13:
+		title = " Доступ к Web из сети (LAN) [Enter] "
+		list = []ModalSettingsOption{
+			{Code: "false", Label: "Выкл (только этот ПК, 127.0.0.1)"},
+			{Code: "true", Label: "Вкл (все устройства в сети, 0.0.0.0)"},
+		}
+		curCode = strconv.FormatBool(m.webLAN)
 	}
 
 	if len(list) == 0 {
@@ -2531,6 +2543,8 @@ func (m *ModalSettings) applyPickerOption(opt ModalSettingsOption, app *App) {
 			}
 			m.svcStatus, _ = mgr.Status(app.ctx)
 		}
+	case 13:
+		m.webLAN = (opt.Code == "true")
 	}
 }
 
@@ -2625,6 +2639,11 @@ func (m *ModalSettings) Draw(s *Screen) {
 		tuiPeriodDisplay = "Сегодня"
 	}
 
+	webLANDisplay := "Выкл (только этот ПК, 127.0.0.1)"
+	if m.webLAN {
+		webLANDisplay = "Вкл (все устройства в сети, 0.0.0.0)"
+	}
+
 	fields := []struct {
 		lbl string
 		val string
@@ -2642,6 +2661,7 @@ func (m *ModalSettings) Draw(s *Screen) {
 		{"11. Путь к данным:          ", pathDisplay},
 		{"12. Период по умолч. в TUI: ", tuiPeriodDisplay},
 		{"13. Фоновая служба:         ", m.svcStatusText()},
+		{"14. Доступ к Web из сети:   ", webLANDisplay},
 	}
 
 	availRows := h - 4
@@ -2824,7 +2844,7 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 		return false
 	}
 
-	totalFields := 13
+	totalFields := 14
 	switch {
 	case k.Type == KeyEsc:
 		app.activeModal = nil
@@ -2989,6 +3009,9 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 			}
 			m.svcStatus, _ = mgr.Status(app.ctx)
 			return true
+		case 13:
+			m.webLAN = !m.webLAN
+			return true
 		}
 
 	case k.Type == KeyEnter:
@@ -3012,6 +3035,7 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 
 		app.cfg.DefaultMode = m.defaultMode
 		app.cfg.TUIDefaultPeriod = m.tuiDefaultPeriod
+		app.cfg.WebLAN = m.webLAN
 		if p, err := strconv.Atoi(m.portStr); err == nil && p > 0 {
 			app.cfg.WebPort = p
 		}
