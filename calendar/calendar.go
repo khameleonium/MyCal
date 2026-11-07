@@ -419,6 +419,39 @@ func (s *Service) BySeries(seriesID string) []models.Session {
 	return out
 }
 
+// SeriesCounts returns the total count of sessions in the series and the count
+// of sessions from fromID onwards (inclusive, ordered by DateKey and ID).
+func (s *Service) SeriesCounts(seriesID, fromID string) (total, following int) {
+	if seriesID == "" {
+		return 0, 0
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var targetDateKey string
+	if fromID != "" {
+		for _, x := range s.sessions {
+			if x.ID == fromID && x.SeriesID == seriesID {
+				targetDateKey = x.DateKey()
+				break
+			}
+		}
+	}
+	for _, x := range s.sessions {
+		if x.SeriesID == seriesID {
+			total++
+			if fromID == "" {
+				following++
+			} else if targetDateKey != "" {
+				dk := x.DateKey()
+				if dk > targetDateKey || (dk == targetDateKey && x.ID >= fromID) {
+					following++
+				}
+			}
+		}
+	}
+	return total, following
+}
+
 // Conflicts returns sessions at the exact same ISO date and HH:MM time.
 func (s *Service) Conflicts(iso, hhmm string) []models.Session {
 	s.mu.RLock()
@@ -709,6 +742,49 @@ func (s *Service) UpdateSeries(seriesID string, patch Patch) int {
 	return n
 }
 
+// UpdateSeriesFrom applies patch to fromID and all subsequent sessions in the series.
+// If fromID is not the start of the series, the following sessions are branched
+// into their own series with SeriesID = fromID. Returns the count of updated sessions.
+func (s *Service) UpdateSeriesFrom(seriesID, fromID string, patch Patch) int {
+	if seriesID == "" || fromID == "" {
+		return 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var targetDateKey string
+	found := false
+	for _, x := range s.sessions {
+		if x.ID == fromID && x.SeriesID == seriesID {
+			targetDateKey = x.DateKey()
+			found = true
+			break
+		}
+	}
+	if !found {
+		return 0
+	}
+	n := 0
+	for i := range s.sessions {
+		if s.sessions[i].SeriesID == seriesID {
+			dk := s.sessions[i].DateKey()
+			if dk > targetDateKey || (dk == targetDateKey && s.sessions[i].ID >= fromID) {
+				if n == 0 {
+					s.pushUndoUnlocked("изменение серии записей")
+				}
+				patch.applyTo(&s.sessions[i])
+				if fromID != seriesID {
+					s.sessions[i].SeriesID = fromID
+				}
+				n++
+			}
+		}
+	}
+	if n > 0 && patch.Time != nil {
+		storage.SortSessions(s.sessions)
+	}
+	return n
+}
+
 // Delete removes the session with the given ID. Returns whether it existed.
 func (s *Service) Delete(id string) bool {
 	return s.deleteWhere(func(x models.Session) bool { return x.ID == id }) > 0
@@ -720,6 +796,34 @@ func (s *Service) DeleteSeries(seriesID string) int {
 		return 0
 	}
 	return s.deleteWhere(func(x models.Session) bool { return x.SeriesID == seriesID })
+}
+
+// DeleteSeriesFrom removes fromID and all subsequent sessions in the same series. Returns the count.
+func (s *Service) DeleteSeriesFrom(seriesID, fromID string) int {
+	if seriesID == "" || fromID == "" {
+		return 0
+	}
+	s.mu.RLock()
+	var targetDateKey string
+	found := false
+	for _, x := range s.sessions {
+		if x.ID == fromID && x.SeriesID == seriesID {
+			targetDateKey = x.DateKey()
+			found = true
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if !found {
+		return 0
+	}
+	return s.deleteWhere(func(x models.Session) bool {
+		if x.SeriesID != seriesID {
+			return false
+		}
+		dk := x.DateKey()
+		return dk > targetDateKey || (dk == targetDateKey && x.ID >= fromID)
+	})
 }
 
 // DeleteRange removes sessions whose date is within [start, end]. Returns count.

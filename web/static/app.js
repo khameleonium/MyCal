@@ -2518,7 +2518,27 @@ function editFocusedSession() {
   document.getElementById("formNotes").value = s.notes || "";
 
   document.getElementById("repeatSection").style.display = "none"; // cannot change repeat rule in edit
-  document.getElementById("seriesEditSection").style.display = s.series_id ? "block" : "none";
+  const isSeries = !!s.series_id;
+  const seriesBox = document.getElementById("seriesEditSection");
+  seriesBox.style.display = isSeries ? "block" : "none";
+  if (isSeries) {
+    const seriesSessions = state.sessions.filter(x => x.series_id === s.series_id);
+    const totalCount = seriesSessions.length;
+    const sDate = sessionDate(s);
+    let followingCount = 0;
+    for (const x of seriesSessions) {
+      const xDate = sessionDate(x);
+      if (xDate > sDate || (xDate === sDate && x.id >= s.id)) {
+        followingCount++;
+      }
+    }
+    const followText = document.getElementById("editSeriesFollowingText");
+    if (followText) followText.textContent = `Эту и все последующие (${followingCount} записей)`;
+    const allText = document.getElementById("editSeriesAllText");
+    if (allText) allText.textContent = `Всю серию целиком (${totalCount} записей)`;
+    const singleRadio = document.querySelector('input[name="editSeriesMode"][value="single"]');
+    if (singleRadio) singleRadio.checked = true;
+  }
 
   openModal("modalSession");
 }
@@ -2662,11 +2682,22 @@ async function handleSessionFormSubmit(e) {
       if (lastId) setFocusedSession(lastId);
     } else {
       // Update existing session
-      const updateSeries = document.querySelector('input[name="editSeriesMode"]:checked')?.value === "series";
+      const editMode = document.querySelector('input[name="editSeriesMode"]:checked')?.value || "single";
 
       await apiFetch(`/api/sessions/${id}`, {
         method: "PUT",
-        body: JSON.stringify({ date, time, name: names[0], type, duration, cash, status, notes, update_series: updateSeries }),
+        body: JSON.stringify({
+          date,
+          time,
+          name: names[0],
+          type,
+          duration,
+          cash,
+          status,
+          notes,
+          series_scope: editMode,
+          update_series: editMode === "all" || editMode === "series",
+        }),
       });
       closeModal("modalSession");
       await fetchTypes();
@@ -2687,7 +2718,28 @@ function deleteFocusedSession() {
 
   document.getElementById("delItemName").textContent = s.name;
   document.getElementById("delItemMeta").textContent = `${formatISODate(sessionDate(s))} ${s.time} • ${formatDuration(s.duration)} • ${s.type || '(без типа)'}`;
-  document.getElementById("delSeriesOptions").style.display = s.series_id ? "block" : "none";
+  
+  const isSeries = !!s.series_id;
+  const delSeriesBox = document.getElementById("delSeriesOptions");
+  delSeriesBox.style.display = isSeries ? "block" : "none";
+  if (isSeries) {
+    const seriesSessions = state.sessions.filter(x => x.series_id === s.series_id);
+    const totalCount = seriesSessions.length;
+    const sDate = sessionDate(s);
+    let followingCount = 0;
+    for (const x of seriesSessions) {
+      const xDate = sessionDate(x);
+      if (xDate > sDate || (xDate === sDate && x.id >= s.id)) {
+        followingCount++;
+      }
+    }
+    const followText = document.getElementById("delSeriesFollowingText");
+    if (followText) followText.textContent = `Эту и все последующие (${followingCount} записей)`;
+    const allText = document.getElementById("delSeriesAllText");
+    if (allText) allText.textContent = `Всю серию целиком (${totalCount} записей)`;
+    const singleRadio = document.querySelector('input[name="delSeriesChoice"][value="single"]');
+    if (singleRadio) singleRadio.checked = true;
+  }
 
   openModal("modalDelete");
 }
@@ -2697,10 +2749,11 @@ async function confirmDeleteSession() {
   if (!id) return;
 
   const s = state.sessions.find(x => x.id === id);
-  const isSeriesChoice = s && s.series_id && document.querySelector('input[name="delSeriesChoice"]:checked')?.value === "series";
+  const choice = (s && s.series_id) ? (document.querySelector('input[name="delSeriesChoice"]:checked')?.value || "single") : "single";
 
   try {
-    await apiFetch(`/api/sessions/${id}?series=${isSeriesChoice ? 'true' : 'false'}`, {
+    const query = (choice === "all" || choice === "series") ? "?scope=all&series=true" : (choice === "following" ? "?scope=following" : "?scope=single");
+    await apiFetch(`/api/sessions/${id}${query}`, {
       method: "DELETE",
     });
     closeModal("modalDelete");

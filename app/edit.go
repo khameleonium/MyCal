@@ -22,17 +22,23 @@ func (a *App) editSession(id string) {
 		return
 	}
 
-	wholeSeries := false
+	seriesScope := calendar.SeriesScopeSingle
 	if session.IsRepeat() {
+		total, followingCount := a.svc.SeriesCounts(session.SeriesID, session.ID)
+
 		fmt.Println()
 		fmt.Println(color.Yellow(warnMark + " Это повторяющаяся запись."))
 		fmt.Println("  1. Изменить только эту запись")
-		fmt.Println("  2. Изменить всю серию")
+		fmt.Printf("  2. Изменить эту и все последующие (%d записей)\n", followingCount)
+		fmt.Printf("  3. Изменить всю серию целиком (%d записей)\n", total)
 		fmt.Println("  0. Отмена")
 		switch a.prompt("") {
 		case "1":
+			seriesScope = calendar.SeriesScopeSingle
 		case "2":
-			wholeSeries = true
+			seriesScope = calendar.SeriesScopeFollowing
+		case "3":
+			seriesScope = calendar.SeriesScopeAll
 		default:
 			fmt.Println(color.Yellow(warnMark + " Редактирование отменено"))
 			return
@@ -125,14 +131,19 @@ func (a *App) editSession(id string) {
 	_, n, err := a.svc.UpdateEntry(a.ctx, a.cfg, id, calendar.UpdateInput{
 		NewDate:      newDate,
 		Patch:        patch,
-		UpdateSeries: wholeSeries,
+		SeriesScope:  seriesScope,
+		UpdateSeries: seriesScope == calendar.SeriesScopeAll,
 	})
 	if err != nil {
 		fmt.Println(color.Red(errMark + " " + err.Error()))
 		return
 	}
 	a.saveConfig()
-	if wholeSeries {
+	if seriesScope == calendar.SeriesScopeFollowing {
+		fmt.Println(color.Green(okMark + fmt.Sprintf(" Обновлено записей серии (начиная с текущей): %d", n)))
+		return
+	}
+	if seriesScope == calendar.SeriesScopeAll {
 		fmt.Println(color.Green(okMark + fmt.Sprintf(" Обновлено записей в серии: %d", n)))
 		return
 	}

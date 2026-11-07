@@ -663,3 +663,115 @@ func TestWebLANBindingAndConfig(t *testing.T) {
 		t.Fatalf("unexpected port: %d", port)
 	}
 }
+
+func TestWebSeriesFollowingDeleteAndUpdate(t *testing.T) {
+	srv, svc, _ := newTestServer(t)
+	handler := srv.Routes()
+
+	// 1. Create 4 daily sessions: 2026-07-01 to 2026-07-04
+	payload := `{
+		"date": "2026-07-01",
+		"time": "11:00",
+		"name": "Серия Тест",
+		"type": "Стрельба из лука",
+		"duration": 40,
+		"repeat": "d",
+		"repeat_until": "2026-07-04"
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/sessions", bytes.NewBufferString(payload))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST /api/sessions: got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	var createRes struct {
+		SeriesID string `json:"series_id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &createRes); err != nil {
+		t.Fatal(err)
+	}
+
+	series := svc.BySeries(createRes.SeriesID)
+	if len(series) != 4 {
+		t.Fatalf("expected 4 sessions in series, got %d", len(series))
+	}
+	sess1 := series[0]
+	sess2 := series[1]
+	sess3 := series[2]
+	sess4 := series[3]
+
+	// 2. PUT /api/sessions/{id} with series_scope: "following" on sess3
+	updatePayload := `{
+		"date": "` + sess3.Date() + `",
+		"time": "11:00",
+		"name": "Серия Обновлена",
+		"type": "Стрельба из лука",
+		"duration": 55,
+		"series_scope": "following"
+	}`
+	reqUp := httptest.NewRequest(http.MethodPut, "/api/sessions/"+sess3.ID, bytes.NewBufferString(updatePayload))
+	recUp := httptest.NewRecorder()
+	handler.ServeHTTP(recUp, reqUp)
+	if recUp.Code != http.StatusOK {
+		t.Fatalf("PUT /api/sessions/%s following: got %d (%s)", sess3.ID, recUp.Code, recUp.Body.String())
+	}
+
+	// Verify sess1 & sess2 retained original duration 40 & original series
+	s1, _ := svc.ByID(sess1.ID)
+	s2, _ := svc.ByID(sess2.ID)
+	if s1.Duration != 40 || s1.SeriesID != createRes.SeriesID {
+		t.Errorf("s1 altered unexpectedly: %+v", s1)
+	}
+	if s2.Duration != 40 || s2.SeriesID != createRes.SeriesID {
+		t.Errorf("s2 altered unexpectedly: %+v", s2)
+	}
+
+	// Verify sess3 & sess4 got 55 min & branched series
+	s3, _ := svc.ByID(sess3.ID)
+	s4, _ := svc.ByID(sess4.ID)
+	if s3.Duration != 55 || s3.SeriesID != sess3.ID {
+		t.Errorf("s3 not updated/branched: %+v", s3)
+	}
+	if s4.Duration != 55 || s4.SeriesID != sess3.ID {
+		t.Errorf("s4 not updated/branched: %+v", s4)
+	}
+
+	// 3. DELETE /api/sessions/{id}?scope=following on sess3
+	reqDel := httptest.NewRequest(http.MethodDelete, "/api/sessions/"+sess3.ID+"?scope=following", nil)
+	recDel := httptest.NewRecorder()
+	handler.ServeHTTP(recDel, reqDel)
+	if recDel.Code != http.StatusOK {
+		t.Fatalf("DELETE /api/sessions/%s?scope=following: got %d (%s)", sess3.ID, recDel.Code, recDel.Body.String())
+	}
+
+	if _, ok := svc.ByID(sess3.ID); ok {
+		t.Errorf("sess3 should be deleted")
+	}
+	if _, ok := svc.ByID(sess4.ID); ok {
+		t.Errorf("sess4 should be deleted")
+	}
+	if _, ok := svc.ByID(sess1.ID); !ok {
+		t.Errorf("sess1 should remain")
+	}
+	if _, ok := svc.ByID(sess2.ID); !ok {
+		t.Errorf("sess2 should remain")
+	}
+
+	// 4. DELETE /api/sessions/{id}?scope=all on sess1
+	reqDelAll := httptest.NewRequest(http.MethodDelete, "/api/sessions/"+sess1.ID+"?scope=all", nil)
+	recDelAll := httptest.NewRecorder()
+	handler.ServeHTTP(recDelAll, reqDelAll)
+	if recDelAll.Code != http.StatusOK {
+		t.Fatalf("DELETE /api/sessions/%s?scope=all: got %d (%s)", sess1.ID, recDelAll.Code, recDelAll.Body.String())
+	}
+	if svc.Count() != 2 { // initial test server had 2 sessions seeded
+		// Check that neither sess1 nor sess2 exist
+		if _, ok := svc.ByID(sess1.ID); ok {
+			t.Errorf("sess1 should be deleted")
+		}
+		if _, ok := svc.ByID(sess2.ID); ok {
+			t.Errorf("sess2 should be deleted")
+		}
+	}
+}

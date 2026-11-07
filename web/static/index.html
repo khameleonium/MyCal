@@ -463,8 +463,12 @@
               <span>Изменить только эту запись</span>
             </label>
             <label class="radio-label">
-              <input type="radio" name="editSeriesMode" value="series">
-              <span>Применить изменения ко всей серии</span>
+              <input type="radio" name="editSeriesMode" value="following">
+              <span id="editSeriesFollowingText">Эту и все последующие записи серии</span>
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="editSeriesMode" value="all">
+              <span id="editSeriesAllText">Всю серию целиком</span>
             </label>
           </div>
         </div>
@@ -523,8 +527,12 @@
             <span>Удалить только эту запись</span>
           </label>
           <label class="radio-label">
-            <input type="radio" name="delSeriesChoice" value="series">
-            <span>Удалить всю серию записей</span>
+            <input type="radio" name="delSeriesChoice" value="following">
+            <span id="delSeriesFollowingText">Эту и все последующие записи серии</span>
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="delSeriesChoice" value="all">
+            <span id="delSeriesAllText">Всю серию целиком</span>
           </label>
         </div>
       </div>

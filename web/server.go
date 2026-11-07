@@ -576,6 +576,7 @@ type updateSessionRequest struct {
 	Status       *string     `json:"status"`
 	Cash         interface{} `json:"cash"`
 	UpdateSeries bool        `json:"update_series"`
+	SeriesScope  string      `json:"series_scope"`
 }
 
 func (s *Server) updateSession(w http.ResponseWriter, r *http.Request, id string) {
@@ -610,8 +611,16 @@ func (s *Server) updateSession(w http.ResponseWriter, r *http.Request, id string
 		Cash:     cashPtr,
 	}
 
+	scope := strings.ToLower(strings.TrimSpace(req.SeriesScope))
+	if scope == "" && req.UpdateSeries {
+		scope = calendar.SeriesScopeAll
+	}
+	if scope == "series" {
+		scope = calendar.SeriesScopeAll
+	}
+
 	var newDatePtr *time.Time
-	if req.Date != "" && req.Date != sess.Date() && !req.UpdateSeries {
+	if req.Date != "" && req.Date != sess.Date() && scope != calendar.SeriesScopeAll && scope != calendar.SeriesScopeFollowing {
 		if newDate, err := parseDateLenient(req.Date); err == nil {
 			newDatePtr = &newDate
 		}
@@ -620,7 +629,8 @@ func (s *Server) updateSession(w http.ResponseWriter, r *http.Request, id string
 	updated, n, err := s.svc.UpdateEntry(r.Context(), s.cfg, id, calendar.UpdateInput{
 		Patch:        patch,
 		NewDate:      newDatePtr,
-		UpdateSeries: req.UpdateSeries,
+		SeriesScope:  scope,
+		UpdateSeries: scope == calendar.SeriesScopeAll,
 	})
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
@@ -634,11 +644,11 @@ func (s *Server) updateSession(w http.ResponseWriter, r *http.Request, id string
 		}
 	}
 
-	if req.UpdateSeries && sess.IsRepeat() {
-		respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "updated_count": n})
+	if (scope == calendar.SeriesScopeAll || scope == calendar.SeriesScopeFollowing) && sess.IsRepeat() {
+		respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "updated_count": n, "session": updated, "scope": scope})
 		return
 	}
-	respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "session": updated})
+	respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "session": updated, "scope": "single"})
 }
 
 func (s *Server) updateStatus(w http.ResponseWriter, r *http.Request, id string) {
@@ -787,15 +797,28 @@ func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request, id string
 		return
 	}
 
+	scope := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("scope")))
 	deleteSeries := r.URL.Query().Get("series") == "true"
-	if deleteSeries && sess.IsRepeat() {
-		count := s.svc.DeleteSeries(sess.SeriesID)
-		if err := s.saveService(r.Context()); err != nil {
-			respondError(w, http.StatusInternalServerError, "Ошибка сохранения: "+err.Error())
+	if scope == "all" || scope == "series" || (scope == "" && deleteSeries) {
+		if sess.IsRepeat() {
+			count := s.svc.DeleteSeries(sess.SeriesID)
+			if err := s.saveService(r.Context()); err != nil {
+				respondError(w, http.StatusInternalServerError, "Ошибка сохранения: "+err.Error())
+				return
+			}
+			respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "deleted": count, "series": true, "scope": "all"})
 			return
 		}
-		respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "deleted": count, "series": true})
-		return
+	} else if scope == "following" {
+		if sess.IsRepeat() {
+			count := s.svc.DeleteSeriesFrom(sess.SeriesID, id)
+			if err := s.saveService(r.Context()); err != nil {
+				respondError(w, http.StatusInternalServerError, "Ошибка сохранения: "+err.Error())
+				return
+			}
+			respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "deleted": count, "series": true, "scope": "following"})
+			return
+		}
 	}
 
 	if !s.svc.Delete(id) {
@@ -807,7 +830,7 @@ func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request, id string
 		respondError(w, http.StatusInternalServerError, "Ошибка сохранения: "+err.Error())
 		return
 	}
-	respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "deleted": 1})
+	respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "deleted": 1, "scope": "single"})
 }
 
 func (s *Server) duplicateSession(w http.ResponseWriter, r *http.Request, id string) {

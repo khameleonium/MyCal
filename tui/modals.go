@@ -854,8 +854,12 @@ type ModalSessionForm struct {
 	fieldIdx  int    // 0..8
 	appRef    *App
 
+	isSeries    bool
+	seriesID    string
+	seriesScope string // "single", "following", "all"
+
 	pickerOpen   bool
-	pickerField  int // 2: Name, 3: Type, 6: Status, 8: Repeat
+	pickerField  int // 2: Name, 3: Type, 6: Status, 8: Repeat / Scope
 	pickerIdx    int
 	pickerScroll int
 	pickerList   []string
@@ -869,18 +873,21 @@ func NewModalSessionForm(sess *models.Session, initialDate string) *ModalSession
 			dateStr = fmt.Sprintf("%02d.%02d.%04d", parsed.Day(), parsed.Month(), parsed.Year())
 		}
 		return &ModalSessionForm{
-			isEdit:    true,
-			targetID:  sess.ID,
-			dateStr:   dateStr,
-			timeStr:   sess.Time,
-			name:      sess.Name,
-			typeStr:   sess.Type,
-			durStr:    strconv.Itoa(sess.Duration),
-			cashStr:   strconv.FormatFloat(sess.Cash, 'f', -1, 64),
-			status:    calendar.FormatStatusDisplay(sess.Status),
-			notes:     sess.Notes,
-			repeatStr: "none",
-			fieldIdx:  2, // focus name by default
+			isEdit:      true,
+			targetID:    sess.ID,
+			dateStr:     dateStr,
+			timeStr:     sess.Time,
+			name:        sess.Name,
+			typeStr:     sess.Type,
+			durStr:      strconv.Itoa(sess.Duration),
+			cashStr:     strconv.FormatFloat(sess.Cash, 'f', -1, 64),
+			status:      calendar.FormatStatusDisplay(sess.Status),
+			notes:       sess.Notes,
+			repeatStr:   "none",
+			isSeries:    sess.IsRepeat(),
+			seriesID:    sess.SeriesID,
+			seriesScope: calendar.SeriesScopeSingle,
+			fieldIdx:    2, // focus name by default
 		}
 	}
 
@@ -938,7 +945,7 @@ func NewModalCloneSessionForm(sess *models.Session, initialDate string) *ModalSe
 func (m *ModalSessionForm) Draw(s *Screen) {
 	w := 58
 	h := 20
-	if !m.isEdit {
+	if !m.isEdit || m.isSeries {
 		h = 22
 	}
 	if w > s.Width-2 {
@@ -988,6 +995,17 @@ func (m *ModalSessionForm) Draw(s *Screen) {
 			label string
 			val   string
 		}{"9. Повтор записи:      ", repLabel})
+	} else if m.isSeries {
+		scopeLabel := "Только эту запись"
+		if m.seriesScope == calendar.SeriesScopeFollowing {
+			scopeLabel = "Эту и последующие"
+		} else if m.seriesScope == calendar.SeriesScopeAll {
+			scopeLabel = "Всю серию целиком"
+		}
+		fields = append(fields, struct {
+			label string
+			val   string
+		}{"9. Область серии:     ", scopeLabel})
 	}
 
 	valBoxW := w - 28
@@ -1015,9 +1033,7 @@ func (m *ModalSessionForm) Draw(s *Screen) {
 		case 1, 2, 3, 6:
 			hasDropdown = true
 		case 8:
-			if !m.isEdit {
-				hasDropdown = true
-			}
+			hasDropdown = true
 		}
 
 		if hasDropdown && isCur && !m.pickerOpen && valBoxW > 6 {
@@ -1042,7 +1058,11 @@ func (m *ModalSessionForm) Draw(s *Screen) {
 		case 6:
 			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Ввод текста] Свой статус  [Space] След.  [→] Список  [Tab] Далее  [Enter] Сохранить", FgDim, BgModal)
 		case 8:
-			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab] Поля  [→/Space] Выбрать повтор  [Enter] Сохранить  [Esc] Отмена", FgDim, BgModal)
+			if !m.isEdit {
+				s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab] Поля  [→/Space] Выбрать повтор  [Enter] Сохранить  [Esc] Отмена", FgDim, BgModal)
+			} else {
+				s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab] Поля  [→/Space] Область серии  [Enter] Сохранить  [Esc] Отмена", FgDim, BgModal)
+			}
 		default:
 			s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab/Shift+Tab] Поля  [Enter] Сохранить  [Esc] Отмена", FgDim, BgModal)
 		}
@@ -1111,7 +1131,7 @@ func (m *ModalSessionForm) Draw(s *Screen) {
 func (m *ModalSessionForm) HandleKey(k Key, app *App) bool {
 	m.appRef = app
 	maxField := 7
-	if !m.isEdit {
+	if !m.isEdit || m.isSeries {
 		maxField = 8
 	}
 
@@ -1177,9 +1197,16 @@ func (m *ModalSessionForm) HandleKey(k Key, app *App) bool {
 				case 6:
 					m.status = val
 				case 8:
-					repCodes := []string{"none", "d", "w", "m"}
-					if m.pickerIdx < len(repCodes) {
-						m.repeatStr = repCodes[m.pickerIdx]
+					if !m.isEdit {
+						repCodes := []string{"none", "d", "w", "m"}
+						if m.pickerIdx < len(repCodes) {
+							m.repeatStr = repCodes[m.pickerIdx]
+						}
+					} else if m.isSeries {
+						scopes := []string{calendar.SeriesScopeSingle, calendar.SeriesScopeFollowing, calendar.SeriesScopeAll}
+						if m.pickerIdx < len(scopes) {
+							m.seriesScope = scopes[m.pickerIdx]
+						}
 					}
 				}
 			}
@@ -1218,7 +1245,11 @@ func (m *ModalSessionForm) HandleKey(k Key, app *App) bool {
 			m.openStatusPicker(app)
 			return true
 		case 8:
-			m.openRepeatPicker()
+			if !m.isEdit {
+				m.openRepeatPicker()
+			} else if m.isSeries {
+				m.openSeriesScopePicker()
+			}
 			return true
 		}
 
@@ -1304,7 +1335,11 @@ func (m *ModalSessionForm) appendChar(r rune) {
 	case 7:
 		m.notes += string(r)
 	case 8:
-		m.cycleRepeat()
+		if !m.isEdit {
+			m.cycleRepeat()
+		} else if m.isSeries {
+			m.cycleSeriesScope()
+		}
 	}
 }
 
@@ -1317,6 +1352,35 @@ func (m *ModalSessionForm) cycleRepeat() {
 		m.repeatStr = "m"
 	} else {
 		m.repeatStr = "none"
+	}
+}
+
+func (m *ModalSessionForm) cycleSeriesScope() {
+	switch m.seriesScope {
+	case calendar.SeriesScopeSingle:
+		m.seriesScope = calendar.SeriesScopeFollowing
+	case calendar.SeriesScopeFollowing:
+		m.seriesScope = calendar.SeriesScopeAll
+	default:
+		m.seriesScope = calendar.SeriesScopeSingle
+	}
+}
+
+func (m *ModalSessionForm) openSeriesScopePicker() {
+	m.pickerList = []string{
+		"Только эту запись",
+		"Эту и все последующие",
+		"Всю серию целиком",
+	}
+	m.pickerTitle = " Область серии [Enter] "
+	m.pickerField = 8
+	m.pickerOpen = true
+	m.pickerScroll = 0
+	m.pickerIdx = 0
+	if m.seriesScope == calendar.SeriesScopeFollowing {
+		m.pickerIdx = 1
+	} else if m.seriesScope == calendar.SeriesScopeAll {
+		m.pickerIdx = 2
 	}
 }
 
@@ -1564,9 +1628,11 @@ func (m *ModalSessionForm) save(app *App) bool {
 			Status:   &statusVal,
 			Notes:    &notesVal,
 		}
-		updated, _, err := app.svc.UpdateEntry(app.ctx, app.cfg, m.targetID, calendar.UpdateInput{
-			Patch:   patch,
-			NewDate: &d,
+		updated, n, err := app.svc.UpdateEntry(app.ctx, app.cfg, m.targetID, calendar.UpdateInput{
+			Patch:        patch,
+			NewDate:      &d,
+			SeriesScope:  m.seriesScope,
+			UpdateSeries: m.seriesScope == calendar.SeriesScopeAll,
 		})
 		if err != nil {
 			app.setStatusMsg("⚠ Ошибка сохранения: " + err.Error())
@@ -1577,7 +1643,13 @@ func (m *ModalSessionForm) save(app *App) bool {
 		app.calMonth = int(d.Month())
 		app.calDay = d.Day()
 		app.persistConfig()
-		app.setStatusMsg("Запись успешно сохранена")
+		if m.isSeries && m.seriesScope == calendar.SeriesScopeFollowing {
+			app.setStatusMsg(fmt.Sprintf("Обновлено записей серии (начиная с текущей): %d", n))
+		} else if m.isSeries && m.seriesScope == calendar.SeriesScopeAll {
+			app.setStatusMsg(fmt.Sprintf("Обновлено записей в серии: %d", n))
+		} else {
+			app.setStatusMsg("Запись успешно сохранена")
+		}
 	} else {
 		var repMode string
 		var repUntil time.Time
@@ -1639,15 +1711,76 @@ func (m *ModalSessionForm) save(app *App) bool {
 // ----------------- CONFIRM DELETE MODAL -----------------
 
 type ModalConfirmDelete struct {
-	targetID string
-	count    int
+	targetID    string
+	count       int
+	isSeries    bool
+	seriesID    string
+	totalSeries int
+	followCount int
+	scopeChoice int // 0: single, 1: following, 2: all
 }
 
 func NewModalConfirmDelete(targetID string, count int) *ModalConfirmDelete {
 	return &ModalConfirmDelete{targetID: targetID, count: count}
 }
 
+func NewModalConfirmDeleteSeries(targetID, seriesID string, totalSeries, followCount int) *ModalConfirmDelete {
+	return &ModalConfirmDelete{
+		targetID:    targetID,
+		count:       1,
+		isSeries:    true,
+		seriesID:    seriesID,
+		totalSeries: totalSeries,
+		followCount: followCount,
+		scopeChoice: 0,
+	}
+}
+
 func (m *ModalConfirmDelete) Draw(s *Screen) {
+	if m.isSeries {
+		w := 54
+		h := 11
+		if w > s.Width-2 {
+			w = s.Width - 2
+		}
+		if h > s.Height-2 {
+			h = s.Height - 2
+		}
+		x := (s.Width - w) / 2
+		y := (s.Height - h) / 2
+		if x < 1 {
+			x = 1
+		}
+		if y < 1 {
+			y = 1
+		}
+
+		s.DrawBox(x, y, w, h, "Удаление повторяющейся записи", FgRed, BorderBright, BgModal, true)
+		s.DrawText(x+3, y+2, "Это повторяющаяся запись. Выберите действие:", FgYellow, BgModal, w-6, true, false, false)
+
+		opts := []string{
+			"1. Удалить только эту запись",
+			fmt.Sprintf("2. Удалить эту и все последующие (%d)", m.followCount),
+			fmt.Sprintf("3. Удалить всю серию целиком (%d)", m.totalSeries),
+		}
+
+		for i, opt := range opts {
+			rowY := y + 4 + i
+			isCur := i == m.scopeChoice
+			bg := BgModal
+			fg := FgWhite
+			prefix := "  ( ) "
+			if isCur {
+				prefix = "► (•) "
+				fg = FgCyan
+			}
+			s.DrawText(x+3, rowY, prefix+opt, fg, bg, w-6, isCur, false, false)
+		}
+
+		s.DrawBottomWrappedHint(x+3, y+h-2, w-6, 2, "[↑↓/1-3] Выбор  [Enter] Удалить  [Esc] Отмена", FgDim, BgModal)
+		return
+	}
+
 	w := 46
 	h := 8
 	if w > s.Width-2 {
@@ -1682,8 +1815,71 @@ func (m *ModalConfirmDelete) HandleKey(k Key, app *App) bool {
 	case KeyEsc:
 		app.activeModal = nil
 		return true
+
+	case KeyUp:
+		if m.isSeries && m.scopeChoice > 0 {
+			m.scopeChoice--
+			return true
+		}
+	case KeyDown:
+		if m.isSeries && m.scopeChoice < 2 {
+			m.scopeChoice++
+			return true
+		}
+	case KeyRune:
+		if m.isSeries {
+			switch k.Rune {
+			case '1':
+				m.scopeChoice = 0
+				return true
+			case '2':
+				m.scopeChoice = 1
+				return true
+			case '3':
+				m.scopeChoice = 2
+				return true
+			case 'k', 'л':
+				if m.scopeChoice > 0 {
+					m.scopeChoice--
+					return true
+				}
+			case 'j', 'о':
+				if m.scopeChoice < 2 {
+					m.scopeChoice++
+					return true
+				}
+			}
+		}
+
 	case KeyEnter:
-		if m.targetID != "" {
+		if m.isSeries {
+			switch m.scopeChoice {
+			case 0:
+				_ = app.svc.Delete(m.targetID)
+				if err := app.svc.Save(app.ctx); err != nil {
+					app.setStatusMsg("⚠ Ошибка сохранения: " + err.Error())
+				} else {
+					app.lastDataMod = app.svc.DataFilesModTime()
+					app.setStatusMsg("Запись удалена")
+				}
+			case 1:
+				removed := app.svc.DeleteSeriesFrom(m.seriesID, m.targetID)
+				if err := app.svc.Save(app.ctx); err != nil {
+					app.setStatusMsg("⚠ Ошибка сохранения: " + err.Error())
+				} else {
+					app.lastDataMod = app.svc.DataFilesModTime()
+					app.setStatusMsg(fmt.Sprintf("Удалено записей серии: %d", removed))
+				}
+			case 2:
+				removed := app.svc.DeleteSeries(m.seriesID)
+				if err := app.svc.Save(app.ctx); err != nil {
+					app.setStatusMsg("⚠ Ошибка сохранения: " + err.Error())
+				} else {
+					app.lastDataMod = app.svc.DataFilesModTime()
+					app.setStatusMsg(fmt.Sprintf("Удалено записей серии: %d", removed))
+				}
+			}
+		} else if m.targetID != "" {
 			_ = app.svc.Delete(m.targetID)
 			if err := app.svc.Save(app.ctx); err != nil {
 				app.setStatusMsg("⚠ Ошибка сохранения: " + err.Error())

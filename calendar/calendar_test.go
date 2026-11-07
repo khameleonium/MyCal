@@ -128,6 +128,64 @@ func TestDeleteVariants(t *testing.T) {
 	}
 }
 
+func TestDeleteSeriesFromAndBranching(t *testing.T) {
+	s := newSvc(t)
+	// Create series of 4 entries
+	a := add(t, s, "2026-05-01", "10:00", "Day1", "Yoga", 45)
+	b := add(t, s, "2026-05-08", "10:00", "Day2", "Yoga", 45)
+	c := add(t, s, "2026-05-15", "10:00", "Day3", "Yoga", 45)
+	d := add(t, s, "2026-05-22", "10:00", "Day4", "Yoga", 45)
+	for i := range s.sessions {
+		s.sessions[i].SeriesID = a
+	}
+
+	// 1. UpdateSeriesFrom: from c (Day 3) onwards, change duration to 60 and name to "Yoga Pro"
+	newName := "Yoga Pro"
+	newDur := 60
+	nUp := s.UpdateSeriesFrom(a, c, Patch{Name: &newName, Duration: &newDur})
+	if nUp != 2 {
+		t.Fatalf("expected 2 updated, got %d", nUp)
+	}
+
+	// a and b must remain Yoga / 45 min and retain series a
+	sessA, _ := s.ByID(a)
+	sessB, _ := s.ByID(b)
+	if sessA.Name != "Day1" || sessA.Duration != 45 || sessA.SeriesID != a {
+		t.Errorf("sessA altered unexpectedly: %+v", sessA)
+	}
+	if sessB.Name != "Day2" || sessB.Duration != 45 || sessB.SeriesID != a {
+		t.Errorf("sessB altered unexpectedly: %+v", sessB)
+	}
+
+	// c and d must be Yoga Pro / 60 min and branched into series c
+	sessC, _ := s.ByID(c)
+	sessD, _ := s.ByID(d)
+	if sessC.Name != "Yoga Pro" || sessC.Duration != 60 || sessC.SeriesID != c {
+		t.Errorf("sessC not branched correctly: %+v", sessC)
+	}
+	if sessD.Name != "Yoga Pro" || sessD.Duration != 60 || sessD.SeriesID != c {
+		t.Errorf("sessD not branched correctly: %+v", sessD)
+	}
+
+	// 2. DeleteSeriesFrom: delete from c onwards (c and d)
+	nDel := s.DeleteSeriesFrom(c, c)
+	if nDel != 2 {
+		t.Fatalf("expected 2 deleted, got %d", nDel)
+	}
+	if _, ok := s.ByID(c); ok {
+		t.Errorf("session c should be deleted")
+	}
+	if _, ok := s.ByID(d); ok {
+		t.Errorf("session d should be deleted")
+	}
+	if _, ok := s.ByID(a); !ok {
+		t.Errorf("session a should still exist")
+	}
+	if _, ok := s.ByID(b); !ok {
+		t.Errorf("session b should still exist")
+	}
+}
+
 func TestPatchEmptyAndClear(t *testing.T) {
 	if !(Patch{}).Empty() {
 		t.Error("zero Patch should be Empty")
