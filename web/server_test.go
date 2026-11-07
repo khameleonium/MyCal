@@ -522,3 +522,38 @@ func TestConfigDataPathPreservationAndSwitching(t *testing.T) {
 		t.Fatalf("expected to find 'Второй каталог' session from new data path, got %v", res.Sessions)
 	}
 }
+
+func TestUpdateFieldValidationAndCalendarSplitPreservesSessions(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	handler := srv.Routes()
+
+	// 1. Invalid time via PATCH /api/sessions/{id}/field must return 400
+	body := bytes.NewBufferString(`{"field":"time","value":"not-a-time"}`)
+	req := httptest.NewRequest(http.MethodPatch, "/api/sessions/20261104100000/field", body)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 on invalid time, got %d", rec.Code)
+	}
+
+	// 2. Non-positive duration via PATCH /api/sessions/{id}/field must return 400
+	body = bytes.NewBufferString(`{"field":"duration","value":-15}`)
+	req = httptest.NewRequest(http.MethodPatch, "/api/sessions/20261104100000/field", body)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 on negative duration, got %d", rec.Code)
+	}
+
+	// 3. Switching split_mode via POST /api/calendars preserves existing sessions
+	body = bytes.NewBufferString(`{"action":"select","key":"","split_mode":"year"}`)
+	req = httptest.NewRequest(http.MethodPost, "/api/calendars", body)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/calendars split_mode=year: got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if srv.svc.Count() != 2 {
+		t.Fatalf("expected 2 sessions preserved after split_mode switch, got %d", srv.svc.Count())
+	}
+}

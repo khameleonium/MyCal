@@ -65,13 +65,24 @@ func (s *Service) Reload(ctx context.Context) error {
 
 // DataFilesModTime returns the latest modification time of the calendar data files on disk.
 func (s *Service) DataFilesModTime() time.Time {
+	s.mu.RLock()
+	dir, baseName, mode := s.dir, s.baseName, s.mode
+	s.mu.RUnlock()
+
 	var latest time.Time
-	path := filepath.Join(s.dir, s.baseName+".json")
+	path := filepath.Join(dir, baseName+".json")
 	if fi, err := os.Stat(path); err == nil {
 		latest = fi.ModTime()
 	}
-	if s.mode != models.SplitNone {
-		if fi, err := os.Stat(s.dir); err == nil && fi.ModTime().After(latest) {
+	if mode != models.SplitNone {
+		if matches, err := filepath.Glob(filepath.Join(dir, "*_"+baseName+".json")); err == nil {
+			for _, m := range matches {
+				if fi, err := os.Stat(m); err == nil && fi.ModTime().After(latest) {
+					latest = fi.ModTime()
+				}
+			}
+		}
+		if fi, err := os.Stat(dir); err == nil && fi.ModTime().After(latest) {
 			latest = fi.ModTime()
 		}
 	}
@@ -80,6 +91,8 @@ func (s *Service) DataFilesModTime() time.Time {
 
 // Warnings returns (and clears) any recoverable problems noticed while loading.
 func (s *Service) Warnings() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	w := s.warnings
 	s.warnings = nil
 	return w
@@ -92,28 +105,153 @@ func (s *Service) Save(ctx context.Context) error {
 	return storage.Save(ctx, s.dir, s.baseName, &models.Calendar{Sessions: s.sessions}, s.mode)
 }
 
-func (s *Service) DataDir() string         { return s.dir }
-func (s *Service) SetMode(mode string)     { s.mode = mode }
-func (s *Service) SetBaseName(name string) { s.baseName = name }
-func (s *Service) Count() int              { return len(s.sessions) }
+func (s *Service) DataDir() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.dir
+}
+
+func (s *Service) BaseName() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.baseName
+}
+
+func (s *Service) Mode() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.mode
+}
+
+func (s *Service) SetMode(mode string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mode = mode
+}
+
+func (s *Service) SetBaseName(name string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.baseName = name
+}
+
+func (s *Service) Count() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.sessions)
+}
+
+// ListCalendars discovers all calendars on disk in s.dir and merges them with cfg.
+func (s *Service) ListCalendars(cfg *models.Config) []models.CalendarInfo {
+	s.mu.RLock()
+	dir := s.dir
+	curBase := s.baseName
+	s.mu.RUnlock()
+
+	base := "mycal"
+	if cfg != nil && strings.TrimSpace(cfg.DataFileName) != "" {
+		base = strings.TrimSpace(cfg.DataFileName)
+	} else if curBase != "" {
+		base = curBase
+		if idx := strings.Index(base, "--"); idx >= 0 {
+			base = base[:idx]
+		}
+	}
+	return storage.DiscoverCalendars(dir, base, cfg)
+}
+
+// SwitchCalendar changes the active calendar to calKey ("" for default),
+// updates cfg, and reloads the calendar's sessions from disk.
+func (s *Service) SwitchCalendar(ctx context.Context, cfg *models.Config, calKey string) error {
+	calKey = models.SanitizeCalendarKey(calKey)
+	if cfg != nil {
+		// Discover first so any on-disk split mode for calKey is recorded in cfg.
+		_ = s.ListCalendars(cfg)
+		cfg.ActiveCalendar = calKey
+		mode := cfg.GetCalendarSplitMode(calKey)
+		cfg.SetCalendarSplitMode(calKey, mode)
+		s.mu.Lock()
+		s.baseName = cfg.EffectiveBaseName(calKey)
+		s.mode = mode
+		s.mu.Unlock()
+	} else {
+		s.mu.Lock()
+		if calKey == "" {
+			if idx := strings.Index(s.baseName, "--"); idx >= 0 {
+				s.baseName = s.baseName[:idx]
+			}
+		} else {
+			base := s.baseName
+			if idx := strings.Index(base, "--"); idx >= 0 {
+				base = base[:idx]
+			}
+			s.baseName = base + "--" + calKey
+		}
+		s.mu.Unlock()
+	}
+	return s.Reload(ctx)
+}
+
+// CreateCalendar creates a new calendar with the given suffix/prefix key and
+// splitMode ("none", "year", "month"), switches to it, and persists its initial
+// JSON file on disk immediately.
+func (s *Service) CreateCalendar(ctx context.Context, cfg *models.Config, calKey, splitMode string) error {
+	calKey = models.SanitizeCalendarKey(calKey)
+	if calKey == "" {
+		return fmt.Errorf("укажите непустое имя (префикс) календаря")
+	}
+	switch splitMode {
+	case models.SplitNone, models.SplitYear, models.SplitMonth:
+	default:
+		splitMode = models.SplitNone
+	}
+	if cfg != nil {
+		cfg.SetCalendarSplitMode(calKey, splitMode)
+		cfg.ActiveCalendar = calKey
+		s.mu.Lock()
+		s.baseName = cfg.EffectiveBaseName(calKey)
+		s.mode = splitMode
+		s.mu.Unlock()
+	} else {
+		s.mu.Lock()
+		base := s.baseName
+		if idx := strings.Index(base, "--"); idx >= 0 {
+			base = base[:idx]
+		}
+		s.baseName = base + "--" + calKey
+		s.mode = splitMode
+		s.mu.Unlock()
+	}
+	if err := s.Reload(ctx); err != nil {
+		return err
+	}
+	return s.Save(ctx)
+}
 
 // RemoveDataFiles deletes on-disk files for a (now unused) base name in the
 // data directory, in every split-mode layout.
 func (s *Service) RemoveDataFiles(baseName string) {
-	storage.RemoveDataFiles(s.dir, baseName)
+	s.mu.RLock()
+	dir := s.dir
+	s.mu.RUnlock()
+	storage.RemoveDataFiles(dir, baseName)
 }
 
 // ---------------------------------------------------------------- queries ----
 
 // All returns a sorted copy of every session.
 func (s *Service) All() []models.Session {
+	s.mu.RLock()
 	out := append([]models.Session(nil), s.sessions...)
+	s.mu.RUnlock()
 	storage.SortSessions(out)
 	return out
 }
 
 // CountByName reports how many sessions have the given name (case-insensitive).
 func (s *Service) CountByName(name string) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	n := 0
 	for _, x := range s.sessions {
 		if strings.EqualFold(x.Name, name) {
@@ -126,12 +264,14 @@ func (s *Service) CountByName(name string) int {
 // InRange returns sessions whose date falls within [start, end] (inclusive).
 func (s *Service) InRange(start, end time.Time) []models.Session {
 	lo, hi := start.Format("2006-01-02"), end.Format("2006-01-02")
+	s.mu.RLock()
 	var out []models.Session
 	for _, x := range s.sessions {
 		if d := x.Date(); d >= lo && d <= hi {
 			out = append(out, x)
 		}
 	}
+	s.mu.RUnlock()
 	storage.SortSessions(out)
 	return out
 }
@@ -153,18 +293,22 @@ func (s *Service) Month(ref time.Time) []models.Session {
 
 // OnDate returns sessions on an ISO (YYYY-MM-DD) date.
 func (s *Service) OnDate(iso string) []models.Session {
+	s.mu.RLock()
 	var out []models.Session
 	for _, x := range s.sessions {
 		if x.Date() == iso {
 			out = append(out, x)
 		}
 	}
+	s.mu.RUnlock()
 	storage.SortSessions(out)
 	return out
 }
 
 // ByID returns the session with the given ID.
 func (s *Service) ByID(id string) (models.Session, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	for _, x := range s.sessions {
 		if x.ID == id {
 			return x, true
@@ -178,24 +322,28 @@ func (s *Service) BySeries(seriesID string) []models.Session {
 	if seriesID == "" {
 		return nil
 	}
+	s.mu.RLock()
 	var out []models.Session
 	for _, x := range s.sessions {
 		if x.SeriesID == seriesID {
 			out = append(out, x)
 		}
 	}
+	s.mu.RUnlock()
 	storage.SortSessions(out)
 	return out
 }
 
 // Conflicts returns sessions at the exact same ISO date and HH:MM time.
 func (s *Service) Conflicts(iso, hhmm string) []models.Session {
+	s.mu.RLock()
 	var out []models.Session
 	for _, x := range s.sessions {
 		if x.Date() == iso && x.Time == hhmm {
 			out = append(out, x)
 		}
 	}
+	s.mu.RUnlock()
 	storage.SortSessions(out)
 	return out
 }
@@ -214,12 +362,14 @@ func Matches(x models.Session, query string) bool {
 
 // Search returns sessions whose name or type contains query (case-insensitive).
 func (s *Service) Search(query string) []models.Session {
+	s.mu.RLock()
 	var out []models.Session
 	for _, x := range s.sessions {
 		if Matches(x, query) {
 			out = append(out, x)
 		}
 	}
+	s.mu.RUnlock()
 	storage.SortSessions(out)
 	return out
 }
@@ -269,6 +419,8 @@ func (s *Service) AvailableStatuses(customStatuses, excludedStatuses []string) [
 }
 
 func (s *Service) distinct(field func(models.Session) string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	seen := map[string]bool{}
 	var out []string
 	for _, x := range s.sessions {
@@ -302,30 +454,14 @@ func merge(defaults, seed, found []string) []string {
 	return append(result, extra...)
 }
 
-// TotalMinutes sums session durations.
-func TotalMinutes(sessions []models.Session) int {
-	total := 0
-	for _, x := range sessions {
-		total += x.Duration
-	}
-	return total
-}
-
-// TotalCash sums session cash amounts.
-func TotalCash(sessions []models.Session) float64 {
-	var total float64
-	for _, x := range sessions {
-		total += x.Cash
-	}
-	return total
-}
-
 // -------------------------------------------------------------- mutations ----
 
 // GenerateID returns a unique 14-char ID: YYYYMMDDHHMM + a two-digit counter
 // that is the smallest value free for that minute. It widens past two digits
 // only if a single minute somehow holds 100+ entries.
 func (s *Service) GenerateID(date, tm time.Time) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	prefix := date.Format("20060102") + tm.Format("1504")
 	used := make(map[string]bool, len(s.sessions))
 	for _, x := range s.sessions {
@@ -354,12 +490,21 @@ func (s *Service) Add(session models.Session) error {
 // It stops at the first invalid/duplicate session and returns how many were
 // added before that.
 func (s *Service) AddBatch(sessions []models.Session) (added int, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, session := range sessions {
 		if session.ID == "" {
 			err = fmt.Errorf("внутренняя ошибка: ID записи не сгенерирован")
 			break
 		}
-		if _, exists := s.ByID(session.ID); exists {
+		exists := false
+		for _, cur := range s.sessions {
+			if cur.ID == session.ID {
+				exists = true
+				break
+			}
+		}
+		if exists {
 			err = fmt.Errorf("запись с ID %s уже существует", session.ID)
 			break
 		}
@@ -414,6 +559,8 @@ func (p Patch) applyTo(x *models.Session) {
 
 // Update applies patch to the session with the given ID.
 func (s *Service) Update(id string, patch Patch) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for i := range s.sessions {
 		if s.sessions[i].ID == id {
 			patch.applyTo(&s.sessions[i])
@@ -429,6 +576,8 @@ func (s *Service) UpdateSeries(seriesID string, patch Patch) int {
 	if seriesID == "" {
 		return 0
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	n := 0
 	for i := range s.sessions {
 		if s.sessions[i].SeriesID == seriesID {
@@ -465,9 +614,15 @@ func (s *Service) DeleteRange(start, end time.Time) int {
 }
 
 // DeleteAll clears the calendar.
-func (s *Service) DeleteAll() { s.sessions = nil }
+func (s *Service) DeleteAll() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessions = nil
+}
 
 func (s *Service) deleteWhere(match func(models.Session) bool) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	kept := s.sessions[:0]
 	n := 0
 	for _, x := range s.sessions {
@@ -492,6 +647,8 @@ type Issue struct {
 // Validate scans for structural problems: missing/short IDs, IDs whose date
 // part is unparseable, duplicate IDs, negative durations, unparseable times.
 func (s *Service) Validate() []Issue {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	var issues []Issue
 	seen := map[string]int{}
 	for _, x := range s.sessions {
@@ -527,6 +684,8 @@ func (s *Service) Validate() []Issue {
 // regenerates duplicate IDs, clamps negative durations, normalises times.
 // Returns the number of sessions changed or dropped.
 func (s *Service) Repair() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	changed := 0
 	var kept []models.Session
 	seen := map[string]bool{}
@@ -726,5 +885,3 @@ func FormatDuration(duration int, unit string) string {
 	}
 	return fmt.Sprintf("%d мин", duration)
 }
-
-

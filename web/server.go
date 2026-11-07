@@ -80,6 +80,18 @@ func (s *Server) checkAutoReload(ctx context.Context) {
 				if newCfg, err := config.Load(ctx, s.cfgPath); err == nil {
 					s.cfg = newCfg
 					s.lastCfgMod = fi.ModTime()
+					if s.svc != nil {
+						newDir := config.EffectiveDataDir(s.cfg.DataPath, s.cfgPath)
+						if newDir != s.svc.DataDir() {
+							if newSvc, err := calendar.NewService(ctx, newDir, s.cfg.ActiveEffectiveBaseName(), s.cfg.ActiveSplitMode()); err == nil {
+								s.svc = newSvc
+								s.lastDataMod = s.svc.DataFilesModTime()
+							}
+						} else if s.svc.BaseName() != s.cfg.ActiveEffectiveBaseName() || s.svc.Mode() != s.cfg.ActiveSplitMode() {
+							_ = s.svc.SwitchCalendar(ctx, s.cfg, s.cfg.ActiveCalendar)
+							s.lastDataMod = s.svc.DataFilesModTime()
+						}
+					}
 				}
 			}
 		}
@@ -168,6 +180,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/statuses/", s.handleStatuses)
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/config", s.handleConfig)
+	mux.HandleFunc("/api/calendars", s.handleCalendars)
 	mux.HandleFunc("/api/info", s.handleInfo)
 	mux.HandleFunc("/api/service/status", s.handleServiceStatus)
 	mux.HandleFunc("/api/service/action", s.handleServiceAction)
@@ -217,7 +230,7 @@ func (s *Server) getSessions(w http.ResponseWriter, r *http.Request) {
 	searchQuery := q.Get("q")
 	dateStr := q.Get("date")
 
-	now := time.Now()
+	now := config.EffectiveToday(s.cfg)
 	ref := now
 	if refStr := q.Get("ref"); refStr != "" {
 		if t, err := time.Parse("2006-01-02", refStr); err == nil {
@@ -294,14 +307,13 @@ func (s *Server) getSessions(w http.ResponseWriter, r *http.Request) {
 		calendar.SortSessions(sessions, sortField, asc)
 	}
 
-	totalMin := calendar.TotalMinutes(sessions)
-	totalCash := calendar.TotalCash(sessions)
+	st := calendar.ComputeStats(sessions)
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"sessions":      sessions,
-		"count":         len(sessions),
-		"total_minutes": totalMin,
-		"total_hours":   float64(totalMin) / 60.0,
-		"total_cash":    totalCash,
+		"count":         st.TotalEntries,
+		"total_minutes": st.TotalMinutes,
+		"total_hours":   st.TotalHours,
+		"total_cash":    st.TotalCash,
 	})
 }
 
@@ -343,69 +355,68 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	dur := req.Duration
 	if dur <= 0 {
-		dur = s.cfg.DefaultDuration
+		if s.cfg != nil {
+			dur = s.cfg.DefaultDuration
+		}
 		if dur <= 0 {
 			dur = 60
 		}
 	}
 
-	base := models.Session{
-		Time:     tm.Format("15:04"),
-		Name:     name,
-		Type:     strings.TrimSpace(req.Type),
-		Duration: dur,
-		Notes:    strings.TrimSpace(req.Notes),
-		Status:   strings.TrimSpace(req.Status),
-		Cash:     parseCash(req.Cash),
-	}
-
-	dates := []time.Time{date}
+	var repeatMode string
+	var repeatUntil time.Time
 	if req.Repeat != "" && req.Repeat != "none" {
-		until, errUntil := parseDateLenient(req.RepeatUntil)
+		repeatMode = req.Repeat
+		until, errUntil := s.parseDate(req.RepeatUntil)
 		if errUntil != nil || until.Before(date) {
-			until = date.AddDate(0, 1, 0) // default 1 month if missing
+			if repeatMode == "m" {
+				until = calendar.AddMonths(date, 12)
+			} else {
+				until = calendar.AddMonths(date, 1)
+			}
 		}
-		occurrences, _ := calendar.RepeatDates(date, until, req.Repeat)
-		dates = append(dates, occurrences...)
+		repeatUntil = until
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	first := base
-	first.ID = s.svc.GenerateID(date, tm)
-	seriesID := ""
-	if len(dates) > 1 {
-		seriesID = first.ID
-		first.SeriesID = seriesID
-	}
-
-	toAdd := []models.Session{first}
-	for _, d := range dates[1:] {
-		occ := base
-		occ.ID = s.svc.GenerateID(d, tm)
-		occ.SeriesID = seriesID
-		toAdd = append(toAdd, occ)
-	}
-
-	added, err := s.svc.AddBatch(toAdd)
+	res, err := s.svc.CreateEntries(r.Context(), s.cfg, calendar.EntryInput{
+		Date:        date,
+		Time:        tm,
+		RawName:     name,
+		Type:        strings.TrimSpace(req.Type),
+		Duration:    dur,
+		Cash:        parseCash(req.Cash),
+		Status:      strings.TrimSpace(req.Status),
+		Notes:       strings.TrimSpace(req.Notes),
+		RepeatMode:  repeatMode,
+		RepeatUntil: repeatUntil,
+	})
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Ошибка сохранения записей: "+err.Error())
 		return
 	}
+	s.lastDataMod = s.svc.DataFilesModTime()
+	if s.cfg != nil && s.cfgPath != "" {
+		_ = config.Save(r.Context(), s.cfgPath, s.cfg)
+		if fi, err := os.Stat(s.cfgPath); err == nil {
+			s.lastCfgMod = fi.ModTime()
+		}
+	}
 
-	if err := s.saveService(context.Background()); err != nil {
-		respondError(w, http.StatusInternalServerError, "Не удалось записать файл данных: "+err.Error())
-		return
+	var first models.Session
+	if len(res.Sessions) > 0 {
+		first = res.Sessions[0]
 	}
 
 	respondJSON(w, http.StatusCreated, map[string]interface{}{
 		"ok":        true,
-		"count":     added,
+		"count":     res.AddedCount,
 		"first_id":  first.ID,
-		"series_id": seriesID,
+		"series_id": res.SeriesID,
 		"session":   first,
 	})
 }
@@ -507,62 +518,34 @@ func (s *Server) updateSession(w http.ResponseWriter, r *http.Request, id string
 		Cash:     cashPtr,
 	}
 
-	// If date changed for a single session, we need to rebuild ID
+	var newDatePtr *time.Time
 	if req.Date != "" && req.Date != sess.Date() && !req.UpdateSeries {
-		newDate, err := parseDateLenient(req.Date)
-		if err == nil {
-			tStr := sess.Time
-			if req.Time != nil {
-				tStr = *req.Time
-			}
-			tm, _ := parser.ParseTime(tStr)
-			newID := s.svc.GenerateID(newDate, tm)
+		if newDate, err := parseDateLenient(req.Date); err == nil {
+			newDatePtr = &newDate
+		}
+	}
 
-			// Update in-place
-			_ = s.svc.Delete(id)
-			sess.ID = newID
-			if req.Time != nil {
-				sess.Time = *req.Time
-			}
-			if req.Name != nil {
-				sess.Name = *req.Name
-			}
-			if req.Type != nil {
-				sess.Type = *req.Type
-			}
-			if req.Duration != nil {
-				sess.Duration = *req.Duration
-			}
-			if req.Notes != nil {
-				sess.Notes = *req.Notes
-			}
-			if req.Status != nil {
-				sess.Status = *req.Status
-			}
-			if cashPtr != nil {
-				sess.Cash = *cashPtr
-			}
-			_ = s.svc.Add(sess)
-			_ = s.saveService(context.Background())
-			respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "session": sess})
-			return
+	updated, n, err := s.svc.UpdateEntry(r.Context(), s.cfg, id, calendar.UpdateInput{
+		Patch:        patch,
+		NewDate:      newDatePtr,
+		UpdateSeries: req.UpdateSeries,
+	})
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	s.lastDataMod = s.svc.DataFilesModTime()
+	if s.cfg != nil && s.cfgPath != "" {
+		_ = config.Save(r.Context(), s.cfgPath, s.cfg)
+		if fi, err := os.Stat(s.cfgPath); err == nil {
+			s.lastCfgMod = fi.ModTime()
 		}
 	}
 
 	if req.UpdateSeries && sess.IsRepeat() {
-		n := s.svc.UpdateSeries(sess.SeriesID, patch)
-		_ = s.saveService(context.Background())
 		respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "updated_count": n})
 		return
 	}
-
-	if err := s.svc.Update(id, patch); err != nil {
-		respondError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	_ = s.saveService(context.Background())
-	updated, _ := s.svc.ByID(id)
 	respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "session": updated})
 }
 
@@ -584,13 +567,25 @@ func (s *Server) updateStatus(w http.ResponseWriter, r *http.Request, id string)
 	defer s.mu.Unlock()
 
 	status := strings.TrimSpace(req.Status)
+	if s.cfg != nil && status != "" {
+		s.cfg.AddCustomStatus(status)
+		if s.cfgPath != "" {
+			_ = config.Save(r.Context(), s.cfgPath, s.cfg)
+			if fi, err := os.Stat(s.cfgPath); err == nil {
+				s.lastCfgMod = fi.ModTime()
+			}
+		}
+	}
 	patch := calendar.Patch{Status: &status}
 	if err := s.svc.Update(id, patch); err != nil {
 		respondError(w, http.StatusNotFound, "Запись не найдена")
 		return
 	}
 
-	_ = s.saveService(context.Background())
+	if err := s.saveService(r.Context()); err != nil {
+		respondError(w, http.StatusInternalServerError, "Ошибка сохранения: "+err.Error())
+		return
+	}
 	updated, _ := s.svc.ByID(id)
 	respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "session": updated})
 }
@@ -613,35 +608,59 @@ func (s *Server) updateField(w http.ResponseWriter, r *http.Request, id string) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	cfgChanged := false
 	var patch calendar.Patch
 	switch strings.ToLower(req.Field) {
 	case "name":
-		v := fmt.Sprintf("%v", req.Value)
+		v := strings.TrimSpace(fmt.Sprintf("%v", req.Value))
+		if v == "" {
+			respondError(w, http.StatusBadRequest, "Наименование не может быть пустым")
+			return
+		}
 		patch.Name = &v
 	case "time":
-		v := fmt.Sprintf("%v", req.Value)
-		patch.Time = &v
+		v := strings.TrimSpace(fmt.Sprintf("%v", req.Value))
+		tm, err := parser.ParseTime(v)
+		if err != nil {
+			respondError(w, http.StatusBadRequest, "Неверный формат времени: "+err.Error())
+			return
+		}
+		formatted := tm.Format("15:04")
+		patch.Time = &formatted
 	case "type":
-		v := fmt.Sprintf("%v", req.Value)
+		v := strings.TrimSpace(fmt.Sprintf("%v", req.Value))
 		patch.Type = &v
+		if s.cfg != nil && v != "" {
+			s.cfg.AddCustomType(v)
+			cfgChanged = true
+		}
 	case "notes":
 		v := fmt.Sprintf("%v", req.Value)
 		patch.Notes = &v
 	case "status":
-		v := fmt.Sprintf("%v", req.Value)
+		v := strings.TrimSpace(fmt.Sprintf("%v", req.Value))
 		patch.Status = &v
+		if s.cfg != nil && v != "" {
+			s.cfg.AddCustomStatus(v)
+			cfgChanged = true
+		}
 	case "cash":
 		c := parseCash(req.Value)
 		patch.Cash = &c
 	case "duration":
+		var dur int
 		if d, ok := req.Value.(float64); ok {
-			dur := int(d)
-			patch.Duration = &dur
+			dur = int(d)
 		} else if sVal, ok := req.Value.(string); ok {
-			if dur, err := strconv.Atoi(sVal); err == nil {
-				patch.Duration = &dur
+			if parsed, err := strconv.Atoi(strings.TrimSpace(sVal)); err == nil {
+				dur = parsed
 			}
 		}
+		if dur <= 0 {
+			respondError(w, http.StatusBadRequest, "Длительность должна быть больше 0")
+			return
+		}
+		patch.Duration = &dur
 	default:
 		respondError(w, http.StatusBadRequest, "Неизвестное поле: "+req.Field)
 		return
@@ -652,7 +671,16 @@ func (s *Server) updateField(w http.ResponseWriter, r *http.Request, id string) 
 		return
 	}
 
-	_ = s.saveService(context.Background())
+	if cfgChanged && s.cfgPath != "" {
+		_ = config.Save(r.Context(), s.cfgPath, s.cfg)
+		if fi, err := os.Stat(s.cfgPath); err == nil {
+			s.lastCfgMod = fi.ModTime()
+		}
+	}
+	if err := s.saveService(r.Context()); err != nil {
+		respondError(w, http.StatusInternalServerError, "Ошибка сохранения: "+err.Error())
+		return
+	}
 	updated, _ := s.svc.ByID(id)
 	respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "session": updated})
 }
@@ -670,7 +698,10 @@ func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request, id string
 	deleteSeries := r.URL.Query().Get("series") == "true"
 	if deleteSeries && sess.IsRepeat() {
 		count := s.svc.DeleteSeries(sess.SeriesID)
-		_ = s.saveService(context.Background())
+		if err := s.saveService(r.Context()); err != nil {
+			respondError(w, http.StatusInternalServerError, "Ошибка сохранения: "+err.Error())
+			return
+		}
 		respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "deleted": count, "series": true})
 		return
 	}
@@ -680,7 +711,10 @@ func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request, id string
 		return
 	}
 
-	_ = s.saveService(context.Background())
+	if err := s.saveService(r.Context()); err != nil {
+		respondError(w, http.StatusInternalServerError, "Ошибка сохранения: "+err.Error())
+		return
+	}
 	respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "deleted": 1})
 }
 
@@ -702,7 +736,7 @@ func (s *Server) duplicateSession(w http.ResponseWriter, r *http.Request, id str
 
 	d, _ := time.Parse("2006-01-02", orig.Date())
 	if req.Date != "" {
-		if parsed, errD := parseDateLenient(req.Date); errD == nil {
+		if parsed, errD := s.parseDate(req.Date); errD == nil {
 			d = parsed
 		}
 	}
@@ -723,7 +757,10 @@ func (s *Server) duplicateSession(w http.ResponseWriter, r *http.Request, id str
 		return
 	}
 
-	_ = s.saveService(context.Background())
+	if err := s.saveService(r.Context()); err != nil {
+		respondError(w, http.StatusInternalServerError, "Ошибка сохранения: "+err.Error())
+		return
+	}
 	respondJSON(w, http.StatusCreated, map[string]interface{}{"ok": true, "session": dup})
 }
 
@@ -955,21 +992,11 @@ func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.RUnlock()
 
 	all := s.svc.All()
-	totalMin := 0
-	totalCash := 0.0
-	byTypeMin := map[string]int{}
-	byTypeCount := map[string]int{}
-
-	for _, s := range all {
-		totalMin += s.Duration
-		totalCash += s.Cash
-		tName := s.Type
-		if tName == "" {
-			tName = "(без типа)"
-		}
-		byTypeMin[tName] += s.Duration
-		byTypeCount[tName]++
-	}
+	st := calendar.ComputeStats(all)
+	totalMin := st.TotalMinutes
+	totalCash := st.TotalCash
+	byTypeMin := st.TypeMinutes
+	byTypeCount := st.TypeCounts
 
 	type typeStat struct {
 		Type    string  `json:"type"`
@@ -1020,7 +1047,16 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		respondJSON(w, http.StatusOK, map[string]interface{}{"config": s.cfg})
+		var cals []models.CalendarInfo
+		if s.svc != nil {
+			cals = s.svc.ListCalendars(s.cfg)
+		}
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"config":            s.cfg,
+			"effective_today":   config.EffectiveToday(s.cfg).Format("2006-01-02"),
+			"calendars":         cals,
+			"active_split_mode": s.cfg.ActiveSplitMode(),
+		})
 	case http.MethodPut, http.MethodPost:
 		updated := *s.cfg
 		if err := json.NewDecoder(r.Body).Decode(&updated); err != nil {
@@ -1030,20 +1066,28 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		updated.Normalize()
 
 		oldDataPath := s.cfg.DataPath
+		oldDataFileName := s.cfg.DataFileName
+		oldEffBaseName := s.cfg.ActiveEffectiveBaseName()
 		newDataPath := strings.TrimSpace(updated.DataPath)
 		if newDataPath == "" {
 			newDataPath = oldDataPath
 		} else {
-			newDataPath = storage.ExpandPath(newDataPath)
+			newDataPath = storage.NormalizeDataPath(newDataPath)
 		}
 
-		if newDataPath != "" && newDataPath != oldDataPath {
-			if err := storage.EnsureWritableDir(newDataPath); err != nil {
+		oldSplit := s.cfg.ActiveSplitMode()
+		if updated.SplitMode != "" {
+			updated.SetActiveSplitMode(updated.SplitMode)
+		}
+
+		if newDataPath != oldDataPath {
+			targetDir := config.EffectiveDataDir(newDataPath, s.cfgPath)
+			if err := storage.EnsureWritableDir(targetDir); err != nil {
 				respondError(w, http.StatusBadRequest, "Недопустимый каталог для хранения базы: "+err.Error())
 				return
 			}
 			updated.DataPath = newDataPath
-			if newSvc, err := calendar.NewService(r.Context(), newDataPath, updated.DataFileName, updated.SplitMode); err == nil {
+			if newSvc, err := calendar.NewService(r.Context(), targetDir, updated.ActiveEffectiveBaseName(), updated.ActiveSplitMode()); err == nil {
 				s.svc = newSvc
 				s.lastDataMod = time.Time{}
 			} else {
@@ -1054,11 +1098,23 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			updated.DataPath = oldDataPath
 		}
 
-		oldSplit := s.cfg.SplitMode
 		*s.cfg = updated
-		if s.svc != nil && updated.SplitMode != "" && updated.SplitMode != oldSplit {
-			s.svc.SetMode(updated.SplitMode)
+		newSplit := s.cfg.ActiveSplitMode()
+		nameChanged := s.cfg.DataFileName != oldDataFileName
+		splitChanged := newSplit != "" && newSplit != oldSplit
+		if s.svc != nil && (splitChanged || nameChanged) {
+			if splitChanged {
+				s.svc.SetMode(newSplit)
+			}
+			if nameChanged {
+				s.svc.SetBaseName(s.cfg.ActiveEffectiveBaseName())
+			}
 			_ = s.svc.Save(r.Context())
+			if nameChanged {
+				s.svc.RemoveDataFiles(oldEffBaseName)
+				storage.RenameFamilyDataFiles(s.svc.DataDir(), oldDataFileName, s.cfg.DataFileName)
+			}
+			s.lastDataMod = s.svc.DataFilesModTime()
 		}
 		if s.cfgPath != "" {
 			_ = config.Save(r.Context(), s.cfgPath, s.cfg)
@@ -1066,7 +1122,100 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 				s.lastCfgMod = fi.ModTime()
 			}
 		}
-		respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "config": s.cfg})
+		var cals []models.CalendarInfo
+		if s.svc != nil {
+			cals = s.svc.ListCalendars(s.cfg)
+		}
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"ok":                true,
+			"config":            s.cfg,
+			"effective_today":   config.EffectiveToday(s.cfg).Format("2006-01-02"),
+			"calendars":         cals,
+			"active_split_mode": s.cfg.ActiveSplitMode(),
+		})
+	default:
+		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleCalendars(w http.ResponseWriter, r *http.Request) {
+	s.checkAutoReload(r.Context())
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	switch r.Method {
+	case http.MethodGet:
+		var cals []models.CalendarInfo
+		if s.svc != nil {
+			cals = s.svc.ListCalendars(s.cfg)
+		}
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"calendars":         cals,
+			"active_calendar":   s.cfg.ActiveCalendar,
+			"active_split_mode": s.cfg.ActiveSplitMode(),
+		})
+
+	case http.MethodPost, http.MethodPut:
+		var req struct {
+			Action    string `json:"action"` // "select" or "create"
+			Key       string `json:"key"`
+			SplitMode string `json:"split_mode"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondError(w, http.StatusBadRequest, "Некорректный JSON запрос")
+			return
+		}
+		action := strings.ToLower(strings.TrimSpace(req.Action))
+		if action == "create" {
+			cleanKey := config.SanitizeCalendarKey(req.Key)
+			if cleanKey == "" {
+				respondError(w, http.StatusBadRequest, "Укажите непустой префикс календаря")
+				return
+			}
+			splitMode := req.SplitMode
+			switch splitMode {
+			case models.SplitNone, models.SplitYear, models.SplitMonth:
+			default:
+				splitMode = models.SplitNone
+			}
+			if err := s.svc.CreateCalendar(r.Context(), s.cfg, cleanKey, splitMode); err != nil {
+				respondError(w, http.StatusInternalServerError, "Не удалось создать календарь: "+err.Error())
+				return
+			}
+		} else {
+			cleanKey := config.SanitizeCalendarKey(req.Key)
+			if err := s.svc.SwitchCalendar(r.Context(), s.cfg, cleanKey); err != nil {
+				respondError(w, http.StatusInternalServerError, "Не удалось переключить календарь: "+err.Error())
+				return
+			}
+			if req.SplitMode != "" {
+				switch req.SplitMode {
+				case models.SplitNone, models.SplitYear, models.SplitMonth:
+					s.cfg.SetCalendarSplitMode(cleanKey, req.SplitMode)
+					s.svc.SetMode(req.SplitMode)
+					if err := s.svc.Save(r.Context()); err != nil {
+						respondError(w, http.StatusInternalServerError, "Ошибка сохранения календаря: "+err.Error())
+						return
+					}
+				}
+			}
+		}
+		s.lastDataMod = s.svc.DataFilesModTime()
+		if s.cfgPath != "" {
+			_ = config.Save(r.Context(), s.cfgPath, s.cfg)
+			if fi, err := os.Stat(s.cfgPath); err == nil {
+				s.lastCfgMod = fi.ModTime()
+			}
+		}
+		cals := s.svc.ListCalendars(s.cfg)
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"ok":                true,
+			"calendars":         cals,
+			"active_calendar":   s.cfg.ActiveCalendar,
+			"active_split_mode": s.cfg.ActiveSplitMode(),
+			"config":            s.cfg,
+		})
+
 	default:
 		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
 	}
@@ -1156,6 +1305,15 @@ func (s *Server) handleSessionsBatch(w http.ResponseWriter, r *http.Request) {
 		case "type":
 			v := strings.TrimSpace(fmt.Sprintf("%v", req.Value))
 			patch.Type = &v
+			if s.cfg != nil && v != "" {
+				s.cfg.AddCustomType(v)
+				if s.cfgPath != "" {
+					_ = config.Save(r.Context(), s.cfgPath, s.cfg)
+					if fi, err := os.Stat(s.cfgPath); err == nil {
+						s.lastCfgMod = fi.ModTime()
+					}
+				}
+			}
 		case "duration":
 			dur, _ := strconv.Atoi(fmt.Sprintf("%v", req.Value))
 			if dur <= 0 {
@@ -1168,6 +1326,15 @@ func (s *Server) handleSessionsBatch(w http.ResponseWriter, r *http.Request) {
 		case "status":
 			v := strings.TrimSpace(fmt.Sprintf("%v", req.Value))
 			patch.Status = &v
+			if s.cfg != nil && v != "" {
+				s.cfg.AddCustomStatus(v)
+				if s.cfgPath != "" {
+					_ = config.Save(r.Context(), s.cfgPath, s.cfg)
+					if fi, err := os.Stat(s.cfgPath); err == nil {
+						s.lastCfgMod = fi.ModTime()
+					}
+				}
+			}
 		case "cash":
 			c := parseCash(req.Value)
 			patch.Cash = &c
@@ -1181,7 +1348,10 @@ func (s *Server) handleSessionsBatch(w http.ResponseWriter, r *http.Request) {
 				updated++
 			}
 		}
-		_ = s.saveService(context.Background())
+		if err := s.saveService(r.Context()); err != nil {
+			respondError(w, http.StatusInternalServerError, "Ошибка сохранения: "+err.Error())
+			return
+		}
 		respondJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "updated_count": updated})
 
 	default:
@@ -1203,58 +1373,34 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 
 // --------------------------- Helper Functions ---------------------------
 
+func (s *Server) parseDate(raw string) (time.Time, error) {
+	ref := time.Now()
+	if s != nil && s.cfg != nil {
+		ref = config.EffectiveToday(s.cfg)
+	}
+	return parseDateWithRef(raw, ref)
+}
+
 func parseDateLenient(s string) (time.Time, error) {
+	return parseDateWithRef(s, time.Now())
+}
+
+func parseDateWithRef(s string, ref time.Time) (time.Time, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
-		return time.Now(), nil
+		return ref, nil
 	}
 	// Try standard ISO
 	if t, err := time.Parse("2006-01-02", s); err == nil {
 		return t, nil
 	}
 	// Try parser.ParseDate
-	return parser.ParseDate(s, time.Now())
+	return parser.ParseDate(s, ref)
 }
 
 func parseCash(v interface{}) float64 {
-	if v == nil {
-		return 0.0
-	}
-	switch val := v.(type) {
-	case float64:
-		return val
-	case float32:
-		return float64(val)
-	case int:
-		return float64(val)
-	case int64:
-		return float64(val)
-	case json.Number:
-		f, err := val.Float64()
-		if err == nil {
-			return f
-		}
-		return 0.0
-	case string:
-		s := strings.TrimSpace(val)
-		if s == "" {
-			return 0.0
-		}
-		s = strings.ReplaceAll(s, ",", ".")
-		f, err := strconv.ParseFloat(s, 64)
-		if err != nil {
-			return 0.0
-		}
-		return f
-	default:
-		s := strings.TrimSpace(fmt.Sprintf("%v", v))
-		s = strings.ReplaceAll(s, ",", ".")
-		f, err := strconv.ParseFloat(s, 64)
-		if err != nil {
-			return 0.0
-		}
-		return f
-	}
+	f, _ := calendar.ParseCash(v)
+	return f
 }
 
 func (s *Server) handleServiceStatus(w http.ResponseWriter, r *http.Request) {
@@ -1283,7 +1429,11 @@ func (s *Server) handleServiceAction(w http.ResponseWriter, r *http.Request) {
 
 	port := req.Port
 	if port <= 0 {
-		port = s.cfg.WebPort
+		s.mu.RLock()
+		if s.cfg != nil {
+			port = s.cfg.WebPort
+		}
+		s.mu.RUnlock()
 	}
 	if port <= 0 {
 		port = 8080

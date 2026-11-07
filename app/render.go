@@ -73,15 +73,14 @@ func (a *App) printSessions(ordered []models.Session) {
 }
 
 func (a *App) printSummary(sessions []models.Session) {
-	mins := calendar.TotalMinutes(sessions)
-	totalCash := calendar.TotalCash(sessions)
+	st := calendar.ComputeStats(sessions)
 	cashPart := ""
-	if totalCash != 0 {
-		cashPart = " | Общий кэш: " + formatCashDetail(totalCash)
+	if st.TotalCash != 0 {
+		cashPart = " | Общий кэш: " + formatCashDetail(st.TotalCash)
 	}
 	fmt.Printf("\nОбщее время: %s | Всего записей: %s%s\n",
-		color.Orange(fmt.Sprintf("%.1f ч", float64(mins)/60.0)),
-		color.Green(strconv.Itoa(len(sessions))),
+		color.Orange(fmt.Sprintf("%.1f ч", st.TotalHours)),
+		color.Green(strconv.Itoa(st.Count)),
 		cashPart)
 }
 
@@ -89,49 +88,34 @@ func (a *App) printStats(sessions []models.Session) {
 	if len(sessions) == 0 {
 		return
 	}
-	totalMin := 0
-	totalCash := 0.0
-	byType := map[string]int{}
-	byTypeCash := map[string]float64{}
-	for _, s := range sessions {
-		totalMin += s.Duration
-		totalCash += s.Cash
-		byType[s.Type] += s.Duration
-		byTypeCash[s.Type] += s.Cash
-	}
+	st := calendar.ComputeStats(sessions)
 
 	fmt.Println()
 	fmt.Println(sep)
-	fmt.Printf(statFmt+"\n", "Всего записей:", color.Orange(strconv.Itoa(len(sessions))))
+	fmt.Printf(statFmt+"\n", "Всего записей:", color.Orange(strconv.Itoa(st.Count)))
 	fmt.Printf(statFmt+"\n", "Средняя продолж.:",
-		color.Orange(fmt.Sprintf("%.1f мин", float64(totalMin)/float64(len(sessions)))))
-	if totalCash != 0 {
-		fmt.Printf(statFmt+"\n", "Общий кэш:", formatCashDetail(totalCash))
-		fmt.Printf(statFmt+"\n", "Средний кэш:", formatCashDetail(totalCash/float64(len(sessions))))
+		color.Orange(fmt.Sprintf("%.1f мин", st.AvgMinutes)))
+	if st.TotalCash != 0 {
+		fmt.Printf(statFmt+"\n", "Общий кэш:", formatCashDetail(st.TotalCash))
 	}
 
 	fmt.Println()
 	fmt.Println(color.Yellow("  По типам записей:"))
-	keys := make([]string, 0, len(byType))
-	for t := range byType {
-		keys = append(keys, t)
-	}
-	sort.Strings(keys)
-	for _, t := range keys {
-		name := t
+	for _, ts := range st.ByType {
+		name := ts.Type
 		if name == "" {
 			name = "(без типа)"
 		}
-		statStr := color.Orange(fmt.Sprintf("%.1f ч (%d мин)", float64(byType[t])/60.0, byType[t]))
-		if byTypeCash[t] != 0 {
-			statStr += fmt.Sprintf(" | Кэш: %s", formatCashDetail(byTypeCash[t]))
+		statStr := color.Orange(fmt.Sprintf("%.1f ч (%d мин)", ts.Hours, ts.Minutes))
+		if ts.Cash != 0 {
+			statStr += fmt.Sprintf(" | Кэш: %s", formatCashDetail(ts.Cash))
 		}
 		fmt.Printf(statFmt+"\n", "    "+name+":", statStr)
 	}
 	fmt.Println("  " + sep[:36])
-	totalStatStr := color.Orange(fmt.Sprintf("%.1f ч (%d мин)", float64(totalMin)/60.0, totalMin))
-	if totalCash != 0 {
-		totalStatStr += fmt.Sprintf(" | Кэш: %s", formatCashDetail(totalCash))
+	totalStatStr := color.Orange(fmt.Sprintf("%.1f ч (%d мин)", st.TotalHours, st.TotalMinutes))
+	if st.TotalCash != 0 {
+		totalStatStr += fmt.Sprintf(" | Кэш: %s", formatCashDetail(st.TotalCash))
 	}
 	fmt.Printf(statFmt+"\n", "  Общее время:", totalStatStr)
 	fmt.Println(sep)
@@ -140,28 +124,40 @@ func (a *App) printStats(sessions []models.Session) {
 func (a *App) showSessionDetail(s models.Session) {
 	fmt.Println()
 	fmt.Println(sep)
-	fmt.Printf("  %s%s\n", detailLabel("ИД:"), color.Yellow(s.ID))
-	fmt.Printf("  %s%s\n", detailLabel("Дата:"), color.Magenta(parser.FormatDate(mustISO(s.Date()))))
-	fmt.Printf("  %s%s\n", detailLabel("Время:"), s.Time)
-	fmt.Printf("  %s%s\n", detailLabel("Имя:"), color.Green(s.Name))
-	fmt.Printf("  %s%s\n", detailLabel("Тип:"), s.Type)
 	unit := "min"
 	if a.cfg != nil && a.cfg.DurationUnit == "hours" {
 		unit = "hours"
 	}
-	fmt.Printf("  %s%s\n", detailLabel("Продолжительность:"), color.Orange(calendar.FormatDuration(s.Duration, unit)))
-	fmt.Printf("  %s%s\n", detailLabel("Кэш:"), formatCashDetail(s.Cash))
-	fmt.Printf("  %s%s\n", detailLabel("Статус:"), dash(s.Status))
-	fmt.Printf("  %s%s\n", detailLabel("Комментарий:"), dash(s.Notes))
-	if s.IsRepeat() {
-		n := len(a.svc.BySeries(s.SeriesID))
-		fmt.Printf("  %s%s\n", detailLabel("Серия:"), color.Magenta(fmt.Sprintf("повтор, записей в серии: %d", n)))
+	for _, fSpec := range calendar.SessionFields {
+		if fSpec.Key == calendar.FieldSeries {
+			if s.IsRepeat() {
+				n := len(a.svc.BySeries(s.SeriesID))
+				fmt.Printf("  %s%s\n", detailLabel(fSpec.Label+":"), color.Magenta(fmt.Sprintf("повтор, записей в серии: %d", n)))
+			}
+			continue
+		}
+		val := fSpec.Format(s, unit)
+		switch fSpec.Key {
+		case calendar.FieldID:
+			val = color.Yellow(val)
+		case calendar.FieldDate:
+			val = color.Magenta(val)
+		case calendar.FieldName:
+			val = color.Green(val)
+		case calendar.FieldDuration:
+			val = color.Orange(val)
+		case calendar.FieldCash:
+			val = formatCashDetail(s.Cash)
+		case calendar.FieldStatus, calendar.FieldNotes:
+			val = dash(val)
+		}
+		fmt.Printf("  %s%s\n", detailLabel(fSpec.Label+":"), val)
 	}
 	fmt.Println(sep)
 }
 
 func formatCashDetail(cash float64) string {
-	s := strconv.FormatFloat(cash, 'f', -1, 64)
+	s := calendar.FormatCash(cash)
 	if cash < 0 {
 		return color.Red(s)
 	}

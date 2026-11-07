@@ -236,9 +236,9 @@ func TestSettingsToggleAskConflictAndShowHints(t *testing.T) {
 func TestDateCheckHint(t *testing.T) {
 	modes := []string{models.DateCheckOff, models.DateCheckAsk, models.DateCheckFix, models.DateCheckReask}
 	for _, m := range modes {
-		h := dateCheckHint(m)
+		h := config.DateCheckHint(m)
 		if h == "" || !strings.Contains(h, "32.01") {
-			t.Errorf("dateCheckHint(%q) = %q, expected non-empty hint containing 32.01", m, h)
+			t.Errorf("DateCheckHint(%q) = %q, expected non-empty hint containing 32.01", m, h)
 		}
 	}
 }
@@ -317,3 +317,33 @@ func TestCLICashAddEditViewExport(t *testing.T) {
 	}
 }
 
+func TestCLICreateAndSelectCalendar(t *testing.T) {
+	// 1. Add entry to default calendar ("1"), then create calendar "work" with yearly mode ("10", "work", "2"),
+	// add an entry to "work" ("1"), then switch back to default calendar ("9", "1"), and exit ("8").
+	script := lines(
+		"1", "17.10.2026", "10:00", "Запись в основном", "8",
+		"10", "work", "2",
+		"1", "17.10.2026", "11:00", "Запись в рабочем", "8",
+		"9", "1",
+		"8",
+	)
+	a, dir := newTestApp(t, script)
+	a.mainMenu()
+
+	// Should now be on default calendar with 1 entry
+	if a.cfg.ActiveCalendar != "" || a.svc.Count() != 1 || a.svc.All()[0].Name != "Запись в основном" {
+		t.Fatalf("expected default calendar with 1 entry, got active=%q count=%d", a.cfg.ActiveCalendar, a.svc.Count())
+	}
+
+	// Verify 2026_mycal--work.json was created on disk
+	if _, err := os.Stat(filepath.Join(dir, "2026_mycal--work.json")); err != nil {
+		t.Fatalf("expected 2026_mycal--work.json on disk: %v", err)
+	}
+
+	// Switch back to "work" via CLI dialog ("9", "2")
+	a.feed(lines("9", "2", "8"))
+	a.mainMenu()
+	if a.cfg.ActiveCalendar != "work" || a.svc.Count() != 1 || a.svc.All()[0].Name != "Запись в рабочем" {
+		t.Fatalf("expected work calendar with 1 entry, got active=%q count=%d", a.cfg.ActiveCalendar, a.svc.Count())
+	}
+}

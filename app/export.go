@@ -1,16 +1,10 @@
 package app
 
 import (
-	"encoding/csv"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strconv"
-	"time"
 
 	"mycalendar/color"
 	"mycalendar/models"
-	"mycalendar/parser"
 )
 
 func (a *App) exportMenu() {
@@ -106,44 +100,15 @@ func (a *App) exportByTypes() {
 }
 
 // exportCSV writes a UTF-8 CSV (with BOM so Excel on Windows reads Cyrillic)
-// next to the calendar data files.
+// next to the calendar data files via the unified calendar.Service.ExportCSV.
 func (a *App) exportCSV(sessions []models.Session) {
 	if len(sessions) == 0 {
 		fmt.Println(color.Yellow(warnMark + " Нет записей для экспорта"))
 		return
 	}
-	stamp := time.Now().Format("20060102_150405")
-	path := filepath.Join(a.svc.DataDir(), "export_"+stamp+".csv")
-	for i := 2; fileExists(path); i++ {
-		path = filepath.Join(a.svc.DataDir(), fmt.Sprintf("export_%s_%d.csv", stamp, i))
-	}
-
-	f, err := os.Create(path)
+	path, err := a.svc.ExportCSV(sessions)
 	if err != nil {
-		fmt.Println(color.Red(errMark + " Не удалось создать файл: " + explainFS(err)))
-		return
-	}
-	defer f.Close()
-
-	if _, err := f.Write([]byte{0xEF, 0xBB, 0xBF}); err != nil {
-		fmt.Println(color.Red(errMark + " Ошибка записи: " + err.Error()))
-		return
-	}
-
-	w := csv.NewWriter(f)
-	rows := [][]string{{"ID", "Дата", "Время", "Имя", "Тип", "Продолжительность (мин)", "Кэш", "Комментарий", "Статус", "Серия"}}
-	for _, s := range sessions {
-		rows = append(rows, []string{
-			s.ID, parser.FormatDate(mustISO(s.Date())), s.Time, s.Name, s.Type,
-			strconv.Itoa(s.Duration), strconv.FormatFloat(s.Cash, 'f', -1, 64), s.Notes, s.Status, s.SeriesID,
-		})
-	}
-	if err := w.WriteAll(rows); err != nil {
-		fmt.Println(color.Red(errMark + " Ошибка записи CSV: " + err.Error()))
-		return
-	}
-	if err := f.Sync(); err != nil {
-		fmt.Println(color.Red(errMark + " Ошибка записи на диск: " + err.Error()))
+		fmt.Println(color.Red(errMark + " Не удалось экспортировать CSV: " + explainFS(err)))
 		return
 	}
 	fmt.Println(color.Green(okMark + " Экспортировано: " + color.Green(path)))

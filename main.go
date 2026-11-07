@@ -7,8 +7,10 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"mycalendar/app"
 	"mycalendar/calendar"
@@ -36,12 +38,29 @@ func main() {
 		}
 	}
 
-	// SIGINT cancels the context so an in-flight disk write can abort cleanly.
+	// On Windows, if started by Task Scheduler (schtasks), the working directory
+	// defaults to C:\Windows\System32. Switch to the executable's directory so
+	// relative paths never point into System32.
+	if runtime.GOOS == "windows" {
+		if wd, err := os.Getwd(); err == nil {
+			low := strings.ToLower(filepath.Clean(wd))
+			if strings.HasSuffix(low, `\windows\system32`) || strings.HasSuffix(low, `\windows\syswow64`) {
+				if exe, exeErr := service.GetExePath(); exeErr == nil {
+					_ = os.Chdir(filepath.Dir(exe))
+				}
+			}
+		}
+	}
+
+	// SIGINT cancels the context so an in-flight disk write or HTTP server can shut down cleanly.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
 	go func() {
 		<-ctx.Done()
+		// Allow a short grace period for defer/shutdown handlers to finish
+		// before forcing exit if a blocking stdin read in cooked CLI mode hangs.
+		time.Sleep(1500 * time.Millisecond)
 		fmt.Println()
 		os.Exit(0)
 	}()
@@ -86,7 +105,10 @@ func run(ctx context.Context) error {
 		return err
 	}
 
-	svc, err := calendar.NewService(ctx, dataDir, cfg.DataFileName, cfg.SplitMode)
+	// Discover calendars in dataDir so any per-calendar split mode on disk is synced.
+	_ = storage.DiscoverCalendars(dataDir, cfg.DataFileName, cfg)
+
+	svc, err := calendar.NewService(ctx, dataDir, cfg.ActiveEffectiveBaseName(), cfg.ActiveSplitMode())
 	if err != nil {
 		return fmt.Errorf("не удалось открыть календарь: %w", err)
 	}
