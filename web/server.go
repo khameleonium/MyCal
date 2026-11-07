@@ -27,13 +27,14 @@ import (
 
 // Server coordinates the web dashboard, providing a REST API and static frontend.
 type Server struct {
-	svc         *calendar.Service
-	cfg         *models.Config
-	cfgPath     string
-	version     string
-	mu          sync.RWMutex
-	lastDataMod time.Time
-	lastCfgMod  time.Time
+	svc          *calendar.Service
+	cfg          *models.Config
+	cfgPath      string
+	version      string
+	hostOverride string
+	mu           sync.RWMutex
+	lastDataMod  time.Time
+	lastCfgMod   time.Time
 }
 
 // NewServer creates a new web Server instance.
@@ -58,6 +59,66 @@ func NewServer(svc *calendar.Service, cfg *models.Config, cfgPath string, versio
 		lastDataMod: dataMod,
 		lastCfgMod:  cfgMod,
 	}
+}
+
+// SetHost overrides the bind address for this server instance (e.g. "0.0.0.0" for LAN).
+func (s *Server) SetHost(host string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.hostOverride = strings.TrimSpace(host)
+}
+
+func (s *Server) effectiveHost() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.hostOverride != "" {
+		return s.hostOverride
+	}
+	if s.cfg != nil && s.cfg.WebLAN {
+		return "0.0.0.0"
+	}
+	return "127.0.0.1"
+}
+
+// LocalLANIPs returns all active non-loopback IPv4 addresses of the machine.
+func LocalLANIPs() []string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+	var ips []string
+	seen := make(map[string]bool)
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+			ip4 := ip.To4()
+			if ip4 == nil || ip4.IsLinkLocalUnicast() {
+				continue
+			}
+			s := ip4.String()
+			if !seen[s] {
+				seen[s] = true
+				ips = append(ips, s)
+			}
+		}
+	}
+	return ips
 }
 
 func (s *Server) checkAutoReload(ctx context.Context) {
@@ -107,17 +168,37 @@ func (s *Server) saveService(ctx context.Context) error {
 	return err
 }
 
-// Start launches the HTTP server, listening on 127.0.0.1:port (or next free port).
+// Start launches the HTTP server, listening on 127.0.0.1:port or 0.0.0.0:port (when LAN access is enabled).
 func (s *Server) Start(ctx context.Context, defaultPort int, shouldOpenBrowser bool) error {
-	listener, port, err := s.listenOnAvailablePort(defaultPort)
+	host := s.effectiveHost()
+	listener, port, err := s.listenOnAvailablePort(host, defaultPort)
 	if err != nil {
 		return fmt.Errorf("не удалось запустить сервер: %w", err)
 	}
 
-	url := fmt.Sprintf("http://127.0.0.1:%d", port)
+	localHost := host
+	if localHost == "0.0.0.0" || localHost == "::" || localHost == "" {
+		localHost = "127.0.0.1"
+	}
+	url := fmt.Sprintf("http://%s:%d", localHost, port)
 	fmt.Println()
 	fmt.Println("╔══════════════════════════════════════════════════════════════════════╗")
 	fmt.Printf("║  📅  MyCal Web Dashboard запущен: %-34s ║\n", url)
+	if host == "0.0.0.0" || host == "::" {
+		lanIPs := LocalLANIPs()
+		if len(lanIPs) > 0 {
+			for _, ip := range lanIPs {
+				lanURL := fmt.Sprintf("http://%s:%d", ip, port)
+				fmt.Printf("║  🌐  Доступ из сети (LAN):        %-34s ║\n", lanURL)
+			}
+		} else {
+			fmt.Printf("║  🌐  Доступ из сети (LAN):        0.0.0.0:%-26d ║\n", port)
+		}
+	} else if host != "127.0.0.1" && host != "localhost" {
+		fmt.Printf("║  🌐  Доступ из сети (LAN):        %-34s ║\n", url)
+	} else {
+		fmt.Println("║  💡  Для доступа из сети:         mycal web --lan                    ║")
+	}
 	fmt.Println("║  Для выхода нажмите Ctrl+C                                           ║")
 	fmt.Println("╚══════════════════════════════════════════════════════════════════════╝")
 	fmt.Println()
@@ -147,19 +228,22 @@ func (s *Server) Start(ctx context.Context, defaultPort int, shouldOpenBrowser b
 	return nil
 }
 
-func (s *Server) listenOnAvailablePort(startPort int) (net.Listener, int, error) {
+func (s *Server) listenOnAvailablePort(host string, startPort int) (net.Listener, int, error) {
+	if strings.TrimSpace(host) == "" {
+		host = "127.0.0.1"
+	}
 	if startPort <= 0 {
 		startPort = 8080
 	}
 	for p := startPort; p < startPort+100; p++ {
-		addr := fmt.Sprintf("127.0.0.1:%d", p)
+		addr := net.JoinHostPort(host, strconv.Itoa(p))
 		l, err := net.Listen("tcp", addr)
 		if err == nil {
 			return l, p, nil
 		}
 	}
 	// Fallback to random system port
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	l, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -1064,6 +1148,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			"effective_today":   config.EffectiveToday(s.cfg).Format("2006-01-02"),
 			"calendars":         cals,
 			"active_split_mode": s.cfg.ActiveSplitMode(),
+			"lan_ips":           LocalLANIPs(),
 		})
 	case http.MethodPut, http.MethodPost:
 		updated := *s.cfg
@@ -1140,6 +1225,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			"effective_today":   config.EffectiveToday(s.cfg).Format("2006-01-02"),
 			"calendars":         cals,
 			"active_split_mode": s.cfg.ActiveSplitMode(),
+			"lan_ips":           LocalLANIPs(),
 		})
 	default:
 		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
@@ -1548,6 +1634,7 @@ func (s *Server) handleInfo(w http.ResponseWriter, r *http.Request) {
 		"version":       s.version,
 		"data_dir":      s.svc.DataDir(),
 		"total_records": s.svc.Count(),
+		"lan_ips":       LocalLANIPs(),
 	})
 }
 

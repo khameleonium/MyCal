@@ -35,6 +35,7 @@ func DefaultSettingModes() map[string][]string {
 	return map[string][]string{
 		"default_mode":       {ModeCLI, ModeTUI, ModeWeb},
 		"web_port":           {ModeCLI, ModeTUI, ModeWeb},
+		"web_lan":            {ModeCLI, ModeTUI, ModeWeb},
 		"default_duration":   {ModeCLI, ModeTUI, ModeWeb},
 		"duration_unit":      {ModeCLI, ModeTUI, ModeWeb},
 		"default_type":       {ModeCLI, ModeTUI, ModeWeb},
@@ -64,6 +65,7 @@ var DefaultConfig = Config{
 	ShowHints:        false,
 	DefaultMode:      ModeCLI,
 	WebPort:          8080,
+	WebLAN:           false,
 	SortField:        "date",
 	SortAsc:          false,
 	DurationUnit:     "min",
@@ -102,6 +104,7 @@ type Config struct {
 	ShowHints        bool                `json:"show_hints"`
 	DefaultMode      string              `json:"default_mode"`
 	WebPort          int                 `json:"web_port"`
+	WebLAN           bool                `json:"web_lan"`
 	SortField        string              `json:"sort_field"`
 	SortAsc          bool                `json:"sort_asc"`
 	DurationUnit     string              `json:"duration_unit"`

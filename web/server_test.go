@@ -624,3 +624,42 @@ func TestWebUndoMoveImportExportAndEmptyStatus(t *testing.T) {
 		t.Fatalf("expected session 20261104100000 moved out of default calendar")
 	}
 }
+
+func TestWebLANBindingAndConfig(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	handler := srv.Routes()
+
+	if srv.effectiveHost() != "127.0.0.1" {
+		t.Fatalf("expected default effectiveHost 127.0.0.1, got %q", srv.effectiveHost())
+	}
+
+	// Enable WebLAN via POST /api/config
+	body := bytes.NewBufferString(`{"web_lan":true,"web_port":8099}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/config", body)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/config web_lan=true: got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if !srv.cfg.WebLAN {
+		t.Fatalf("expected srv.cfg.WebLAN == true after POST /api/config")
+	}
+	if srv.effectiveHost() != "0.0.0.0" {
+		t.Fatalf("expected effectiveHost 0.0.0.0 when WebLAN is true, got %q", srv.effectiveHost())
+	}
+
+	// Explicit SetHost overrides config
+	srv.SetHost("127.0.0.1")
+	if srv.effectiveHost() != "127.0.0.1" {
+		t.Fatalf("expected SetHost override 127.0.0.1, got %q", srv.effectiveHost())
+	}
+	srv.SetHost("0.0.0.0")
+	ln, port, err := srv.listenOnAvailablePort(srv.effectiveHost(), 18950)
+	if err != nil {
+		t.Fatalf("listenOnAvailablePort(0.0.0.0) failed: %v", err)
+	}
+	defer ln.Close()
+	if port < 18950 {
+		t.Fatalf("unexpected port: %d", port)
+	}
+}

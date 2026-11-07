@@ -88,6 +88,10 @@ func (a *App) settingsMenu() {
 		a.hint("Переключение активного календаря записей")
 		fmt.Println(" g | 18. Создать календарь записей")
 		a.hint("Создать новый календарь с префиксом (единый или погодовой файл)")
+		if a.cfg.IsSettingForMode("web_lan", models.ModeCLI) {
+			fmt.Printf(" a | 19. Доступ к Web из сети (LAN)  [%s]\n", onOff(a.cfg.WebLAN))
+			a.hint("Разрешить открытие веб-интерфейса с других устройств в локальной сети (0.0.0.0)")
+		}
 		fmt.Println(" q | 0. Сохранить и выйти")
 		a.hint("Применить изменения и вернуться в главное меню")
 
@@ -171,11 +175,13 @@ func (a *App) settingsMenu() {
 			a.createCalendarDialog()
 			startMode = a.cfg.ActiveSplitMode()
 			startEffName = a.cfg.ActiveEffectiveBaseName()
+		case match(choice, "19", "a", "ф"):
+			config.CycleSetting(a.cfg, "web_lan", nil)
 		case match(choice, "0", "q"):
 			a.persistSettings(startMode, startName, startEffName, startPath)
 			return
 		default:
-			fmt.Println(color.Red(errMark + " Некорректный выбор (0–18)"))
+			fmt.Println(color.Red(errMark + " Некорректный выбор (0–19)"))
 		}
 	}
 }

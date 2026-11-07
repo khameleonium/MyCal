@@ -11,6 +11,7 @@ const state = {
   types: [],
   statuses: ["Активно", "Завершено", "В процессе", "Запланировано", "Пропущено", "Отменено"],
   config: {},
+  lanIPs: [],
   calendars: [],
   activeSplitMode: "none",
   currentPeriod: (savedPeriodState && savedPeriodState.period) ? savedPeriodState.period : "month", // "today", "week", "month", "all", "range", or "day"
@@ -160,6 +161,7 @@ async function fetchConfig() {
   try {
     const data = await apiFetch("/api/config");
     state.config = data.config || {};
+    state.lanIPs = Array.isArray(data.lan_ips) ? data.lan_ips : [];
     state.calendars = Array.isArray(data.calendars) ? data.calendars : [];
     state.activeSplitMode = data.active_split_mode || state.config.split_mode || "none";
     renderCalendarSelect();
@@ -171,6 +173,10 @@ async function fetchConfig() {
     if (document.getElementById("cfgWebPort")) {
       document.getElementById("cfgWebPort").value = state.config.web_port || 8080;
     }
+    if (document.getElementById("cfgWebLAN")) {
+      document.getElementById("cfgWebLAN").value = state.config.web_lan ? "true" : "false";
+    }
+    updateLANUrlsHint();
     document.getElementById("cfgDefaultDuration").value = state.config.default_duration || 60;
     if (document.getElementById("cfgDurationUnit")) {
       document.getElementById("cfgDurationUnit").value = state.config.duration_unit || "min";
@@ -2807,8 +2813,26 @@ function openSettingsModal() {
   if (document.getElementById("cfgTUIDefaultPeriod")) {
     document.getElementById("cfgTUIDefaultPeriod").value = state.config.tui_default_period || "today";
   }
+  if (document.getElementById("cfgWebLAN")) {
+    document.getElementById("cfgWebLAN").value = state.config.web_lan ? "true" : "false";
+  }
+  updateLANUrlsHint();
   applySettingModesVisibility();
   openModal("modalSettings");
+}
+
+function updateLANUrlsHint() {
+  const hintEl = document.getElementById("lanUrlsHint");
+  if (!hintEl) return;
+  const isLAN = document.getElementById("cfgWebLAN")?.value === "true";
+  const port = parseInt(document.getElementById("cfgWebPort")?.value || state.config.web_port || 8080, 10) || 8080;
+  if (!isLAN) {
+    hintEl.innerHTML = `Локальный адрес: <strong>http://127.0.0.1:${port}</strong> (или запустите <code>mycal web --lan</code>)`;
+    return;
+  }
+  const ips = Array.isArray(state.lanIPs) && state.lanIPs.length > 0 ? state.lanIPs : ["<IP-этого-ПК>"];
+  const links = ips.map(ip => `<strong>http://${escapeHtml(ip)}:${port}</strong>`).join(", ");
+  hintEl.innerHTML = `Адрес для других устройств в сети: ${links} <span style="color: var(--text-dim);">(вступает в силу при следующем запуске сервера или перезапуске службы)</span>`;
 }
 
 function isSettingEnabledForWeb(key) {
@@ -2839,6 +2863,7 @@ function applySettingModesVisibility() {
 async function saveSettings() {
   const default_mode = document.getElementById("cfgDefaultMode") ? document.getElementById("cfgDefaultMode").value : "cli";
   const web_port = (document.getElementById("cfgWebPort") ? parseInt(document.getElementById("cfgWebPort").value, 10) : 8080) || 8080;
+  const web_lan = document.getElementById("cfgWebLAN") ? (document.getElementById("cfgWebLAN").value === "true") : !!state.config.web_lan;
   const default_duration = parseInt(document.getElementById("cfgDefaultDuration").value, 10) || 60;
   const duration_unit = document.getElementById("cfgDurationUnit") ? document.getElementById("cfgDurationUnit").value : "min";
   const default_type = document.getElementById("cfgDefaultType") ? document.getElementById("cfgDefaultType").value : "";
@@ -2856,6 +2881,7 @@ async function saveSettings() {
       ...state.config,
       default_mode,
       web_port,
+      web_lan,
       default_duration,
       duration_unit,
       default_type,
