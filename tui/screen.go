@@ -312,6 +312,42 @@ func (s *Screen) DrawBox(x, y, w, h int, title, titleFg, borderFg, bg string, bo
 	}
 }
 
+// DrawSectionDivider renders an interior section divider that connects seamlessly
+// with the left (BoxLT) and right (BoxRT) box borders.
+func (s *Screen) DrawSectionDivider(x, y, w int, title, titleFg, borderFg, bg string) {
+	if w <= 1 || y < 0 || y >= s.Height {
+		return
+	}
+	x2 := x + w - 1
+	if x >= 0 && x < s.Width {
+		s.SetCell(x, y, BoxLT, borderFg, bg, false, false, false)
+	}
+	if x2 >= 0 && x2 < s.Width {
+		s.SetCell(x2, y, BoxRT, borderFg, bg, false, false, false)
+	}
+	s.DrawHLine(x+1, x2-1, y, BoxH, borderFg, bg)
+	if title != "" && w > 6 {
+		cleanTitle := " " + TruncateString(title, w-6, "…") + " "
+		s.DrawText(x+2, y, cleanTitle, titleFg, bg, w-4, true, false, false)
+	}
+}
+
+// DimBackdrop dims all cells outside the specified rectangular window [x, y, w, h].
+func (s *Screen) DimBackdrop(x, y, w, h int) {
+	x2 := x + w
+	y2 := y + h
+	for r := 0; r < s.Height; r++ {
+		for c := 0; c < s.Width; c++ {
+			if r < y || r >= y2 || c < x || c >= x2 {
+				s.Cells[r][c].Dim = true
+				if s.Cells[r][c].Fg == FgMain || s.Cells[r][c].Fg == FgWhite {
+					s.Cells[r][c].Fg = FgDim
+				}
+			}
+		}
+	}
+}
+
 // PlainString returns the screen buffer as plain text lines without ANSI sequences.
 func (s *Screen) PlainString() string {
 	var sb strings.Builder

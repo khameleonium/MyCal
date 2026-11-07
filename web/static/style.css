@@ -205,6 +205,35 @@ html, body {
   border: 1px solid var(--border-dim);
 }
 
+/* Calendar Switcher in Top Nav */
+.calendar-switch-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
+}
+.calendar-select {
+  padding: 4px 8px;
+  font-size: 0.82rem;
+  min-width: 150px;
+  max-width: 220px;
+  height: 32px;
+}
+.btn-new-cal {
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  height: 32px;
+  white-space: nowrap;
+}
+.btn-new-cal-icon {
+  display: none;
+}
+
+/* Mobile Period Bar (Hidden on desktop) */
+.mobile-period-bar {
+  display: none;
+}
+
 /* Period Tabs in Header */
 .period-tabs {
   display: flex;
@@ -425,7 +454,7 @@ html, body {
 .main-workspace {
   flex: 1;
   display: grid;
-  grid-template-columns: 270px minmax(0, 1fr) 340px;
+  grid-template-columns: 240px minmax(0, 1fr) 305px;
   overflow: hidden;
   height: calc(100% - 54px);
   min-height: 0;
@@ -463,14 +492,14 @@ html, body {
   background: var(--bg-surface);
   border: 1px solid var(--border-dim);
   border-radius: var(--radius-md);
-  padding: 10px;
+  padding: 8px 6px;
 }
 
 .cal-nav {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .cal-nav-btn {
@@ -479,7 +508,7 @@ html, body {
   color: var(--text-muted);
   cursor: pointer;
   font-size: 0.85rem;
-  padding: 3px 6px;
+  padding: 2px 5px;
   border-radius: 4px;
 }
 .cal-nav-btn:hover {
@@ -496,7 +525,7 @@ html, body {
 .cal-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 3px;
+  gap: 2px;
   text-align: center;
   font-size: 0.76rem;
 }
@@ -504,12 +533,14 @@ html, body {
 .cal-day-header {
   font-weight: 700;
   color: var(--text-dim);
-  padding-bottom: 4px;
+  padding-bottom: 2px;
   font-size: 0.72rem;
 }
 
 .cal-day-cell {
-  height: 28px;
+  aspect-ratio: 1;
+  height: auto;
+  min-height: 20px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -520,6 +551,7 @@ html, body {
   color: var(--text-muted);
   user-select: none;
   transition: all 0.1s ease;
+  line-height: 1;
 }
 
 .cal-day-cell:hover {
@@ -548,8 +580,8 @@ html, body {
   content: "";
   position: absolute;
   bottom: 2px;
-  width: 4px;
-  height: 4px;
+  width: 3.5px;
+  height: 3.5px;
   border-radius: 50%;
   background: var(--accent-orange);
 }
@@ -625,25 +657,29 @@ html, body {
 }
 
 .feed-header {
-  padding: 12px 18px;
+  padding: 10px 18px;
   border-bottom: 1px solid var(--border-dim);
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   background: var(--bg-panel-alt);
   flex-shrink: 0;
 }
 
 .feed-title-wrap {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 
 .feed-title {
   font-size: 1.05rem;
   font-weight: 700;
   color: var(--text-main);
+  white-space: nowrap;
 }
 
 .feed-counter-badge {
@@ -653,11 +689,15 @@ html, body {
   background: rgba(96, 165, 250, 0.12);
   padding: 2px 7px;
   border-radius: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .feed-controls {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .session-feed-scroll {
@@ -683,13 +723,14 @@ html, body {
   font-size: 0.84rem;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .date-header-line {
-  flex: 1;
+  flex: 1 1 10px;
   height: 1px;
   background: var(--border-dim);
+  min-width: 8px;
 }
 
 .date-header-summary {
@@ -697,15 +738,18 @@ html, body {
   color: var(--text-dim);
   font-weight: normal;
   font-family: var(--font-mono);
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 /* Session Row & Header Grid */
 .feed-table-header {
   display: grid;
-  grid-template-columns: 24px 16px 80px 52px minmax(160px, 1fr) 130px 65px 80px 105px 32px;
-  gap: 12px;
+  grid-template-columns: 24px 16px 78px 50px minmax(130px, 1fr) 115px 58px 72px 95px 28px;
+  gap: 8px;
   align-items: center;
-  padding: 6px 18px;
+  padding: 6px 14px;
   background: var(--bg-card);
   border-bottom: 1px solid var(--border-focus);
   font-size: 0.76rem;
@@ -764,16 +808,20 @@ html, body {
 /* Session Row Item */
 .session-row {
   display: grid;
-  grid-template-columns: 24px 16px 80px 52px minmax(160px, 1fr) 130px 65px 80px 105px 32px;
-  gap: 12px;
+  grid-template-columns: 24px 16px 78px 50px minmax(130px, 1fr) 115px 58px 72px 95px 28px;
+  gap: 8px;
   align-items: center;
-  padding: 8px 18px;
+  padding: 0 14px;
   cursor: pointer;
   border-left: 3px solid transparent;
   transition: all 0.1s ease;
   user-select: none;
   font-size: 0.84rem;
   min-width: 0;
+}
+
+.row-meta {
+  display: contents;
 }
 
 .session-row:hover {
@@ -961,7 +1009,7 @@ html, body {
   flex-direction: column;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 14px;
+  padding: 4px;
   gap: 16px;
   min-width: 0;
   min-height: 0;
@@ -1246,6 +1294,7 @@ dialog {
   padding: 0;
   max-width: 520px;
   width: 90%;
+  max-height: 90dvh;
   overscroll-behavior: contain;
   z-index: 2000;
 }
@@ -1268,6 +1317,21 @@ dialog#modalBatchDelete {
   width: 92vw;
 }
 
+@media (max-width: 600px) {
+  dialog {
+    width: min(520px, calc(100vw - 16px));
+    max-height: 92dvh;
+  }
+  dialog#modalYearCalendar {
+    width: calc(100vw - 12px);
+    max-height: 96dvh;
+  }
+  dialog#modalRangePicker {
+    width: calc(100vw - 12px);
+    max-height: 94dvh;
+  }
+}
+
 dialog::backdrop {
   background: rgba(0, 0, 0, 0.75);
   backdrop-filter: blur(4px);
@@ -1285,6 +1349,7 @@ dialog::backdrop {
   flex-direction: column;
   color: var(--text-main);
   animation: modalScale 0.15s ease-out;
+  max-height: inherit;
 }
 
 @keyframes modalScale {
@@ -1299,6 +1364,12 @@ dialog::backdrop {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .modal-hdr {
+    padding: 10px 14px;
+  }
 }
 
 .modal-hdr h3 {
@@ -1313,12 +1384,23 @@ dialog::backdrop {
   color: var(--text-muted);
   font-size: 1.1rem;
   cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 4px;
+  border-radius: 6px;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  transition: all 0.15s ease;
 }
 .btn-close:hover {
   color: var(--text-main);
   background: var(--bg-highlight);
+}
+.btn-close:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 1px;
 }
 
 .modal-body {
@@ -1326,14 +1408,21 @@ dialog::backdrop {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  max-height: 75vh;
+  max-height: calc(88dvh - 110px);
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .form-row-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+@media (max-width: 580px) {
+  .form-row-2 {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
 }
 
 .form-group {
@@ -1400,6 +1489,14 @@ dialog::backdrop {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+  flex-shrink: 0;
+}
+@media (max-width: 600px) {
+  .modal-footer {
+    padding: 10px 14px;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
 }
 
 .del-preview-box {
@@ -1428,6 +1525,21 @@ dialog::backdrop {
   border: 1px solid rgba(96, 165, 250, 0.25);
   border-radius: var(--radius-md);
   padding: 12px;
+}
+.settings-highlight-card select,
+.settings-highlight-card input {
+  max-width: 100%;
+}
+@media (max-width: 600px) {
+  .settings-highlight-card {
+    padding: 10px;
+  }
+  #serviceActionButtons {
+    gap: 6px;
+  }
+  #serviceActionButtons .btn {
+    flex: 1 1 calc(50% - 6px);
+  }
 }
 .settings-hint {
   font-size: 0.78rem;
@@ -1524,25 +1636,120 @@ dialog::backdrop {
 }
 
 @media (max-width: 768px) {
-  html, body {
-    overflow: auto;
+  html {
+    overflow-x: hidden;
+    overflow-y: visible;
   }
 
+  body {
+    overflow-x: hidden;
+    overflow-y: auto;
+    height: auto;
+    min-height: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  body.modal-open {
+    overflow: hidden !important;
+  }
+
+  .app-layout {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+  }
+
+  /* TOP NAVIGATION ON MOBILE */
   .top-nav {
-    padding: 0 12px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    padding: 0 10px;
+    height: 48px;
+    justify-content: space-between;
+    gap: 4px;
+  }
+  .nav-left {
+    gap: 4px;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .brand-title {
+    font-size: 0.95rem;
+  }
+  .brand-badge {
+    display: none;
   }
   .nav-clock, .period-tabs, .btn-add .btn-kbd, .search-kbd {
     display: none;
   }
+  .calendar-switch-wrap {
+    margin-left: 2px;
+    gap: 4px;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .calendar-select {
+    min-width: 0;
+    max-width: 120px;
+    font-size: 0.76rem;
+    padding: 3px 6px;
+    height: 30px;
+    text-overflow: ellipsis;
+  }
+  .btn-new-cal {
+    padding: 3px 8px;
+    height: 30px;
+    font-size: 0.9rem;
+  }
+  .btn-new-cal-text {
+    display: none;
+  }
+  .btn-new-cal-icon {
+    display: inline;
+    font-weight: bold;
+    line-height: 1;
+  }
+  .nav-right {
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .btn-add {
+    display: none;
+  }
+  .theme-select-wrap {
+    display: none;
+  }
+  .search-box {
+    padding: 0 6px;
+    height: 30px;
+    gap: 4px;
+  }
   .search-box input {
-    width: 110px;
+    width: 60px;
+    font-size: 0.78rem;
+    transition: width 0.2s ease;
+  }
+  .search-box:focus-within input {
+    width: 115px;
+  }
+  .top-nav .btn-icon {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.05rem;
+    flex-shrink: 0;
   }
 
+  /* WORKSPACE & PANELS */
   .main-workspace {
     display: block;
     height: auto;
     overflow: visible;
-    padding-bottom: 70px;
+    padding-bottom: 0;
   }
 
   .sidebar-panel, .feed-panel, .inspector-panel {
@@ -1550,35 +1757,134 @@ dialog::backdrop {
     border-right: none;
     height: auto;
     overflow: visible;
+    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
   }
 
-  /* In mobile, tab state controls which panel is active */
+  /* In mobile, tab state controls which panel is active; default to feed if unset */
+  .main-workspace:not([data-mobile-tab]) .feed-panel,
   .main-workspace[data-mobile-tab="feed"] .feed-panel {
     display: flex;
+    flex-direction: column;
   }
   .main-workspace[data-mobile-tab="calendar"] .sidebar-panel {
     display: flex;
+    flex-direction: column;
   }
   .main-workspace[data-mobile-tab="stats"] .inspector-panel {
     display: flex;
+    flex-direction: column;
   }
 
-  .feed-table-header {
-    display: none;
-  }
-  .session-row {
-    grid-template-columns: 24px 50px minmax(120px, 1fr) auto 30px;
-    gap: 8px;
-    padding: 10px 14px;
+  /* MOBILE PERIOD STRIP */
+  .mobile-period-bar {
+    position: sticky;
+    top: 48px;
+    z-index: 95;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: var(--bg-panel-alt);
     border-bottom: 1px solid var(--border-dim);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    flex-shrink: 0;
   }
-  .row-cursor, .row-date, .row-type, .row-duration, .row-cash {
+  .mobile-period-bar::-webkit-scrollbar {
     display: none;
   }
-  .row-name {
-    font-size: 0.88rem;
+  .mobile-period-bar .tab-btn {
+    padding: 4px 10px;
+    font-size: 0.76rem;
+    border-radius: 14px;
+    border: 1px solid var(--border-dim);
+    background: var(--bg-surface);
+    color: var(--text-muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+    min-height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .mobile-period-bar .tab-btn.active {
+    background: var(--accent-blue);
+    color: #0f141c;
+    border-color: var(--accent-blue);
+    font-weight: 700;
   }
 
+  /* FEED HEADER & CONTROLS */
+  .feed-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px 10px 6px 10px;
+  }
+  .feed-title-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+  }
+  .feed-title {
+    font-size: 0.98rem;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+    margin: 0;
+  }
+  .feed-counter-badge {
+    flex-shrink: 0;
+    font-size: 0.72rem;
+    padding: 2px 7px;
+  }
+  .feed-controls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+    width: 100%;
+  }
+  .feed-controls::-webkit-scrollbar {
+    display: none;
+  }
+  .feed-controls .btn {
+    white-space: nowrap;
+    flex-shrink: 0;
+    font-size: 0.76rem;
+    padding: 4px 8px;
+    min-height: 32px;
+  }
+
+  /* FEED SUB-TOOLBAR */
+  .feed-sub-toolbar {
+    padding: 6px 10px;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .page-size-selector {
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  .page-size-label {
+    font-size: 0.72rem;
+  }
+  .size-pill {
+    padding: 2px 6px;
+    font-size: 0.72rem;
+    min-width: 24px;
+    height: 24px;
+  }
   .mobile-sort-wrap {
     display: flex;
     align-items: center;
@@ -1587,27 +1893,193 @@ dialog::backdrop {
     padding: 2px 8px;
     border-radius: 6px;
     border: 1px solid var(--border-dim);
+    flex: 1 1 auto;
+    min-width: 130px;
+    max-width: 100%;
+    height: 28px;
   }
   .mobile-sort-label {
     font-size: 0.9rem;
     color: var(--accent-blue);
     font-weight: bold;
+    flex-shrink: 0;
   }
   .mobile-sort-select {
     background: transparent;
     border: none;
     color: var(--text-main);
-    font-size: 0.78rem;
+    font-size: 0.76rem;
     font-family: inherit;
     outline: none;
     cursor: pointer;
+    width: 100%;
+    text-overflow: ellipsis;
   }
 
+  /* DATE HEADER */
+  .date-header {
+    padding: 8px 10px 4px 10px;
+    font-size: 0.8rem;
+    gap: 6px;
+  }
+  .date-header-summary {
+    white-space: nowrap;
+    flex-shrink: 0;
+    font-size: 0.74rem;
+    margin-left: auto;
+  }
+
+  /* SESSION ROWS REDESIGN ON MOBILE */
+  .session-feed-scroll {
+    overflow: visible;
+    height: auto;
+    min-height: 0;
+    padding: 6px 0;
+  }
+  .feed-table-header {
+    display: none;
+  }
+  .session-row {
+    display: grid;
+    grid-template-areas:
+      "check time name status more"
+      "check meta meta meta more";
+    grid-template-columns: 22px auto 1fr auto 28px;
+    column-gap: 8px;
+    row-gap: 4px;
+    padding: 8px 10px;
+    align-items: center;
+    border-bottom: 1px solid var(--border-dim);
+    min-height: 52px;
+  }
+  .row-check-label {
+    grid-area: check;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .row-cursor, .row-date {
+    display: none;
+  }
+  .row-time {
+    grid-area: time;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--accent-cyan);
+    white-space: nowrap;
+  }
+  .row-name {
+    grid-area: name;
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: var(--text-main);
+    word-break: break-word;
+    min-width: 0;
+    line-height: 1.25;
+  }
+  .row-status-wrap {
+    grid-area: status;
+    display: flex;
+    justify-content: flex-end;
+  }
+  .status-pill {
+    white-space: nowrap;
+    flex-shrink: 0;
+    font-size: 0.72rem;
+    padding: 2px 7px;
+    line-height: 1.4;
+  }
+  .row-more-btn {
+    grid-area: more;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.05rem;
+    color: var(--text-dim);
+  }
+  .row-meta {
+    grid-area: meta;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 0.74rem;
+  }
+  .row-type {
+    display: inline-flex;
+    align-items: center;
+    background: var(--bg-highlight);
+    color: var(--text-muted);
+    border: 1px solid var(--border-dim);
+    border-radius: 4px;
+    padding: 1px 6px;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .row-duration {
+    display: inline-flex;
+    align-items: center;
+    color: var(--accent-orange);
+    font-family: var(--font-mono);
+    font-weight: 600;
+  }
+  .row-cash {
+    display: inline-flex;
+    align-items: center;
+    color: var(--accent-yellow);
+    font-family: var(--font-mono);
+    font-weight: 600;
+  }
+  .row-cash.cash-negative {
+    color: var(--accent-red);
+  }
+  .row-cash-empty {
+    display: none;
+  }
+
+  /* CALENDAR & STATS IN MOBILE TABS */
+  .mini-calendar {
+    max-width: 360px;
+    margin: 0 auto;
+    width: 100%;
+  }
+  .cal-day-cell {
+    height: 34px;
+    font-size: 0.84rem;
+  }
+  .cal-week-btn {
+    font-size: 0.72rem;
+  }
+  .stats-hero-3 {
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 4px;
+    padding: 8px 6px;
+  }
+  .stat-lbl {
+    font-size: 0.65rem;
+  }
+  .stat-val-big {
+    font-size: 1.15rem;
+  }
+  .stat-sub {
+    font-size: 0.68rem;
+  }
+
+  /* MOBILE BOTTOM NAV & FAB */
   .mobile-bottom-nav {
     display: flex;
+    height: calc(56px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
   .mobile-fab {
     display: flex;
+    bottom: calc(72px + env(safe-area-inset-bottom, 0px));
+    right: 14px;
   }
 }
 
@@ -1618,13 +2090,15 @@ dialog::backdrop {
 /* Calendar Range Selection & Multi-day highlight */
 .cal-grid-with-weeks {
   display: grid;
-  grid-template-columns: 22px repeat(7, 1fr);
-  gap: 3px;
+  grid-template-columns: 20px repeat(7, 1fr);
+  gap: 2px;
   text-align: center;
   font-size: 0.76rem;
 }
 
 .cal-week-btn {
+  aspect-ratio: 1;
+  min-height: 20px;
   font-size: 0.65rem;
   font-family: var(--font-mono);
   color: var(--text-dim);
@@ -1636,6 +2110,7 @@ dialog::backdrop {
   user-select: none;
   background: transparent;
   transition: all 0.15s ease;
+  line-height: 1;
 }
 .cal-week-btn:hover {
   background: var(--bg-highlight);
@@ -1803,6 +2278,16 @@ dialog::backdrop {
   gap: 12px;
   margin-bottom: 14px;
 }
+@media (max-width: 480px) {
+  .range-inputs-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .range-arrow-icon {
+    display: none;
+  }
+}
 .range-field {
   flex: 1;
 }
@@ -1948,6 +2433,53 @@ dialog::backdrop {
   gap: 8px;
   margin-left: auto;
   margin-right: 14px;
+}
+@media (max-width: 600px) {
+  .modal-card-fullscreen {
+    height: 96dvh;
+  }
+  .modal-card-fullscreen .modal-hdr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 8px 12px;
+  }
+  .year-hdr-nav {
+    order: 1;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .year-hdr-nav .btn-subtle {
+    padding: 3px 6px;
+    font-size: 0.74rem;
+    margin-left: 2px !important;
+  }
+  .year-input-wrap {
+    padding: 1px 4px;
+    gap: 2px;
+  }
+  .year-input-num {
+    font-size: 0.95rem;
+    width: 46px;
+  }
+  .year-input-suffix {
+    font-size: 0.74rem;
+  }
+  .modal-card-fullscreen .btn-close {
+    order: 2;
+    margin-left: auto;
+  }
+  .year-hdr-stats {
+    order: 3;
+    width: 100%;
+    margin: 4px 0 0 0;
+    justify-content: flex-start;
+    gap: 6px;
+  }
 }
 .year-grid-body {
   overflow-y: auto;

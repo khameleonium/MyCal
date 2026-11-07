@@ -59,7 +59,17 @@ document.addEventListener("DOMContentLoaded", () => {
   initPaginationUI();
   initPeriodUI();
   initFormHotkeys();
+  switchMobileTab(state.mobileTab || "feed");
   loadInitialData();
+
+  document.querySelectorAll("dialog").forEach(d => {
+    d.addEventListener("close", () => {
+      const openModals = document.querySelectorAll("dialog[open]");
+      if (openModals.length === 0) {
+        document.body.classList.remove("modal-open");
+      }
+    });
+  });
 
   window.addEventListener("focus", () => {
     fetchTypes();
@@ -481,11 +491,13 @@ function renderSessionRowHTML(s) {
         ${escapeHtml(s.name)}
         ${repeatIcon}
       </span>
-      <span class="row-type" title="${escapeHtml(s.type || '(без типа)')}">
-        ${escapeHtml(s.type || '—')}
-      </span>
-      <span class="row-duration">${formatDuration(s.duration)}</span>
-      ${cashBadge}
+      <div class="row-meta">
+        <span class="row-type" title="${escapeHtml(s.type || '(без типа)')}">
+          ${escapeHtml(s.type || '—')}
+        </span>
+        <span class="row-duration">${formatDuration(s.duration)}</span>
+        ${cashBadge}
+      </div>
       <div class="row-status-wrap">
         <span class="status-pill ${statusClass}" 
               onclick="onStatusPillClick(event, '${s.id}')" 
@@ -1105,37 +1117,37 @@ function renderInspector(s) {
     <div class="detail-field">
       <span class="detail-label">Дата:</span>
       <span class="detail-val detail-val-editable" onclick="editFocusedField('date')" title="Нажмите для правки">
-        📅 ${formatISODate(sessionDate(s))} ✏️
+        📅 ${formatISODate(sessionDate(s))}
       </span>
     </div>
     <div class="detail-field">
       <span class="detail-label">Время:</span>
       <span class="detail-val detail-val-editable" onclick="editFocusedField('time')" title="Нажмите для правки">
-        🕒 ${s.time} ✏️
+        🕒 ${s.time}
       </span>
     </div>
     <div class="detail-field">
       <span class="detail-label">Название:</span>
       <span class="detail-val detail-val-editable" style="color: var(--accent-green); font-weight: 700;" onclick="editFocusedField('name')" title="Нажмите для правки">
-        ${escapeHtml(s.name)} ✏️
+        ${escapeHtml(s.name)}
       </span>
     </div>
     <div class="detail-field">
       <span class="detail-label">Тип:</span>
       <span class="detail-val detail-val-editable" onclick="editFocusedField('type')" title="Нажмите для правки">
-        🏷️ ${escapeHtml(s.type || '(без типа)')} ✏️
+        🏷️ ${escapeHtml(s.type || '(без типа)')}
       </span>
     </div>
     <div class="detail-field">
       <span class="detail-label">Длительность:</span>
       <span class="detail-val detail-val-editable" style="color: var(--accent-orange);" onclick="editFocusedField('duration')" title="Нажмите для правки">
-        ⏱️ ${s.duration} мин (${(s.duration / 60).toFixed(1)} ч) ✏️
+        ⏱️ ${s.duration} мин (${(s.duration / 60).toFixed(1)} ч)
       </span>
     </div>
     <div class="detail-field">
       <span class="detail-label">Кэш:</span>
       <span class="detail-val detail-val-editable" style="color: var(--accent-yellow); font-family: var(--font-mono);" onclick="editFocusedField('cash')" title="Нажмите для правки">
-        ${formatCash(s.cash)} ✏️
+        ${formatCash(s.cash)}
       </span>
     </div>
     <div class="detail-field">
@@ -1197,8 +1209,11 @@ function onRowContextMenu(e, id) {
 
   const menu = document.getElementById("rowContextMenu");
   menu.style.display = "flex";
-  menu.style.left = `${Math.min(e.pageX, window.innerWidth - 200)}px`;
-  menu.style.top = `${Math.min(e.pageY, window.innerHeight - 180)}px`;
+  const menuWidth = menu.offsetWidth || 190;
+  const maxLeft = Math.max(8, window.innerWidth - menuWidth - 12);
+  const left = Math.max(8, Math.min(e.pageX, maxLeft));
+  menu.style.left = `${left}px`;
+  menu.style.top = `${e.pageY}px`;
 }
 
 // ----------------- QUICK STATUS PICKER -----------------
@@ -1265,7 +1280,10 @@ function onStatusPillClick(e, id) {
   renderStatusPickerPopup();
 
   popup.style.display = "block";
-  popup.style.left = `${Math.min(rect.left + window.scrollX, window.innerWidth - 200)}px`;
+  const popupWidth = popup.offsetWidth || 180;
+  const maxLeft = Math.max(8, window.innerWidth - popupWidth - 12);
+  const left = Math.max(8, Math.min(rect.left + window.scrollX, maxLeft));
+  popup.style.left = `${left}px`;
   popup.style.top = `${rect.bottom + window.scrollY + 6}px`;
 
   // Focus popup to enable Esc key handling
@@ -1727,7 +1745,7 @@ function syncPeriodButtons() {
   const curMonISO = toISODate(curWeek.monday);
   const curSunISO = toISODate(curWeek.sunday);
 
-  document.querySelectorAll(".period-tabs .tab-btn").forEach(btn => {
+  document.querySelectorAll(".period-tabs .tab-btn, .mobile-period-bar .tab-btn").forEach(btn => {
     const p = btn.dataset.period;
     let active = false;
 
@@ -1755,14 +1773,13 @@ function syncPeriodButtons() {
     btn.classList.toggle("active", active);
   });
 
-  const rangeBtn = document.querySelector('.tab-btn[data-period="range"]');
-  if (rangeBtn) {
+  document.querySelectorAll('.tab-btn[data-period="range"]').forEach(rangeBtn => {
     if (state.currentPeriod === "range" && state.rangeStart && state.rangeEnd && (state.rangeStart !== curMonISO || state.rangeEnd !== curSunISO)) {
       rangeBtn.textContent = `Период: ${formatShortDate(state.rangeStart)}–${formatShortDate(state.rangeEnd)}`;
     } else {
-      rangeBtn.textContent = "Период";
+      rangeBtn.textContent = rangeBtn.closest(".mobile-period-bar") ? "Период 📅" : "Период";
     }
-  }
+  });
 }
 
 // ----------------- PAGINATION CONTROLS -----------------
@@ -2467,6 +2484,7 @@ function openModal(id) {
   const d = document.getElementById(id);
   if (d && typeof d.showModal === "function") {
     d.showModal();
+    document.body.classList.add("modal-open");
   }
 }
 
@@ -2474,6 +2492,10 @@ function closeModal(id) {
   const d = document.getElementById(id);
   if (d && typeof d.close === "function") {
     d.close();
+    const openModals = document.querySelectorAll("dialog[open]");
+    if (openModals.length === 0) {
+      document.body.classList.remove("modal-open");
+    }
   }
 }
 
@@ -3046,6 +3068,7 @@ function switchMobileTab(tab) {
   document.querySelectorAll(".mobile-nav-btn").forEach(btn => {
     btn.classList.toggle("active", btn.dataset.tab === tab);
   });
+  window.scrollTo({ top: 0, behavior: "instant" });
 }
 
 // ======================== KEYBOARD NAVIGATION ========================

@@ -1607,7 +1607,7 @@ func (a *App) renderTabBar(s *Screen) {
 		bg := BgPanelAlt
 		bold := false
 		tName := t.name
-		if a.width < 56 {
+		if a.width < 52 {
 			switch t.id {
 			case TabFeed:
 				tName = "Зап"
@@ -1617,6 +1617,28 @@ func (a *App) renderTabBar(s *Screen) {
 				tName = "Карт"
 			case TabStats:
 				tName = "Стат"
+			}
+		} else if a.width < 68 {
+			switch t.id {
+			case TabFeed:
+				tName = "Записи"
+			case TabCalendar:
+				tName = "Календ"
+			case TabInspector:
+				tName = "Карта"
+			case TabStats:
+				tName = "Стат"
+			}
+		} else if a.width < 82 {
+			switch t.id {
+			case TabFeed:
+				tName = "Записи"
+			case TabCalendar:
+				tName = "Календарь"
+			case TabInspector:
+				tName = "Карточка"
+			case TabStats:
+				tName = "Статы"
 			}
 		}
 		label := fmt.Sprintf(" [%s] %s ", t.num, tName)
@@ -1638,6 +1660,8 @@ func (a *App) renderTabBar(s *Screen) {
 	hint := "[[ / ] • F1-F4]"
 	if a.width-len(hint)-2 > cx+1 {
 		s.DrawText(a.width-len(hint)-2, 1, hint, FgDim, BgPanelAlt, len(hint), false, false, false)
+	} else if a.width-9 > cx+1 {
+		s.DrawText(a.width-9, 1, "[[ / ]]", FgDim, BgPanelAlt, 7, false, false, false)
 	}
 }
 
@@ -1649,7 +1673,10 @@ func (a *App) renderHeader(s *Screen) {
 		calBadge = strings.TrimSpace(a.cfg.ActiveCalendar)
 	}
 	title := fmt.Sprintf("🗓️ MyCal %s [%s]", a.version, calBadge)
-	maxTitleW := a.width - 9
+	if a.width < 50 {
+		title = fmt.Sprintf("🗓️ MyCal [%s]", calBadge)
+	}
+	maxTitleW := a.width - 8
 	if maxTitleW < 6 {
 		maxTitleW = 6
 	}
@@ -1716,19 +1743,31 @@ func (a *App) renderHeader(s *Screen) {
 	totalHours := stSummary.TotalHours
 
 	startX := 2 + titleW + 2
-	if a.width >= 90 {
-		cashStr := calendar.FormatCash(stSummary.TotalCash)
-		infoStr := fmt.Sprintf("│ Период: %s (%d зап.) │ Часов: %.1f ч │ Кэш: %s",
-			pLabel, stSummary.TotalEntries, totalHours, cashStr)
-		s.DrawText(startX, 0, infoStr, FgMuted, BgPanelAlt, a.width-startX-10, false, false, false)
-	} else if a.width >= 62 {
-		infoStr := fmt.Sprintf("│ %s (%d) │ %.1fч", pLabel, stSummary.TotalEntries, totalHours)
-		s.DrawText(startX, 0, infoStr, FgMuted, BgPanelAlt, a.width-startX-8, false, false, false)
+	clockW := 7
+	availInfo := a.width - startX - clockW - 1
+	if availInfo > 6 {
+		if a.width >= 90 {
+			cashStr := calendar.FormatCash(stSummary.TotalCash)
+			infoStr := fmt.Sprintf("│ Период: %s (%d зап.) │ Часов: %.1f ч │ Кэш: %s",
+				pLabel, stSummary.TotalEntries, totalHours, cashStr)
+			s.DrawText(startX, 0, infoStr, FgMuted, BgPanelAlt, availInfo, false, false, false)
+		} else if a.width >= 62 {
+			infoStr := fmt.Sprintf("│ %s (%d) │ %.1fч", pLabel, stSummary.TotalEntries, totalHours)
+			s.DrawText(startX, 0, infoStr, FgMuted, BgPanelAlt, availInfo, false, false, false)
+		} else if a.width >= 46 {
+			infoStr := fmt.Sprintf("│ %s (%d)", pLabel, stSummary.TotalEntries)
+			s.DrawText(startX, 0, infoStr, FgMuted, BgPanelAlt, availInfo, false, false, false)
+		} else {
+			infoStr := fmt.Sprintf("(%d)", stSummary.TotalEntries)
+			s.DrawText(startX, 0, infoStr, FgDim, BgPanelAlt, availInfo, false, false, false)
+		}
 	}
 
 	// Clock
-	nowStr := time.Now().Format("15:04")
-	s.DrawText(a.width-7, 0, nowStr, FgWhite, BgPanelAlt, 5, true, false, false)
+	if a.width >= 35 {
+		nowStr := time.Now().Format("15:04")
+		s.DrawText(a.width-6, 0, nowStr, FgWhite, BgPanelAlt, 5, true, false, false)
+	}
 }
 
 func (a *App) renderCalendarBox(s *Screen, x, y, w, h int) {
@@ -1773,8 +1812,25 @@ func (a *App) renderCalendarBox(s *Screen, x, y, w, h int) {
 		s.DrawText(x+2, y+1, CenterString(mTitle, w-4), FgYellow, BgSurface, w-4, true, false, false)
 	}
 
+	wide := w >= 32
+	stepX := 3
+	availNum := 2
+	calLeftMargin := 2
+	if wide {
+		stepX = 4
+		availNum = 3
+		calLeftMargin = (w - (7 * 4)) / 2
+		if calLeftMargin < 2 {
+			calLeftMargin = 2
+		}
+	}
+
 	// Weekdays
-	s.DrawText(x+2, y+2, "Пн Вт Ср Чт Пт Сб Вс", FgMuted, BgSurface, w-4, false, false, false)
+	if wide {
+		s.DrawText(x+calLeftMargin, y+2, " Пн  Вт  Ср  Чт  Пт  Сб  Вс", FgMuted, BgSurface, w-4, false, false, false)
+	} else {
+		s.DrawText(x+2, y+2, "Пн Вт Ср Чт Пт Сб Вс", FgMuted, BgSurface, w-4, false, false, false)
+	}
 
 	firstDay := time.Date(a.calYear, time.Month(a.calMonth), 1, 0, 0, 0, 0, time.UTC)
 	weekday := int(firstDay.Weekday())
@@ -1798,7 +1854,7 @@ func (a *App) renderCalendarBox(s *Screen, x, y, w, h int) {
 		}
 	}
 
-	curX := x + 2 + (weekday * 3)
+	curX := x + calLeftMargin + (weekday * stepX)
 	curY := y + 3
 
 	for d := 1; d <= daysInMonth; d++ {
@@ -1851,18 +1907,22 @@ func (a *App) renderCalendarBox(s *Screen, x, y, w, h int) {
 		maxDrawX := x + w - 2
 		if curX <= maxDrawX {
 			avail := maxDrawX - curX + 1
-			if avail > 2 {
-				avail = 2
+			if avail > availNum {
+				avail = availNum
+			}
+			numStr := fmt.Sprintf("%2d", d)
+			if wide {
+				numStr = fmt.Sprintf(" %2d", d)
 			}
 			s.Fill(curX, curY, avail, 1, ' ', fg, bg)
-			s.DrawText(curX, curY, fmt.Sprintf("%2d", d), fg, bg, avail, bold, false, under)
+			s.DrawText(curX, curY, numStr, fg, bg, avail, bold, false, under)
 		}
 
-		curX += 3
+		curX += stepX
 		weekday++
 		if weekday == 7 {
 			weekday = 0
-			curX = x + 2
+			curX = x + calLeftMargin
 			curY++
 		}
 	}
@@ -1934,8 +1994,7 @@ func (a *App) renderPresetsBox(s *Screen, x, y, w, h int) {
 
 	types := a.getAvailableTypes()
 	if len(types) > 0 && curY < y+h-2 {
-		s.DrawHLine(x+1, x+w-2, curY, BoxH, BorderDim, BgSurface)
-		s.DrawText(x+2, curY, "┤ Категории ├", FgDim, BgSurface, w-4, false, false, false)
+		s.DrawSectionDivider(x, curY, w, "Категории", FgCyan, BorderDim, BgSurface)
 		curY++
 
 		for i, t := range types {
@@ -1974,6 +2033,9 @@ func (a *App) renderSidebar(s *Screen, x, y, w, h int) {
 	if w >= 54 {
 		// Wide 2-column layout (Full screen Calendar tab)
 		calW := 26
+		if w >= 66 {
+			calW = 32
+		}
 		presetsW := w - calW - 1
 		a.renderCalendarBox(s, x, y, calW, h)
 		a.renderPresetsBox(s, x+calW+1, y, presetsW, h)
@@ -2008,54 +2070,57 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 	s.DrawBox(x, y, w, h, title, FgBlue, borderCol, BgSurface, isFocused)
 
 	// Adaptive column layouts based on width w
-	showTime := w >= 65
-	showDur := w >= 65
-	showCash := w >= 65
-	showType := w >= 90
+	showTime := w >= 50
+	showDur := w >= 56
+	showCash := w >= 68
+	showType := w >= 88
 
 	colCheck := x + 2
 	colDate := x + 6
 	colTime := x + 17
 
-	colStatus := x + w - 16
-	colCash := colStatus - 9
-	colDur := colCash - 9
+	wStatus := 14
+	if w < 54 {
+		wStatus = 11
+	}
+	colStatus := x + w - 1 - wStatus
+	if colStatus < x+2 {
+		colStatus = x + 2
+	}
+
+	rightBound := colStatus - 1
+	var colCash, colDur int
+	if showCash {
+		colCash = rightBound - 8
+		rightBound = colCash - 1
+	}
+	if showDur {
+		colDur = rightBound - 8
+		rightBound = colDur - 1
+	}
 
 	var colName, wName, colType, wType int
-
-	if showTime && showDur && showCash {
+	if showTime {
 		colName = colTime + 6
-		avail := colDur - colName - 1
-		if showType && avail > 24 {
-			wType = avail * 35 / 100
-			if wType > 16 {
-				wType = 16
-			}
-			wName = avail - wType - 1
-			colType = colName + wName + 1
-		} else {
-			wName = avail
-			wType = 0
-		}
 	} else {
-		// Narrow layout (e.g. w < 65)
-		if w < 50 {
-			colStatus = x + w - 12
-		}
 		colName = colDate + 11
-		avail := colStatus - colName - 1
-		if avail < 4 {
-			avail = 4
-		}
-		wName = avail
 	}
 
-	wStatusHdr := x + w - 1 - colStatus
-	if wStatusHdr > 14 {
-		wStatusHdr = 14
+	avail := rightBound - colName
+	if avail < 4 {
+		avail = 4
 	}
-	if wStatusHdr < 0 {
-		wStatusHdr = 0
+
+	if showType && avail > 24 {
+		wType = avail * 32 / 100
+		if wType > 16 {
+			wType = 16
+		}
+		wName = avail - wType - 1
+		colType = colName + wName + 1
+	} else {
+		wName = avail
+		wType = 0
 	}
 
 	// Column Headers
@@ -2111,7 +2176,7 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 			durHdr += " " + sortArrow
 			durFg = FgCyan
 		}
-		s.DrawText(colDur, colY, durHdr, durFg, BgCard, 8, true, false, false)
+		s.DrawText(colDur, colY, PadLeft(durHdr, 8), durFg, BgCard, 8, true, false, false)
 	}
 
 	if showCash {
@@ -2121,17 +2186,17 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 			cashHdr += " " + sortArrow
 			cashFg = FgCyan
 		}
-		s.DrawText(colCash, colY, cashHdr, cashFg, BgCard, 8, true, false, false)
+		s.DrawText(colCash, colY, PadLeft(cashHdr, 8), cashFg, BgCard, 8, true, false, false)
 	}
 
-	if wStatusHdr > 0 {
+	if wStatus > 0 {
 		statusHdr := "Статус"
 		statusFg := FgMuted
 		if a.sortField == "status" {
 			statusHdr += " " + sortArrow
 			statusFg = FgCyan
 		}
-		s.DrawText(colStatus, colY, statusHdr, statusFg, BgCard, wStatusHdr, true, false, false)
+		s.DrawText(colStatus, colY, statusHdr, statusFg, BgCard, wStatus, true, false, false)
 	}
 
 	// Rows viewport
@@ -2220,26 +2285,27 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 				unit = "hours"
 			}
 			durStr := calendar.FormatDuration(sess.Duration, unit)
-			s.DrawText(colDur, rowY, durStr, FgDim, rowBg, 8, false, false, false)
+			s.DrawText(colDur, rowY, PadLeft(durStr, 8), FgDim, rowBg, 8, false, false, false)
 		}
 
 		// Cash (pure number!)
 		if showCash {
-			cashStr := ""
-			cashFg := FgWhite
+			cashStr := "0"
+			cashFg := FgMuted
 			if sess.Cash != 0 {
 				cashStr = strconv.FormatFloat(sess.Cash, 'f', -1, 64)
+				cashFg = FgWhite
 				if sess.Cash < 0 {
 					cashFg = FgRed
 				}
 			}
-			s.DrawText(colCash, rowY, cashStr, cashFg, rowBg, 8, false, false, false)
+			s.DrawText(colCash, rowY, PadLeft(cashStr, 8), cashFg, rowBg, 8, false, false, false)
 		}
 
 		// Status pill
 		badgeText, bFg, _ := StatusBadge(sess.Status)
-		if wStatusHdr > 0 {
-			s.DrawText(colStatus, rowY, badgeText, bFg, rowBg, wStatusHdr, true, false, false)
+		if wStatus > 0 {
+			s.DrawText(colStatus, rowY, badgeText, bFg, rowBg, wStatus, true, false, false)
 		}
 	}
 }
@@ -2264,9 +2330,15 @@ func (a *App) renderInspector(s *Screen, x, y, w, h int) {
 	}
 
 	actionH := 6
+	if h < 18 {
+		actionH = 5
+	}
+	if h < 14 {
+		actionH = 4
+	}
 	actionTop := y + h - actionH
-	if actionTop < y+8 {
-		actionTop = y + 8
+	if actionTop < y+5 {
+		actionTop = y + 5
 	}
 
 	curY := y + 1
@@ -2277,7 +2349,7 @@ func (a *App) renderInspector(s *Screen, x, y, w, h int) {
 		titleLines = []string{"(Без названия)"}
 	}
 	for _, tl := range titleLines {
-		if curY >= actionTop-6 {
+		if curY >= actionTop-4 {
 			break
 		}
 		s.DrawText(x+2, curY, tl, FgWhite, BgSurface, maxContentW, true, false, false)
@@ -2287,7 +2359,10 @@ func (a *App) renderInspector(s *Screen, x, y, w, h int) {
 	// Status badge
 	badgeText, bFg, _ := StatusBadge(sess.Status)
 	s.DrawText(x+2, curY, badgeText, bFg, BgSurface, maxContentW, true, false, false)
-	curY += 2
+	curY++
+	if h >= 18 {
+		curY++ // extra space on taller terminals
+	}
 
 	// Details list
 	durDisp := fmt.Sprintf("%d мин (%.1f ч)", sess.Duration, float64(sess.Duration)/60.0)
@@ -2313,7 +2388,7 @@ func (a *App) renderInspector(s *Screen, x, y, w, h int) {
 	}
 
 	for _, d := range details {
-		if curY >= actionTop-4 {
+		if curY >= actionTop {
 			break
 		}
 		vLines := WrapText(d.val, valW)
@@ -2324,7 +2399,7 @@ func (a *App) renderInspector(s *Screen, x, y, w, h int) {
 		s.DrawText(x+12, curY, vLines[0], FgMain, BgSurface, valW, false, false, false)
 		curY++
 		for _, vl := range vLines[1:] {
-			if curY >= actionTop-4 {
+			if curY >= actionTop {
 				break
 			}
 			s.DrawText(x+12, curY, vl, FgMain, BgSurface, valW, false, false, false)
@@ -2333,7 +2408,7 @@ func (a *App) renderInspector(s *Screen, x, y, w, h int) {
 	}
 
 	// Notes wrapping
-	if curY < actionTop-1 {
+	if curY < actionTop {
 		s.DrawText(x+2, curY, "Заметки:", FgDim, BgSurface, maxContentW, true, false, false)
 		curY++
 		notes := sess.Notes
@@ -2342,7 +2417,7 @@ func (a *App) renderInspector(s *Screen, x, y, w, h int) {
 		}
 		nLines := WrapText(notes, maxContentW)
 		for _, nl := range nLines {
-			if curY >= actionTop-1 {
+			if curY >= actionTop {
 				break
 			}
 			s.DrawText(x+2, curY, nl, FgMuted, BgSurface, maxContentW, false, false, false)
@@ -2351,9 +2426,8 @@ func (a *App) renderInspector(s *Screen, x, y, w, h int) {
 	}
 
 	// Quick hotkeys hint pinned to bottom
-	if actionTop > y+3 && actionTop < y+h-1 {
-		s.DrawHLine(x+1, x+w-2, actionTop, BoxH, BorderDim, BgSurface)
-		s.DrawText(x+2, actionTop, "┤ Действия ├", FgDim, BgSurface, maxContentW, false, false, false)
+	if actionTop > y+2 && actionTop < y+h-1 {
+		s.DrawSectionDivider(x, actionTop, w, "Действия", FgCyan, BorderDim, BgSurface)
 		s.DrawText(x+2, actionTop+1, "[e] Редактировать  [c] Дубль", FgCyan, BgSurface, maxContentW, false, false, false)
 		s.DrawText(x+2, actionTop+2, "[v/s] Статус       [m] В кал.", FgBlue, BgSurface, maxContentW, false, false, false)
 		s.DrawText(x+2, actionTop+3, "[f] Изменить поле  [u] Отмена", FgYellow, BgSurface, maxContentW, false, false, false)
@@ -2361,10 +2435,7 @@ func (a *App) renderInspector(s *Screen, x, y, w, h int) {
 		if a.width < 115 {
 			delHint += "  [Esc] К списку"
 		}
-		if a.width < 115 && maxContentW < 34 && actionTop+5 < y+h-1 {
-			s.DrawText(x+2, actionTop+4, "[d] Удалить запись", FgRed, BgSurface, maxContentW, false, false, false)
-			s.DrawText(x+2, actionTop+5, "[Esc] К списку", FgDim, BgSurface, maxContentW, false, false, false)
-		} else {
+		if actionTop+4 < y+h-1 {
 			s.DrawText(x+2, actionTop+4, delHint, FgRed, BgSurface, maxContentW, false, false, false)
 		}
 	}
@@ -2419,8 +2490,7 @@ func (a *App) renderStats(s *Screen, x, y, w, h int) {
 	curY += 2
 
 	// Status breakdown
-	s.DrawHLine(x+1, x+w-2, curY, BoxH, BorderDim, BgSurface)
-	s.DrawText(x+2, curY, "┤ Распределение по статусам ├", FgDim, BgSurface, w-4, false, false, false)
+	s.DrawSectionDivider(x, curY, w, "Распределение по статусам", FgCyan, BorderDim, BgSurface)
 	curY++
 
 	statusOrder := []string{"Активно", "Завершено", "Запланировано", "В процессе", "Отменено"}
@@ -2452,8 +2522,7 @@ func (a *App) renderStats(s *Screen, x, y, w, h int) {
 	curY++
 	// Category breakdown
 	if len(typeCounts) > 0 && curY < y+h-4 {
-		s.DrawHLine(x+1, x+w-2, curY, BoxH, BorderDim, BgSurface)
-		s.DrawText(x+2, curY, "┤ Распределение по категориям ├", FgDim, BgSurface, w-4, false, false, false)
+		s.DrawSectionDivider(x, curY, w, "Распределение по категориям", FgCyan, BorderDim, BgSurface)
 		curY++
 		for tName, c := range typeCounts {
 			if curY >= y+h-3 {

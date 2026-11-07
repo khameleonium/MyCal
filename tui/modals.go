@@ -88,6 +88,7 @@ func (m *ModalStatusPicker) Draw(s *Screen) {
 			y = 1
 		}
 
+		s.DimBackdrop(x, y, w, h)
 		s.DrawBox(x, y, w, h, "Новый статус", FgCyan, BorderBright, BgModal, true)
 		s.DrawText(x+2, y+2, "Введите название статуса:", FgMuted, BgModal, w-4, false, false, false)
 
@@ -117,6 +118,7 @@ func (m *ModalStatusPicker) Draw(s *Screen) {
 		y = 1
 	}
 
+	s.DimBackdrop(x, y, w, h)
 	s.DrawBox(x, y, w, h, "Смена статуса", FgBlue, BorderBright, BgModal, true)
 
 	s.DrawText(x+2, y+1, "Выберите новый статус:", FgMuted, BgModal, w-4, false, false, false)
@@ -364,6 +366,7 @@ func (m *ModalQuickEditField) Draw(s *Screen) {
 		y = 1
 	}
 
+	s.DimBackdrop(x, y, w, h)
 	title := "Редактировать поле"
 	if m.targetID == "" {
 		title = "Групповое изменение поля"
@@ -944,30 +947,12 @@ func NewModalCloneSessionForm(sess *models.Session, initialDate string) *ModalSe
 
 func (m *ModalSessionForm) Draw(s *Screen) {
 	w := 58
-	h := 20
-	if !m.isEdit || m.isSeries {
-		h = 22
-	}
-	if w > s.Width-2 {
+	if s.Width < 62 {
 		w = s.Width - 2
 	}
-	if h > s.Height-2 {
-		h = s.Height - 2
+	if w < 40 {
+		w = s.Width
 	}
-	x := (s.Width - w) / 2
-	y := (s.Height - h) / 2
-	if x < 1 {
-		x = 1
-	}
-	if y < 1 {
-		y = 1
-	}
-
-	title := "Новая запись"
-	if m.isEdit {
-		title = "Редактирование записи: " + m.targetID
-	}
-	s.DrawBox(x, y, w, h, title, FgBlue, BorderBright, BgModal, true)
 
 	fields := []struct {
 		label string
@@ -1008,25 +993,88 @@ func (m *ModalSessionForm) Draw(s *Screen) {
 		}{"9. Область серии:     ", scopeLabel})
 	}
 
-	valBoxW := w - 28
+	if w < 54 {
+		fields[0].label = "1. Дата:"
+		fields[1].label = "2. Время:"
+		fields[2].label = "3. Название:"
+		fields[3].label = "4. Категория:"
+		fields[4].label = "5. Длительн.:"
+		fields[5].label = "6. Кэш:"
+		fields[6].label = "7. Статус:"
+		fields[7].label = "8. Заметки:"
+		if len(fields) > 8 {
+			if !m.isEdit {
+				fields[8].label = "9. Повтор:"
+			} else {
+				fields[8].label = "9. Серия:"
+			}
+		}
+	}
+
+	totalFields := len(fields)
+	spacing := 2
+	neededH := totalFields*2 + 4
+	if s.Height < 24 || neededH > s.Height-2 {
+		spacing = 1
+		neededH = totalFields + 4
+	}
+
+	h := neededH
+	if h > s.Height-2 {
+		h = s.Height - 2
+	}
+	if h < 10 {
+		h = 10
+	}
+
+	x := (s.Width - w) / 2
+	y := (s.Height - h) / 2
+	if x < 1 {
+		x = 1
+	}
+	if y < 1 {
+		y = 1
+	}
+
+	s.DimBackdrop(x, y, w, h)
+
+	title := "Новая запись"
+	if m.isEdit {
+		title = "Редактирование записи: " + m.targetID
+	}
+	s.DrawBox(x, y, w, h, title, FgBlue, BorderBright, BgModal, true)
+
+	lblColW := 23
+	if w < 54 {
+		lblColW = 14
+	}
+	valBoxX := x + 2 + lblColW
+	valBoxW := (x + w - 2) - valBoxX
+	if valBoxW < 8 {
+		valBoxW = 8
+	}
+
 	for i, f := range fields {
-		rowY := y + 2 + (i * 2)
+		rowY := y + 2 + (i * spacing)
+		if rowY >= y+h-2 {
+			break
+		}
 		isCur := i == m.fieldIdx
 		lblFg := FgMuted
 		if isCur {
 			lblFg = FgCyan
 		}
-		s.DrawText(x+2, rowY, f.label, lblFg, BgModal, 24, isCur, false, false)
+		s.DrawText(x+2, rowY, f.label, lblFg, BgModal, lblColW, isCur, false, false)
 
 		valBg := BgInput
 		valFg := FgWhite
-		s.Fill(x+25, rowY, valBoxW, 1, ' ', valFg, valBg)
+		s.Fill(valBoxX, rowY, valBoxW, 1, ' ', valFg, valBg)
 
 		txt := f.val
 		if isCur {
 			txt += "█"
 		}
-		s.DrawText(x+26, rowY, txt, valFg, valBg, valBoxW-2, isCur, false, false)
+		s.DrawText(valBoxX+1, rowY, txt, valFg, valBg, valBoxW-2, isCur, false, false)
 
 		hasDropdown := false
 		switch i {
@@ -1037,7 +1085,7 @@ func (m *ModalSessionForm) Draw(s *Screen) {
 		}
 
 		if hasDropdown && isCur && !m.pickerOpen && valBoxW > 6 {
-			s.DrawText(x+25+valBoxW-5, rowY, "[▼]", FgCyan, valBg, 3, true, false, false)
+			s.DrawText(valBoxX+valBoxW-4, rowY, "[▼]", FgCyan, valBg, 3, true, false, false)
 		}
 	}
 
@@ -1069,7 +1117,7 @@ func (m *ModalSessionForm) Draw(s *Screen) {
 	}
 
 	if m.pickerOpen && len(m.pickerList) > 0 {
-		popX := x + 25
+		popX := valBoxX
 		popW := valBoxW
 		if popW < 28 {
 			popW = 28
@@ -1090,7 +1138,7 @@ func (m *ModalSessionForm) Draw(s *Screen) {
 		}
 		popH := visibleRows + 2
 
-		fieldY := y + 2 + (m.pickerField * 2)
+		fieldY := y + 2 + (m.pickerField * spacing)
 		popY := fieldY + 1
 		if popY+popH > y+h-1 || popY+popH > s.Height-1 {
 			popY = fieldY - popH
@@ -1755,6 +1803,7 @@ func (m *ModalConfirmDelete) Draw(s *Screen) {
 			y = 1
 		}
 
+		s.DimBackdrop(x, y, w, h)
 		s.DrawBox(x, y, w, h, "Удаление повторяющейся записи", FgRed, BorderBright, BgModal, true)
 		s.DrawText(x+3, y+2, "Это повторяющаяся запись. Выберите действие:", FgYellow, BgModal, w-6, true, false, false)
 
@@ -1777,7 +1826,17 @@ func (m *ModalConfirmDelete) Draw(s *Screen) {
 			s.DrawText(x+3, rowY, prefix+opt, fg, bg, w-6, isCur, false, false)
 		}
 
-		s.DrawBottomWrappedHint(x+3, y+h-2, w-6, 2, "[↑↓/1-3] Выбор  [Enter] Удалить  [Esc] Отмена", FgDim, BgModal)
+		btnY := y + h - 2
+		btn1 := " [ Enter: Удалить ] "
+		btn2 := " [ Esc: Отмена ] "
+		s.Fill(x+3, btnY, StringVisualWidth(btn1), 1, ' ', FgWhite, "\033[48;2;140;30;30m")
+		s.DrawText(x+3, btnY, btn1, FgWhite, "\033[48;2;140;30;30m", len(btn1), true, false, false)
+
+		btn2X := x + 3 + StringVisualWidth(btn1) + 2
+		if btn2X+StringVisualWidth(btn2) <= x+w-2 {
+			s.Fill(btn2X, btnY, StringVisualWidth(btn2), 1, ' ', FgMuted, BgCard)
+			s.DrawText(btn2X, btnY, btn2, FgMuted, BgCard, len(btn2), false, false, false)
+		}
 		return
 	}
 
@@ -1798,6 +1857,7 @@ func (m *ModalConfirmDelete) Draw(s *Screen) {
 		y = 1
 	}
 
+	s.DimBackdrop(x, y, w, h)
 	s.DrawBox(x, y, w, h, "Подтверждение удаления", FgRed, BorderBright, BgModal, true)
 
 	msg := "Удалить выбранную запись?"
@@ -1807,7 +1867,17 @@ func (m *ModalConfirmDelete) Draw(s *Screen) {
 	s.DrawText(x+3, y+2, msg, FgWhite, BgModal, w-6, true, false, false)
 	s.DrawText(x+3, y+3, "Это действие необратимо.", FgRed, BgModal, w-6, false, false, false)
 
-	s.DrawBottomWrappedHint(x+3, y+h-2, w-6, 2, "[Enter] Удалить      [Esc] Отмена", FgDim, BgModal)
+	btnY := y + h - 2
+	btn1 := " [ Enter: Удалить ] "
+	btn2 := " [ Esc: Отмена ] "
+	s.Fill(x+3, btnY, StringVisualWidth(btn1), 1, ' ', FgWhite, "\033[48;2;140;30;30m")
+	s.DrawText(x+3, btnY, btn1, FgWhite, "\033[48;2;140;30;30m", len(btn1), true, false, false)
+
+	btn2X := x + 3 + StringVisualWidth(btn1) + 2
+	if btn2X+StringVisualWidth(btn2) <= x+w-2 {
+		s.Fill(btn2X, btnY, StringVisualWidth(btn2), 1, ' ', FgMuted, BgCard)
+		s.DrawText(btn2X, btnY, btn2, FgMuted, BgCard, len(btn2), false, false, false)
+	}
 }
 
 func (m *ModalConfirmDelete) HandleKey(k Key, app *App) bool {
@@ -2026,6 +2096,8 @@ func (m *ModalYearCalendar) Draw(s *Screen) {
 		y = 1
 	}
 
+	s.DimBackdrop(x, y, w, h)
+
 	title := fmt.Sprintf("◄  Годовой календарь на %d год  ►", m.year)
 	s.DrawBox(x, y, w, h, title, FgCyan, BorderBright, BgModal, true)
 
@@ -2035,45 +2107,77 @@ func (m *ModalYearCalendar) Draw(s *Screen) {
 		"Сентябрь", "Октябрь", "Ноябрь", "Декабрь",
 	}
 
-	wide := (w >= 90)
 	now := m.todayDate
 	if now.IsZero() {
 		now = time.Now()
 	}
 
-	startRow := 0
-	numRows := 3
-	if h < 28 {
-		numRows = 2
-		if m.selMonth > 8 {
-			startRow = 1
-		}
+	numCols := 4
+	stepCol := 22
+	tileW := 21
+	wide := true
+	if w < 68 {
+		numCols = 2
+		stepCol = 27
+		tileW = 25
+		wide = false
+	} else if w < 90 {
+		numCols = 3
+		stepCol = 21
+		tileW = 20
+		wide = false
+	}
+
+	totalRows := (12 + numCols - 1) / numCols
+	tileH := 8
+	maxVisibleRows := (h - 4) / tileH
+	if maxVisibleRows < 1 {
+		maxVisibleRows = 1
+	}
+	if maxVisibleRows > totalRows {
+		maxVisibleRows = totalRows
+	}
+
+	selRow := (m.selMonth - 1) / numCols
+	startRow := selRow - (maxVisibleRows-1)/2
+	if startRow < 0 {
+		startRow = 0
+	}
+	if startRow+maxVisibleRows > totalRows {
+		startRow = totalRows - maxVisibleRows
+	}
+	if startRow < 0 {
+		startRow = 0
+	}
+
+	if startRow > 0 {
+		s.DrawText(x+w-4, y, "▲", FgYellow, BgModal, 1, true, false, false)
+	}
+	if startRow+maxVisibleRows < totalRows {
+		s.DrawText(x+w-4, y+h-1, "▼", FgYellow, BgModal, 1, true, false, false)
 	}
 
 	maxDrawX := x + w - 2
-	maxDrawY := y + h - 2
+	maxDrawY := y + h - 3
 
-	tilesBottomY := y + 2
-	for r := 0; r < numRows; r++ {
+	usedW := (numCols-1)*stepCol + tileW
+	gridLeftMargin := (w - usedW) / 2
+	if gridLeftMargin < 2 {
+		gridLeftMargin = 2
+	}
+
+	for r := 0; r < maxVisibleRows; r++ {
 		rowIdx := startRow + r
-		by := y + 2 + (r * 8)
+		by := y + 2 + (r * tileH)
 
-		for col := 0; col < 4; col++ {
-			monthIdx := rowIdx*4 + col
+		for col := 0; col < numCols; col++ {
+			monthIdx := rowIdx*numCols + col
 			if monthIdx >= 12 {
 				break
 			}
 			mNum := monthIdx + 1
 
-			var bx int
-			tileW := 15
-			if wide {
-				bx = x + 3 + (col * 22)
-				tileW = 21
-			} else {
-				bx = x + 2 + (col * 16)
-			}
-
+			bx := x + gridLeftMargin + (col * stepCol)
 			if bx > maxDrawX {
 				continue
 			}
@@ -2184,25 +2288,20 @@ func (m *ModalYearCalendar) Draw(s *Screen) {
 					curX = bx
 					curY++
 				}
-				if curY > tilesBottomY {
-					tilesBottomY = curY
-				}
 			}
 		}
 	}
 
-	// Centered hint line located below the tiles
 	hintY := y + h - 2
-	if hintY <= tilesBottomY {
-		hintY = tilesBottomY + 1
-	}
-
 	var hintText string
 	if m.rangeAnchor != nil {
 		hintText = fmt.Sprintf("[Стрелки] Выбор диапазона  [Space] Зафиксировать  [Esc] Отмена  [От: %02d.%02d]", m.rangeAnchor.Day(), m.rangeAnchor.Month())
+	} else if w < 68 {
+		hintText = "[↑↓←→] Выбор дня  [Space] Период  [Enter] Применить  [Esc] Закрыть"
 	} else {
 		hintText = "[↑↓←→] Выбор дня  [Space] Период  [Enter] Применить  [t] Сегодня  [y] Год  [Esc] Закрыть"
 	}
+	s.DrawBottomWrappedCenteredHint(x+2, hintY, w-4, 2, hintText, FgDim, BgModal)
 	s.DrawBottomWrappedCenteredHint(x+2, hintY, w-4, 2, hintText, FgDim, BgModal)
 
 	// Year text input overlay (if active)
@@ -2762,6 +2861,7 @@ func (m *ModalSettings) Draw(s *Screen) {
 		y = 1
 	}
 
+	s.DimBackdrop(x, y, w, h)
 	s.DrawBox(x, y, w, h, "Настройки MyCal", FgCyan, BorderBright, BgModal, true)
 
 	modeDisplay := "Классическое меню (CLI)"
@@ -3322,6 +3422,7 @@ func (m *ModalDateRange) Draw(s *Screen) {
 		y = 1
 	}
 
+	s.DimBackdrop(x, y, w, h)
 	s.DrawBox(x, y, w, h, "Выбор периода дат", FgCyan, BorderBright, BgModal, true)
 
 	s.DrawText(x+2, y+1, "Укажите диапазон дат для фильтрации записей:", FgMuted, BgModal, w-4, false, false, false)
@@ -3367,28 +3468,28 @@ func (m *ModalDateRange) Draw(s *Screen) {
 
 	// Buttons
 	btnY := y + 8
-	btnApplyBg := BgPanelAlt
-	btnApplyFg := FgMain
+	btnApplyBg := BgCard
+	btnApplyFg := FgCyan
 	if m.focused == 2 {
 		btnApplyBg = BgHighlight
 		btnApplyFg = FgWhite
 	}
-	applyLbl := "  Применить (Enter)  "
+	applyLbl := " [ Enter: Применить ] "
 	applyW := len(applyLbl)
 	if x+4+applyW <= x+w-2 {
 		s.Fill(x+4, btnY, applyW, 1, ' ', btnApplyFg, btnApplyBg)
 		s.DrawText(x+4, btnY, applyLbl, btnApplyFg, btnApplyBg, applyW, m.focused == 2, false, false)
 	}
 
-	btnCancelBg := BgPanelAlt
-	btnCancelFg := FgMain
+	btnCancelBg := BgCard
+	btnCancelFg := FgMuted
 	if m.focused == 3 {
 		btnCancelBg = BgHighlight
 		btnCancelFg = FgWhite
 	}
-	cancelLbl := "  Отмена (Esc)  "
+	cancelLbl := " [ Esc: Отмена ] "
 	cancelW := len(cancelLbl)
-	cancelX := x + 26
+	cancelX := x + 4 + applyW + 2
 	if cancelX+cancelW > x+w-2 {
 		cancelX = x + w - 2 - cancelW
 	}
@@ -3510,6 +3611,7 @@ func (m *ModalHelp) Draw(s *Screen) {
 		y = 1
 	}
 
+	s.DimBackdrop(x, y, w, h)
 	s.DrawBox(x, y, w, h, "Справка по горячим клавишам MyCal TUI", FgGreen, BorderBright, BgModal, true)
 
 	lines := []struct {
@@ -3656,6 +3758,7 @@ func (m *ModalSort) Draw(s *Screen) {
 		y = 1
 	}
 
+	s.DimBackdrop(x, y, w, h)
 	s.DrawBox(x, y, w, h, "Сортировка записей", FgCyan, BorderBright, BgModal, true)
 	s.DrawText(x+2, y+1, "Выберите поле для сортировки записей:", FgMuted, BgModal, w-4, false, false, false)
 
@@ -3881,6 +3984,7 @@ func (m *ModalCalendarManager) Draw(s *Screen) {
 		y = 1
 	}
 
+	s.DimBackdrop(x, y, w, h)
 	s.DrawBox(x, y, w, h, "Календари записей [b]", FgCyan, BorderBright, BgModal, true)
 	s.DrawText(x+2, y+1, "Выбор переключает календарь в реальном времени:", FgMuted, BgModal, w-4, false, false, false)
 
@@ -3971,6 +4075,7 @@ func (m *ModalCalendarManager) drawCreateView(s *Screen) {
 		y = 1
 	}
 
+	s.DimBackdrop(x, y, w, h)
 	s.DrawBox(x, y, w, h, "Создать календарь записей", FgGreen, BorderBright, BgModal, true)
 
 	// Field 0: Prefix
@@ -4252,6 +4357,7 @@ func (m *ModalStats) Draw(s *Screen) {
 		y = 1
 	}
 
+	s.DimBackdrop(x, y, w, h)
 	s.DrawBox(x, y, w, h, "Статистика за период", FgYellow, BorderFocus, BgModal, true)
 
 	var sessions []models.Session
@@ -4298,8 +4404,7 @@ func (m *ModalStats) Draw(s *Screen) {
 	s.DrawText(x+2, curY, fmt.Sprintf("Суммарный кэш:     %s", strconv.FormatFloat(totalCash, 'f', -1, 64)), cashFg, BgModal, w-4, true, false, false)
 	curY += 2
 
-	s.DrawHLine(x+1, x+w-2, curY, BoxH, BorderDim, BgModal)
-	s.DrawText(x+2, curY, "┤ Распределение по статусам ├", FgDim, BgModal, w-4, false, false, false)
+	s.DrawSectionDivider(x, curY, w, "Распределение по статусам", FgCyan, BorderDim, BgModal)
 	curY++
 
 	statusOrder := []string{"Активно", "Завершено", "Запланировано", "В процессе", "Отменено"}
@@ -4330,8 +4435,7 @@ func (m *ModalStats) Draw(s *Screen) {
 
 	curY++
 	if len(typeCounts) > 0 && curY < y+h-3 {
-		s.DrawHLine(x+1, x+w-2, curY, BoxH, BorderDim, BgModal)
-		s.DrawText(x+2, curY, "┤ Распределение по категориям ├", FgDim, BgModal, w-4, false, false, false)
+		s.DrawSectionDivider(x, curY, w, "Распределение по категориям", FgCyan, BorderDim, BgModal)
 		curY++
 		for tName, c := range typeCounts {
 			if curY >= y+h-2 {
@@ -4416,6 +4520,7 @@ func (m *ModalMoveToCalendar) Draw(s *Screen) {
 		if y < 1 {
 			y = 1
 		}
+		s.DimBackdrop(x, y, w, h)
 		s.DrawBox(x, y, w, h, "Перенос в календарь по префиксу", FgCyan, BorderBright, BgModal, true)
 		s.DrawText(x+2, y+2, "Префикс целевого календаря (напр. work, sport):", FgMuted, BgModal, w-4, false, false, false)
 		s.Fill(x+2, y+4, w-4, 1, ' ', FgWhite, BgInput)
@@ -4452,6 +4557,7 @@ func (m *ModalMoveToCalendar) Draw(s *Screen) {
 		y = 1
 	}
 
+	s.DimBackdrop(x, y, w, h)
 	title := fmt.Sprintf("Перенос в другой календарь (%d зап.)", len(m.targetIDs))
 	s.DrawBox(x, y, w, h, title, FgCyan, BorderBright, BgModal, true)
 	s.DrawText(x+2, y+1, "Выберите целевой календарь:", FgMuted, BgModal, w-4, false, false, false)
@@ -4668,6 +4774,7 @@ func (m *ModalImport) Draw(s *Screen) {
 		if y < 1 {
 			y = 1
 		}
+		s.DimBackdrop(x, y, w, h)
 		s.DrawBox(x, y, w, h, "Импорт из файла (.csv / .json)", FgCyan, BorderBright, BgModal, true)
 		s.DrawText(x+2, y+2, "Введите путь к файлу CSV или JSON:", FgMuted, BgModal, w-4, false, false, false)
 		s.Fill(x+2, y+4, w-4, 1, ' ', FgWhite, BgInput)
@@ -4704,6 +4811,7 @@ func (m *ModalImport) Draw(s *Screen) {
 		y = 1
 	}
 
+	s.DimBackdrop(x, y, w, h)
 	s.DrawBox(x, y, w, h, "Импорт из CSV / JSON [Shift+X]", FgCyan, BorderBright, BgModal, true)
 	s.DrawText(x+2, y+1, "Выберите файл для импорта (дубликаты пропускаются):", FgMuted, BgModal, w-4, false, false, false)
 

@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MyCal Web Dashboard</title>
   <link rel="stylesheet" href="style.css">
 </head>
@@ -18,11 +18,14 @@
         <span class="brand-title">MyCal <span class="brand-badge">Web</span></span>
       </div>
       <div class="nav-clock" id="liveClock">--:--:--</div>
-      <div class="calendar-switch-wrap" style="display:flex; align-items:center; gap:6px; margin-left:6px;">
-        <select id="calendarSelect" class="form-select" style="padding:4px 8px; font-size:0.82rem; min-width:165px; height:32px;" onchange="onCalendarSelectChange(this.value)" title="Выбрать календарь записей (переключение в реальном времени)">
+      <div class="calendar-switch-wrap">
+        <select id="calendarSelect" class="form-select calendar-select" onchange="onCalendarSelectChange(this.value)" title="Выбрать календарь записей (переключение в реальном времени)">
           <option value="">Основной (mycal)</option>
         </select>
-        <button type="button" class="btn btn-subtle" style="padding:4px 10px; font-size:0.8rem; height:32px; white-space:nowrap;" onclick="openCreateCalendarModal()" title="Создать календарь записей">+ Календарь</button>
+        <button type="button" class="btn btn-subtle btn-new-cal" onclick="openCreateCalendarModal()" title="Создать календарь записей">
+          <span class="btn-new-cal-text">+ Календарь</span>
+          <span class="btn-new-cal-icon">+</span>
+        </button>
       </div>
     </div>
 
@@ -61,7 +64,7 @@
   </header>
 
   <!-- MAIN 3-COLUMN WORKSPACE -->
-  <div class="main-workspace" id="mainWorkspace">
+  <div class="main-workspace" id="mainWorkspace" data-mobile-tab="feed">
 
     <!-- LEFT SIDEBAR: Mini Calendar & Type Filters -->
     <aside class="sidebar-panel" id="sidebarPanel">
@@ -106,6 +109,15 @@
 
     <!-- CENTER FEED: Sessions Timeline -->
     <main class="feed-panel" id="feedPanel">
+      <!-- Mobile Period Selector Strip (Visible on screens < 768px) -->
+      <nav class="mobile-period-bar" id="mobilePeriodBar" aria-label="Период выборки">
+        <button type="button" class="tab-btn" data-period="month" onclick="setPeriod('month')">Месяц</button>
+        <button type="button" class="tab-btn" data-period="today" onclick="setPeriod('today')">Сегодня</button>
+        <button type="button" class="tab-btn" data-period="week" onclick="setPeriod('week')">Неделя</button>
+        <button type="button" class="tab-btn" data-period="all" onclick="setPeriod('all')">Все записи</button>
+        <button type="button" class="tab-btn" data-period="range" onclick="openRangeModal()" title="Выбор периода (От и До)">Период 📅</button>
+      </nav>
+
       <div class="feed-header">
         <div class="feed-title-wrap">
           <h2 class="feed-title" id="feedTitle">Записи за этот месяц</h2>
@@ -621,7 +633,7 @@
           <button type="button" class="btn btn-sm btn-subtle" onclick="serviceAction('stop')" id="btnServiceStop" style="display: none;">Остановить</button>
           <button type="button" class="btn btn-sm btn-danger" onclick="serviceAction('uninstall')" id="btnServiceUninstall" style="display: none;">Удалить службу</button>
         </div>
-        <div id="serviceDetailsBox" style="display: none; margin-top: 8px; font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono); background: var(--bg-surface); padding: 8px; border-radius: 6px; max-height: 100px; overflow-y: auto;"></div>
+        <div id="serviceDetailsBox" style="display: none; margin-top: 8px; font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono); background: var(--bg-surface); padding: 8px; border-radius: 6px; max-height: 100px; overflow-y: auto; word-break: break-all; white-space: pre-wrap;"></div>
       </div>
 
       <!-- MANAGE TYPES AND STATUSES -->
