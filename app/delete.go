@@ -131,10 +131,11 @@ func (a *App) deleteByID(id string) {
 		color.Green(s.Name), color.Magenta(parser.FormatDate(mustISO(s.Date()))), s.Time)
 
 	if s.IsRepeat() {
-		n := len(a.svc.BySeries(s.SeriesID))
+		total, followingCount := a.svc.SeriesCounts(s.SeriesID, s.ID)
 		fmt.Println(color.Yellow(warnMark + " Это повторяющаяся запись."))
-		fmt.Println("  1. Удалить только эту")
-		fmt.Printf("  2. Удалить всю серию (%d записей)\n", n)
+		fmt.Println("  1. Удалить только эту запись")
+		fmt.Printf("  2. Удалить эту и все последующие (%d записей)\n", followingCount)
+		fmt.Printf("  3. Удалить всю серию целиком (%d записей)\n", total)
 		fmt.Println("  0. Отмена")
 		switch a.prompt("") {
 		case "1":
@@ -143,6 +144,11 @@ func (a *App) deleteByID(id string) {
 				fmt.Println(color.Green(okMark + " Запись удалена"))
 			}
 		case "2":
+			removed := a.svc.DeleteSeriesFrom(s.SeriesID, id)
+			if a.save() == nil {
+				fmt.Println(color.Green(okMark + fmt.Sprintf(" Удалено записей серии (начиная с текущей): %d", removed)))
+			}
+		case "3":
 			removed := a.svc.DeleteSeries(s.SeriesID)
 			if a.save() == nil {
 				fmt.Println(color.Green(okMark + fmt.Sprintf(" Удалено записей серии: %d", removed)))

@@ -2316,3 +2316,89 @@ func TestCompleteEndToEndFunctionalAuditAllModes(t *testing.T) {
 		t.Fatalf("expected 2 sessions restored in default calendar after Undo of move, got %d", app.svc.Count())
 	}
 }
+
+func TestTUIRepreatSeriesDeleteAndEditOptions(t *testing.T) {
+	app := newTestApp(t)
+
+	// Add 3 daily sessions: 2026-06-01, 2026-06-02, 2026-06-03
+	res, err := app.svc.CreateEntries(app.ctx, app.cfg, calendar.EntryInput{
+		Date:        time.Date(2026, 6, 1, 0, 0, 0, 0, time.Local),
+		Time:        time.Date(0, 1, 1, 9, 0, 0, 0, time.UTC),
+		RawName:     "Morning Run",
+		Type:        "Бег",
+		Duration:    30,
+		RepeatMode:  "d",
+		RepeatUntil: time.Date(2026, 6, 3, 0, 0, 0, 0, time.Local),
+	})
+	if err != nil {
+		t.Fatalf("CreateEntries failed: %v", err)
+	}
+	if len(res.Sessions) != 3 {
+		t.Fatalf("expected 3 sessions, got %d", len(res.Sessions))
+	}
+	app.reloadSessions()
+
+	// 1. Test Edit form for repeating session:
+	// Select session 2 (2026-06-02)
+	sess2 := res.Sessions[1]
+	form := NewModalSessionForm(&sess2, "")
+	if !form.isSeries {
+		t.Fatalf("expected isSeries to be true for repeating session")
+	}
+	if form.seriesScope != calendar.SeriesScopeSingle {
+		t.Fatalf("expected default seriesScope to be single, got %s", form.seriesScope)
+	}
+
+	// Change seriesScope to following via cycleSeriesScope
+	form.cycleSeriesScope()
+	if form.seriesScope != calendar.SeriesScopeFollowing {
+		t.Fatalf("expected seriesScope following after cycle, got %s", form.seriesScope)
+	}
+
+	// Change duration
+	form.durStr = "45"
+	if !form.save(app) {
+		t.Fatalf("expected form.save to succeed")
+	}
+
+	// Verify session 1 retained 30 min, while session 2 & 3 became 45 min
+	all := app.svc.All()
+	if len(all) != 3 {
+		t.Fatalf("expected 3 sessions, got %d", len(all))
+	}
+	if all[0].Duration != 30 || all[0].SeriesID != res.Sessions[0].SeriesID {
+		t.Errorf("session 1 should remain 30 min and original series")
+	}
+	if all[1].Duration != 45 || all[1].SeriesID != all[1].ID {
+		t.Errorf("session 2 should be 45 min and branched series")
+	}
+	if all[2].Duration != 45 || all[2].SeriesID != all[1].ID {
+		t.Errorf("session 3 should be 45 min and branched series")
+	}
+
+	// 2. Test Delete modal for repeating session (delete following from session 2):
+	total, following := app.svc.SeriesCounts(all[1].SeriesID, all[1].ID)
+	if total != 2 || following != 2 {
+		t.Fatalf("expected total 2, following 2, got total=%d following=%d", total, following)
+	}
+	delModal := NewModalConfirmDeleteSeries(all[1].ID, all[1].SeriesID, total, following)
+	// Render to ensure no panics
+	scr := NewScreen(80, 24)
+	delModal.Draw(scr)
+
+	// Press '2' to select "Удалить эту и все последующие"
+	delModal.HandleKey(Key{Type: KeyRune, Rune: '2'}, app)
+	if delModal.scopeChoice != 1 {
+		t.Fatalf("expected scopeChoice 1, got %d", delModal.scopeChoice)
+	}
+	// Press Enter to confirm delete
+	delModal.HandleKey(Key{Type: KeyEnter}, app)
+
+	// Session 2 and 3 should be deleted, session 1 remains!
+	if app.svc.Count() != 1 {
+		t.Fatalf("expected 1 session left, got %d", app.svc.Count())
+	}
+	if app.svc.All()[0].ID != all[0].ID {
+		t.Fatalf("expected session 1 to remain")
+	}
+}

@@ -104,22 +104,55 @@ func TestRepeatSeriesAddEditDelete(t *testing.T) {
 		}
 	}
 
-	// Edit whole series duration to 20 via view/all/\2/series/field4.
+	// 1. Edit "this and following" (option 2) on session 2 (07.01).
+	// Changes duration to 25 for sessions 2 & 3, session 1 remains 15.
 	a2, _ := newTestAppInDir(t, dir, lines(
-		"2", "4", "\\2", "2", "4", "20", "", "0", "8",
+		"2", "4", "\\2", "2", "4", "25", "", "0", "8",
 	))
 	a2.mainMenu()
-	for _, s := range a2.svc.All() {
-		if s.Duration != 20 {
-			t.Errorf("series duration not propagated: %s has %d", s.ID, s.Duration)
-		}
+	all2 := a2.svc.All()
+	if len(all2) != 3 {
+		t.Fatalf("expected 3 sessions, got %d", len(all2))
+	}
+	if all2[0].Duration != 15 || all2[0].SeriesID != series {
+		t.Errorf("session 1 should remain 15 min & original series, got dur=%d series=%s", all2[0].Duration, all2[0].SeriesID)
+	}
+	if all2[1].Duration != 25 || all2[1].SeriesID != all2[1].ID {
+		t.Errorf("session 2 should be 25 min & branched series, got dur=%d series=%s", all2[1].Duration, all2[1].SeriesID)
+	}
+	if all2[2].Duration != 25 || all2[2].SeriesID != all2[1].ID {
+		t.Errorf("session 3 should be 25 min & branched series, got dur=%d series=%s", all2[2].Duration, all2[2].SeriesID)
 	}
 
-	// Delete whole series.
-	a3, _ := newTestAppInDir(t, dir, lines("3", "1", a2.svc.All()[1].ID, "2", "8"))
+	// 2. Edit "whole series" (option 3) on branched series (session 2 & 3).
+	// Changes duration to 30 for both.
+	a3, _ := newTestAppInDir(t, dir, lines(
+		"2", "4", "\\2", "3", "4", "30", "", "0", "8",
+	))
 	a3.mainMenu()
-	if a3.svc.Count() != 0 {
-		t.Fatalf("series not fully deleted, %d left", a3.svc.Count())
+	all3 := a3.svc.All()
+	if all3[0].Duration != 15 {
+		t.Errorf("session 1 should still be 15 min, got %d", all3[0].Duration)
+	}
+	if all3[1].Duration != 30 || all3[2].Duration != 30 {
+		t.Errorf("branched series should be 30 min, got %d and %d", all3[1].Duration, all3[2].Duration)
+	}
+
+	// 3. Delete "this and following" (option 2) from session 2: deletes sessions 2 and 3.
+	a4, _ := newTestAppInDir(t, dir, lines("3", "1", all3[1].ID, "2", "8"))
+	a4.mainMenu()
+	if a4.svc.Count() != 1 {
+		t.Fatalf("expected 1 session remaining (session 1), got %d", a4.svc.Count())
+	}
+	if a4.svc.All()[0].ID != all3[0].ID {
+		t.Fatalf("expected session 1 to remain, got %s", a4.svc.All()[0].ID)
+	}
+
+	// 4. Delete the remaining single session (not a series anymore, or delete as single).
+	a5, _ := newTestAppInDir(t, dir, lines("3", "1", all3[0].ID, "1", "8"))
+	a5.mainMenu()
+	if a5.svc.Count() != 0 {
+		t.Fatalf("series not fully deleted, %d left", a5.svc.Count())
 	}
 }
 

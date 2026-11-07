@@ -749,7 +749,12 @@ func (a *App) handleKey(k Key) bool {
 			a.activeModal = NewModalConfirmDelete("", len(a.selectedIDs))
 		} else if len(a.sessions) > 0 && a.cursorIdx < len(a.sessions) {
 			sess := a.sessions[a.cursorIdx]
-			a.activeModal = NewModalConfirmDelete(sess.ID, 1)
+			if sess.IsRepeat() {
+				total, following := a.svc.SeriesCounts(sess.SeriesID, sess.ID)
+				a.activeModal = NewModalConfirmDeleteSeries(sess.ID, sess.SeriesID, total, following)
+			} else {
+				a.activeModal = NewModalConfirmDelete(sess.ID, 1)
+			}
 		}
 		return false
 
@@ -1304,7 +1309,12 @@ func (a *App) handleInspectorKey(k Key) {
 	case k.Matches('d', 'в') || k.Type == KeyDelete:
 		if len(a.sessions) > 0 && a.cursorIdx < len(a.sessions) {
 			sess := a.sessions[a.cursorIdx]
-			a.activeModal = NewModalConfirmDelete(sess.ID, 1)
+			if sess.IsRepeat() {
+				total, following := a.svc.SeriesCounts(sess.SeriesID, sess.ID)
+				a.activeModal = NewModalConfirmDeleteSeries(sess.ID, sess.SeriesID, total, following)
+			} else {
+				a.activeModal = NewModalConfirmDelete(sess.ID, 1)
+			}
 		}
 	}
 }

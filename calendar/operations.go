@@ -155,11 +155,19 @@ func (s *Service) CreateEntries(ctx context.Context, cfg *models.Config, in Entr
 	return res, nil
 }
 
+// Series update scopes for repeating events.
+const (
+	SeriesScopeSingle    = "single"    // only this occurrence
+	SeriesScopeFollowing = "following" // this and all following occurrences
+	SeriesScopeAll       = "all"       // the entire series
+)
+
 // UpdateInput holds parameters for updating a session or its series across all UIs.
 type UpdateInput struct {
 	NewDate      *time.Time
 	Patch        Patch
-	UpdateSeries bool
+	UpdateSeries bool   // legacy compatibility: true means SeriesScopeAll
+	SeriesScope  string // "single", "following", "all"
 }
 
 // UpdateEntry is the unified session update engine used by CLI, TUI, and Web.
@@ -187,13 +195,30 @@ func (s *Service) UpdateEntry(ctx context.Context, cfg *models.Config, id string
 	s.BeginUndoTx("редактирование записи")
 	defer s.EndUndoTx()
 
-	if in.UpdateSeries && sess.IsRepeat() {
-		n := s.UpdateSeries(sess.SeriesID, in.Patch)
-		if err := s.Save(ctx); err != nil {
-			return sess, n, err
+	scope := strings.ToLower(strings.TrimSpace(in.SeriesScope))
+	if scope == "" && in.UpdateSeries {
+		scope = SeriesScopeAll
+	}
+	if scope == "series" {
+		scope = SeriesScopeAll
+	}
+
+	if sess.IsRepeat() {
+		if scope == SeriesScopeAll {
+			n := s.UpdateSeries(sess.SeriesID, in.Patch)
+			if err := s.Save(ctx); err != nil {
+				return sess, n, err
+			}
+			updated, _ := s.ByID(id)
+			return updated, n, nil
+		} else if scope == SeriesScopeFollowing {
+			n := s.UpdateSeriesFrom(sess.SeriesID, id, in.Patch)
+			if err := s.Save(ctx); err != nil {
+				return sess, n, err
+			}
+			updated, _ := s.ByID(id)
+			return updated, n, nil
 		}
-		updated, _ := s.ByID(id)
-		return updated, n, nil
 	}
 
 	// Check if date is being changed for a single session
