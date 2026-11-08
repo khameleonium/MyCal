@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"mycalendar/calendar"
 	"mycalendar/color"
 	"mycalendar/config"
 	"mycalendar/models"
@@ -92,8 +93,16 @@ func (a *App) settingsMenu() {
 			fmt.Printf(" a | 19. Доступ к Web из сети (LAN)  [%s]\n", onOff(a.cfg.WebLAN))
 			a.hint("Разрешить открытие веб-интерфейса с других устройств в локальной сети (0.0.0.0)")
 		}
+		fmt.Printf(" v | 20. Настройки активного календаря [%s]\n", a.cfg.ActiveCalendarDisplayName())
+		a.hint("Индивидуальные настройки для текущего календаря (отображаемые поля, переопределения)")
 		fmt.Println(" q | 0. Сохранить и выйти")
 		a.hint("Применить изменения и вернуться в главное меню")
+		fmt.Println()
+		fmt.Println(color.Cyan("── О программе ────────────────────────────────────"))
+		fmt.Println(" Создатель: Илья Ульянов | khameleonium")
+		fmt.Println(" https://github.com/khameleonium/MyCal")
+		fmt.Println(" Поддержать автора: https://boosty.to/khameleonium")
+		fmt.Println(color.Cyan("───────────────────────────────────────────────────"))
 
 		choice, ok := a.menuChoice()
 		if !ok {
@@ -177,11 +186,13 @@ func (a *App) settingsMenu() {
 			startEffName = a.cfg.ActiveEffectiveBaseName()
 		case match(choice, "19", "a", "ф"):
 			config.CycleSetting(a.cfg, "web_lan", nil)
+		case match(choice, "20", "v", "м"):
+			a.calendarSettingsMenu()
 		case match(choice, "0", "q"):
 			a.persistSettings(startMode, startName, startEffName, startPath)
 			return
 		default:
-			fmt.Println(color.Red(errMark + " Некорректный выбор (0–19)"))
+			fmt.Println(color.Red(errMark + " Некорректный выбор (0–20)"))
 		}
 	}
 }
@@ -557,5 +568,177 @@ func tuiDefaultPeriodDisplay(p string) string {
 		return "Месяц"
 	default:
 		return "Сегодня"
+	}
+}
+
+func (a *App) calendarSettingsMenu() {
+	for {
+		settings := a.svc.Settings()
+		eff := a.svc.EffectiveConfig(a.cfg)
+
+		fmt.Println()
+		fmt.Println(color.Yellow(fmt.Sprintf("%s Настройки календаря [%s] %s", hdrSep, a.cfg.ActiveCalendarDisplayName(), hdrSep)))
+
+		visDisplay := eff.VisibleFields
+		if settings != nil && settings.VisibleFields != nil {
+			visDisplay = *settings.VisibleFields + " (переопределено)"
+		} else {
+			visDisplay = eff.VisibleFields + " (по умолчанию)"
+		}
+		fmt.Printf(" 1. Отображаемые поля           [%s]\n", visDisplay)
+		a.hint("Какие поля показывать и спрашивать при добавлении (через ';')")
+
+		durDisplay := fmt.Sprintf("%d мин", eff.DefaultDuration)
+		if settings != nil && settings.DefaultDuration != nil {
+			durDisplay = fmt.Sprintf("%d мин (переопределено)", *settings.DefaultDuration)
+		} else {
+			durDisplay = fmt.Sprintf("%d мин (наследуется)", eff.DefaultDuration)
+		}
+		fmt.Printf(" 2. Продолж. по умолчанию       [%s]\n", durDisplay)
+
+		typDisplay := eff.DefaultType
+		if settings != nil && settings.DefaultType != nil {
+			typDisplay = fmt.Sprintf("%s (переопределено)", *settings.DefaultType)
+		} else {
+			typDisplay = fmt.Sprintf("%s (наследуется)", eff.DefaultType)
+		}
+		fmt.Printf(" 3. Тип по умолчанию            [%s]\n", typDisplay)
+
+		unitDisplay := durationUnitDisplay(eff.DurationUnit)
+		if settings != nil && settings.DurationUnit != nil {
+			unitDisplay = fmt.Sprintf("%s (переопределено)", durationUnitDisplay(*settings.DurationUnit))
+		} else {
+			unitDisplay = fmt.Sprintf("%s (наследуется)", unitDisplay)
+		}
+		fmt.Printf(" 4. Формат длительности         [%s]\n", unitDisplay)
+
+		themeDisplay := eff.Theme
+		if themeDisplay == "" {
+			themeDisplay = "tokyo"
+		}
+		if settings != nil && settings.Theme != nil {
+			themeDisplay = fmt.Sprintf("%s (переопределено)", *settings.Theme)
+		} else {
+			themeDisplay = fmt.Sprintf("%s (наследуется)", themeDisplay)
+		}
+		fmt.Printf(" 5. Тема оформления             [%s]\n", themeDisplay)
+
+		fmt.Println(" 6. Сбросить настройки календаря (вернуть наследование)")
+		a.hint("Удаляет переопределения и возвращает использование общих настроек")
+
+		fmt.Println(" 0. Назад")
+
+		choice, ok := a.menuChoice()
+		if !ok || isCancel(choice) || choice == "0" {
+			return
+		}
+
+		if settings == nil {
+			settings = &models.CalendarSettings{}
+		}
+
+		switch choice {
+		case "1":
+			fmt.Println()
+			fmt.Println(color.Cyan("  Допустимые поля: " + calendar.DefaultVisibleFields))
+			fmt.Println(color.Cyan("  Пример: Дата; Время; Наименование; Категория; Длительность; Статус; Кэш; Заметка"))
+			fmt.Println(color.Cyan("  Или для дневника: Дата; Наименование; Заметка"))
+			curVal := eff.VisibleFields
+			if settings.VisibleFields != nil {
+				curVal = *settings.VisibleFields
+			}
+			v := a.dialog(fmt.Sprintf("Отображаемые поля [%s]:", curVal), "0 — отмена, - — сбросить к наследованию")
+			if v != "" && !isCancel(v) {
+				if v == "-" {
+					settings.VisibleFields = nil
+				} else {
+					formatted := calendar.NormalizeVisibleFields(v)
+					settings.VisibleFields = &formatted
+				}
+				a.svc.SetSettings(settings)
+				if err := a.svc.Save(a.ctx); err != nil {
+					fmt.Println(color.Red(errMark + " Ошибка сохранения: " + err.Error()))
+				} else {
+					fmt.Println(color.Green(okMark + " Настройки сохранены"))
+				}
+			}
+		case "2":
+			curVal := eff.DefaultDuration
+			if settings.DefaultDuration != nil {
+				curVal = *settings.DefaultDuration
+			}
+			v := a.dialog(fmt.Sprintf("Продолжительность по умолчанию (мин) [%d]:", curVal), "0 — отмена, - — сбросить к наследованию")
+			if v != "" && !isCancel(v) {
+				if v == "-" {
+					settings.DefaultDuration = nil
+				} else if d, err := strconv.Atoi(v); err == nil && d >= 0 {
+					settings.DefaultDuration = &d
+				} else {
+					fmt.Println(color.Yellow(warnMark + " Некорректное значение"))
+					continue
+				}
+				a.svc.SetSettings(settings)
+				_ = a.svc.Save(a.ctx)
+				fmt.Println(color.Green(okMark + " Настройки сохранены"))
+			}
+		case "3":
+			curVal := eff.DefaultType
+			if settings.DefaultType != nil {
+				curVal = *settings.DefaultType
+			}
+			v := a.dialog(fmt.Sprintf("Тип по умолчанию [%s]:", curVal), "0 — отмена, - — сбросить к наследованию")
+			if v != "" && !isCancel(v) {
+				if v == "-" {
+					settings.DefaultType = nil
+				} else {
+					settings.DefaultType = &v
+				}
+				a.svc.SetSettings(settings)
+				_ = a.svc.Save(a.ctx)
+				fmt.Println(color.Green(okMark + " Настройки сохранены"))
+			}
+		case "4":
+			if settings.DurationUnit == nil {
+				next := "hours"
+				if eff.DurationUnit == "hours" {
+					next = "min"
+				}
+				settings.DurationUnit = &next
+			} else if *settings.DurationUnit == "min" {
+				next := "hours"
+				settings.DurationUnit = &next
+			} else {
+				settings.DurationUnit = nil // reset to inherit
+			}
+			a.svc.SetSettings(settings)
+			_ = a.svc.Save(a.ctx)
+		case "5":
+			fmt.Println(color.Cyan("  Допустимые темы: tokyo, nord, dracula, monokai, solarized, cyberpunk, matrix, catppuccin, paper"))
+			curVal := eff.Theme
+			if settings.Theme != nil {
+				curVal = *settings.Theme
+			}
+			v := a.dialog(fmt.Sprintf("Тема [%s]:", curVal), "0 — отмена, - — сбросить к наследованию")
+			if v != "" && !isCancel(v) {
+				if v == "-" {
+					settings.Theme = nil
+				} else {
+					clean := strings.ToLower(strings.TrimSpace(v))
+					settings.Theme = &clean
+				}
+				a.svc.SetSettings(settings)
+				_ = a.svc.Save(a.ctx)
+				fmt.Println(color.Green(okMark + " Настройки сохранены"))
+			}
+		case "6":
+			a.svc.SetSettings(nil)
+			if err := a.svc.Save(a.ctx); err != nil {
+				fmt.Println(color.Red(errMark + " Ошибка сброса: " + err.Error()))
+			} else {
+				fmt.Println(color.Green(okMark + " Настройки календаря сброшены к общим"))
+			}
+		default:
+			fmt.Println(color.Red(errMark + " Некорректный выбор (0–6)"))
+		}
 	}
 }

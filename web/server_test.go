@@ -775,3 +775,56 @@ func TestWebSeriesFollowingDeleteAndUpdate(t *testing.T) {
 		}
 	}
 }
+
+func TestCalendarSettingsAPI(t *testing.T) {
+	srv, svc, _ := newTestServer(t)
+	handler := srv.Routes()
+
+	// 1. GET /api/calendars/settings
+	reqGet := httptest.NewRequest(http.MethodGet, "/api/calendars/settings", nil)
+	recGet := httptest.NewRecorder()
+	handler.ServeHTTP(recGet, reqGet)
+	if recGet.Code != http.StatusOK {
+		t.Fatalf("GET /api/calendars/settings: %d", recGet.Code)
+	}
+
+	// 2. POST /api/calendars/settings with visible_fields and duration
+	vf := "Дата; Наименование; Заметка"
+	dur := 45
+	theme := "nord"
+	body, _ := json.Marshal(map[string]interface{}{
+		"visible_fields":   vf,
+		"default_duration": dur,
+		"theme":            theme,
+	})
+	reqPost := httptest.NewRequest(http.MethodPost, "/api/calendars/settings", bytes.NewReader(body))
+	recPost := httptest.NewRecorder()
+	handler.ServeHTTP(recPost, reqPost)
+	if recPost.Code != http.StatusOK {
+		t.Fatalf("POST /api/calendars/settings: %d (%s)", recPost.Code, recPost.Body.String())
+	}
+
+	st := svc.Settings()
+	if st == nil || st.VisibleFields == nil || *st.VisibleFields != vf {
+		t.Fatalf("expected visible_fields %q, got %+v", vf, st)
+	}
+	if st.DefaultDuration == nil || *st.DefaultDuration != 45 {
+		t.Fatalf("expected default_duration 45, got %+v", st)
+	}
+	if st.Theme == nil || *st.Theme != "nord" {
+		t.Fatalf("expected theme nord, got %+v", st)
+	}
+
+	// 3. Reset settings
+	bodyReset, _ := json.Marshal(map[string]interface{}{"reset": true})
+	reqReset := httptest.NewRequest(http.MethodPost, "/api/calendars/settings", bytes.NewReader(bodyReset))
+	recReset := httptest.NewRecorder()
+	handler.ServeHTTP(recReset, reqReset)
+	if recReset.Code != http.StatusOK {
+		t.Fatalf("POST /api/calendars/settings reset: %d", recReset.Code)
+	}
+
+	if svc.Settings() != nil {
+		t.Fatalf("expected nil settings after reset, got %+v", svc.Settings())
+	}
+}

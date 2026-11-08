@@ -270,6 +270,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/calendars", s.handleCalendars)
+	mux.HandleFunc("/api/calendars/settings", s.handleCalendarSettings)
 	mux.HandleFunc("/api/info", s.handleInfo)
 	mux.HandleFunc("/api/service/status", s.handleServiceStatus)
 	mux.HandleFunc("/api/service/action", s.handleServiceAction)
@@ -1166,12 +1167,22 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		if s.svc != nil {
 			cals = s.svc.ListCalendars(s.cfg)
 		}
+		eff := s.cfg
+		var calSettings *models.CalendarSettings
+		if s.svc != nil {
+			eff = s.svc.EffectiveConfig(s.cfg)
+			calSettings = s.svc.Settings()
+		}
 		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"config":            s.cfg,
-			"effective_today":   config.EffectiveToday(s.cfg).Format("2006-01-02"),
-			"calendars":         cals,
-			"active_split_mode": s.cfg.ActiveSplitMode(),
-			"lan_ips":           LocalLANIPs(),
+			"config":                 s.cfg,
+			"effective_config":       eff,
+			"calendar_settings":      calSettings,
+			"default_visible_fields": calendar.DefaultVisibleFields,
+			"effective_today":        config.EffectiveToday(s.cfg).Format("2006-01-02"),
+			"calendars":              cals,
+			"active_split_mode":      s.cfg.ActiveSplitMode(),
+			"version":                s.version,
+			"lan_ips":                LocalLANIPs(),
 		})
 	case http.MethodPut, http.MethodPost:
 		updated := *s.cfg
@@ -1242,13 +1253,23 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		if s.svc != nil {
 			cals = s.svc.ListCalendars(s.cfg)
 		}
+		eff := s.cfg
+		var calSettings *models.CalendarSettings
+		if s.svc != nil {
+			eff = s.svc.EffectiveConfig(s.cfg)
+			calSettings = s.svc.Settings()
+		}
 		respondJSON(w, http.StatusOK, map[string]interface{}{
-			"ok":                true,
-			"config":            s.cfg,
-			"effective_today":   config.EffectiveToday(s.cfg).Format("2006-01-02"),
-			"calendars":         cals,
-			"active_split_mode": s.cfg.ActiveSplitMode(),
-			"lan_ips":           LocalLANIPs(),
+			"ok":                     true,
+			"config":                 s.cfg,
+			"effective_config":       eff,
+			"calendar_settings":      calSettings,
+			"default_visible_fields": calendar.DefaultVisibleFields,
+			"effective_today":        config.EffectiveToday(s.cfg).Format("2006-01-02"),
+			"calendars":              cals,
+			"active_split_mode":      s.cfg.ActiveSplitMode(),
+			"version":                s.version,
+			"lan_ips":                LocalLANIPs(),
 		})
 	default:
 		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
@@ -1325,12 +1346,164 @@ func (s *Server) handleCalendars(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		cals := s.svc.ListCalendars(s.cfg)
+		eff := s.svc.EffectiveConfig(s.cfg)
 		respondJSON(w, http.StatusOK, map[string]interface{}{
 			"ok":                true,
 			"calendars":         cals,
 			"active_calendar":   s.cfg.ActiveCalendar,
 			"active_split_mode": s.cfg.ActiveSplitMode(),
 			"config":            s.cfg,
+			"effective_config":  eff,
+			"calendar_settings": s.svc.Settings(),
+		})
+
+	default:
+		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleCalendarSettings(w http.ResponseWriter, r *http.Request) {
+	s.checkAutoReload(r.Context())
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.svc == nil {
+		respondError(w, http.StatusServiceUnavailable, "Сервис календаря недоступен")
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		eff := s.svc.EffectiveConfig(s.cfg)
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"active_calendar":        s.cfg.ActiveCalendar,
+			"active_calendar_name":   s.cfg.ActiveCalendarDisplayName(),
+			"settings":               s.svc.Settings(),
+			"effective_config":       eff,
+			"default_visible_fields": calendar.DefaultVisibleFields,
+		})
+
+	case http.MethodPost, http.MethodPut:
+		var req struct {
+			Reset           bool     `json:"reset"`
+			VisibleFields   *string  `json:"visible_fields"`
+			DefaultDuration *int     `json:"default_duration"`
+			DurationUnit    *string  `json:"duration_unit"`
+			DefaultType     *string  `json:"default_type"`
+			Theme           *string  `json:"theme"`
+			SortField       *string  `json:"sort_field"`
+			SortAsc         *bool    `json:"sort_asc"`
+			CustomStatuses  []string `json:"custom_statuses"`
+			CustomTypes     []string `json:"custom_types"`
+			AskOnConflict   *bool    `json:"ask_on_conflict"`
+			SilentAddNames  *bool    `json:"silent_add_names"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			respondError(w, http.StatusBadRequest, "Некорректный JSON запрос")
+			return
+		}
+
+		if req.Reset {
+			s.svc.SetSettings(nil)
+			if err := s.svc.Save(r.Context()); err != nil {
+				respondError(w, http.StatusInternalServerError, "Ошибка сброса настроек: "+err.Error())
+				return
+			}
+			s.lastDataMod = s.svc.DataFilesModTime()
+			eff := s.svc.EffectiveConfig(s.cfg)
+			respondJSON(w, http.StatusOK, map[string]interface{}{
+				"ok":               true,
+				"settings":         nil,
+				"effective_config": eff,
+			})
+			return
+		}
+
+		settings := s.svc.Settings()
+		if settings == nil {
+			settings = &models.CalendarSettings{}
+		}
+
+		if req.VisibleFields != nil {
+			raw := strings.TrimSpace(*req.VisibleFields)
+			if raw == "" {
+				settings.VisibleFields = nil
+			} else {
+				norm := calendar.NormalizeVisibleFields(raw)
+				settings.VisibleFields = &norm
+			}
+		}
+		if req.DefaultDuration != nil {
+			if *req.DefaultDuration <= 0 {
+				settings.DefaultDuration = nil
+			} else {
+				settings.DefaultDuration = req.DefaultDuration
+			}
+		}
+		if req.DurationUnit != nil {
+			raw := strings.TrimSpace(*req.DurationUnit)
+			if raw == "" {
+				settings.DurationUnit = nil
+			} else {
+				settings.DurationUnit = &raw
+			}
+		}
+		if req.DefaultType != nil {
+			raw := strings.TrimSpace(*req.DefaultType)
+			if raw == "" {
+				settings.DefaultType = nil
+			} else {
+				settings.DefaultType = &raw
+			}
+		}
+		if req.Theme != nil {
+			raw := strings.TrimSpace(strings.ToLower(*req.Theme))
+			if raw == "" {
+				settings.Theme = nil
+			} else {
+				settings.Theme = &raw
+			}
+		}
+		if req.SortField != nil {
+			raw := strings.TrimSpace(*req.SortField)
+			if raw == "" {
+				settings.SortField = nil
+			} else {
+				settings.SortField = &raw
+			}
+		}
+		if req.SortAsc != nil {
+			settings.SortAsc = req.SortAsc
+		}
+		if req.AskOnConflict != nil {
+			settings.AskOnConflict = req.AskOnConflict
+		}
+		if req.SilentAddNames != nil {
+			settings.SilentAddNames = req.SilentAddNames
+		}
+		if len(req.CustomStatuses) > 0 {
+			settings.CustomStatuses = req.CustomStatuses
+		}
+		if len(req.CustomTypes) > 0 {
+			settings.CustomTypes = req.CustomTypes
+		}
+
+		if settings.IsEmpty() {
+			s.svc.SetSettings(nil)
+		} else {
+			s.svc.SetSettings(settings)
+		}
+
+		if err := s.svc.Save(r.Context()); err != nil {
+			respondError(w, http.StatusInternalServerError, "Ошибка сохранения настроек: "+err.Error())
+			return
+		}
+		s.lastDataMod = s.svc.DataFilesModTime()
+		eff := s.svc.EffectiveConfig(s.cfg)
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"ok":               true,
+			"settings":         s.svc.Settings(),
+			"effective_config": eff,
 		})
 
 	default:

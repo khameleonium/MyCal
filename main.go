@@ -125,7 +125,7 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("не удалось открыть календарь: %w", err)
 	}
 
-	application := app.NewApp(ctx, svc, cfg, cfgPath)
+	application := app.NewApp(ctx, svc, cfg, cfgPath, version)
 
 	if len(args) > 0 {
 		cmd := strings.ToLower(args[0])

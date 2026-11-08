@@ -90,6 +90,168 @@
   --accent-red: #f87171;
 }
 
+[data-theme="nord"] {
+  --bg-app: #242933;
+  --bg-surface: #2e3440;
+  --bg-panel: #3b4252;
+  --bg-panel-alt: #2e3440;
+  --bg-highlight: #434c5e;
+  --bg-selection: #4c566a;
+  --bg-input: #2e3440;
+
+  --border-dim: #3b4252;
+  --border-mid: #4c566a;
+  --border-bright: #d8dee9;
+  --border-focus: #88c0d0;
+
+  --text-main: #eceff4;
+  --text-muted: #d8dee9;
+  --text-dim: #7f8ca3;
+
+  --accent-blue: #88c0d0;
+  --accent-cyan: #8fbcbb;
+  --accent-green: #a3be8c;
+  --accent-yellow: #ebcb8b;
+  --accent-orange: #d08770;
+  --accent-magenta: #b48ead;
+  --accent-red: #bf616a;
+}
+
+[data-theme="dracula"] {
+  --bg-app: #1e1f29;
+  --bg-surface: #282a36;
+  --bg-panel: #21222c;
+  --bg-panel-alt: #191a21;
+  --bg-highlight: #44475a;
+  --bg-selection: #44475a;
+  --bg-input: #191a21;
+
+  --border-dim: #343746;
+  --border-mid: #6272a4;
+  --border-bright: #bd93f9;
+  --border-focus: #ff79c6;
+
+  --text-main: #f8f8f2;
+  --text-muted: #e2e2dc;
+  --text-dim: #6272a4;
+
+  --accent-blue: #8be9fd;
+  --accent-cyan: #8be9fd;
+  --accent-green: #50fa7b;
+  --accent-yellow: #f1fa8c;
+  --accent-orange: #ffb86c;
+  --accent-magenta: #bd93f9;
+  --accent-red: #ff5555;
+}
+
+[data-theme="solarized"] {
+  --bg-app: #00212b;
+  --bg-surface: #002b36;
+  --bg-panel: #073642;
+  --bg-panel-alt: #00252e;
+  --bg-highlight: #0b4352;
+  --bg-selection: #145365;
+  --bg-input: #001e26;
+
+  --border-dim: #0a404e;
+  --border-mid: #1d5f73;
+  --border-bright: #2aa198;
+  --border-focus: #268bd2;
+
+  --text-main: #eee8d5;
+  --text-muted: #93a1a1;
+  --text-dim: #657b83;
+
+  --accent-blue: #268bd2;
+  --accent-cyan: #2aa198;
+  --accent-green: #859900;
+  --accent-yellow: #b58900;
+  --accent-orange: #cb4b16;
+  --accent-magenta: #d33682;
+  --accent-red: #dc322f;
+}
+
+[data-theme="monokai"] {
+  --bg-app: #222225;
+  --bg-surface: #2d2a2e;
+  --bg-panel: #333035;
+  --bg-panel-alt: #272428;
+  --bg-highlight: #403e41;
+  --bg-selection: #555057;
+  --bg-input: #1e1d1f;
+
+  --border-dim: #3a373b;
+  --border-mid: #5b575d;
+  --border-bright: #727072;
+  --border-focus: #ffd866;
+
+  --text-main: #fcfcfa;
+  --text-muted: #c1c0c0;
+  --text-dim: #727072;
+
+  --accent-blue: #78dce8;
+  --accent-cyan: #78dce8;
+  --accent-green: #a9dc76;
+  --accent-yellow: #ffd866;
+  --accent-orange: #fc9867;
+  --accent-magenta: #ab9df2;
+  --accent-red: #ff6188;
+}
+
+[data-theme="cyberpunk"] {
+  --bg-app: #08080f;
+  --bg-surface: #12131e;
+  --bg-panel: #1a1a2b;
+  --bg-panel-alt: #0d0e17;
+  --bg-highlight: #282845;
+  --bg-selection: #392854;
+  --bg-input: #07070d;
+
+  --border-dim: #252540;
+  --border-mid: #4a3d6e;
+  --border-bright: #ff0055;
+  --border-focus: #00f0ff;
+
+  --text-main: #ffffff;
+  --text-muted: #b8b8d0;
+  --text-dim: #717199;
+
+  --accent-blue: #00f0ff;
+  --accent-cyan: #00f0ff;
+  --accent-green: #00ff66;
+  --accent-yellow: #fcee0a;
+  --accent-orange: #ff7700;
+  --accent-magenta: #ff0055;
+  --accent-red: #ff003c;
+}
+
+[data-theme="paper"] {
+  --bg-app: #f4f6f8;
+  --bg-surface: #ffffff;
+  --bg-panel: #eaedf1;
+  --bg-panel-alt: #e4e8ee;
+  --bg-highlight: #d8dee8;
+  --bg-selection: #c7d5e8;
+  --bg-input: #ffffff;
+
+  --border-dim: #cbd5e1;
+  --border-mid: #94a3b8;
+  --border-bright: #64748b;
+  --border-focus: #2563eb;
+
+  --text-main: #0f172a;
+  --text-muted: #334155;
+  --text-dim: #64748b;
+
+  --accent-blue: #2563eb;
+  --accent-cyan: #0284c7;
+  --accent-green: #16a34a;
+  --accent-yellow: #ca8a04;
+  --accent-orange: #ea580c;
+  --accent-magenta: #9333ea;
+  --accent-red: #dc2626;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -149,16 +311,19 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
-  gap: 16px;
+  padding: 0 14px;
+  gap: 10px;
   flex-shrink: 0;
   z-index: 10;
+  min-width: 0;
 }
 
 .nav-left {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
+  flex-shrink: 1;
+  min-width: 0;
 }
 
 .app-brand {
@@ -171,6 +336,20 @@ html, body {
 
 .brand-icon {
   font-size: 1.25rem;
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.brand-version {
+  font-size: 0.68rem;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 .brand-title {
@@ -210,14 +389,15 @@ html, body {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-left: 6px;
+  min-width: 0;
 }
 .calendar-select {
   padding: 4px 8px;
   font-size: 0.82rem;
-  min-width: 150px;
-  max-width: 220px;
+  min-width: 110px;
+  max-width: 160px;
   height: 32px;
+  text-overflow: ellipsis;
 }
 .btn-new-cal {
   padding: 4px 10px;
@@ -273,7 +453,8 @@ html, body {
 .nav-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .search-box {
@@ -282,7 +463,7 @@ html, body {
   background: var(--bg-input);
   border: 1px solid var(--border-dim);
   border-radius: var(--radius-md);
-  padding: 0 10px;
+  padding: 0 8px;
   gap: 6px;
   height: 34px;
   transition: border-color 0.15s ease;
@@ -303,7 +484,12 @@ html, body {
   outline: none;
   color: var(--text-main);
   font-size: 0.82rem;
-  width: 160px;
+  width: 110px;
+  transition: width 0.2s ease;
+}
+
+.search-box:focus-within input {
+  width: 150px;
 }
 
 .search-box input::placeholder {
@@ -320,6 +506,17 @@ html, body {
   border-radius: 3px;
 }
 
+.theme-select-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.theme-select-wrap .theme-btn-icon {
+  font-size: 0.95rem;
+  line-height: 1;
+  user-select: none;
+}
 .theme-select-wrap select {
   background: var(--bg-panel);
   border: 1px solid var(--border-dim);
@@ -330,6 +527,12 @@ html, body {
   border-radius: var(--radius-sm);
   outline: none;
   cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.theme-select-wrap select:hover,
+.theme-select-wrap select:focus {
+  border-color: var(--accent-blue);
+  color: var(--text-main);
 }
 
 /* BUTTONS */
@@ -746,7 +949,7 @@ html, body {
 /* Session Row & Header Grid */
 .feed-table-header {
   display: grid;
-  grid-template-columns: 24px 16px 78px 50px minmax(130px, 1fr) 115px 58px 72px 95px 28px;
+  grid-template-columns: var(--feed-grid-template, 24px 16px 78px 50px minmax(130px, 1fr) 115px 58px 72px 95px 28px);
   gap: 8px;
   align-items: center;
   padding: 6px 14px;
@@ -808,7 +1011,7 @@ html, body {
 /* Session Row Item */
 .session-row {
   display: grid;
-  grid-template-columns: 24px 16px 78px 50px minmax(130px, 1fr) 115px 58px 72px 95px 28px;
+  grid-template-columns: var(--feed-grid-template, 24px 16px 78px 50px minmax(130px, 1fr) 115px 58px 72px 95px 28px);
   gap: 8px;
   align-items: center;
   padding: 0 14px;
@@ -842,12 +1045,68 @@ html, body {
   cursor: pointer;
 }
 
-.row-check {
+/* Custom Styled Checkboxes */
+input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
   width: 15px;
   height: 15px;
-  accent-color: var(--accent-blue);
+  background: var(--bg-input);
+  border: 1.5px solid var(--border-mid);
+  border-radius: var(--radius-sm);
   cursor: pointer;
+  display: inline-grid;
+  place-content: center;
+  transition: all 0.15s ease;
+  vertical-align: middle;
   margin: 0;
+  outline: none;
+  position: relative;
+  flex-shrink: 0;
+}
+
+input[type="checkbox"]:hover {
+  border-color: var(--accent-blue);
+  background: var(--bg-highlight);
+}
+
+input[type="checkbox"]:focus-visible {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.25);
+}
+
+input[type="checkbox"]:checked {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+}
+
+input[type="checkbox"]:checked::after {
+  content: "";
+  width: 4px;
+  height: 7px;
+  border: solid #0f141c;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  margin-top: -2px;
+}
+
+input[type="checkbox"]:indeterminate {
+  background: var(--accent-blue);
+  border-color: var(--accent-blue);
+}
+
+input[type="checkbox"]:indeterminate::after {
+  content: "";
+  width: 7px;
+  height: 2px;
+  background: #0f141c;
+  border-radius: 1px;
+}
+
+[data-theme="paper"] input[type="checkbox"]:checked::after,
+[data-theme="paper"] input[type="checkbox"]:indeterminate::after {
+  border-color: #ffffff;
+  background: #ffffff;
 }
 
 .row-cursor {
@@ -1029,6 +1288,49 @@ html, body {
   padding-bottom: 10px;
   border-bottom: 1px solid var(--border-dim);
   margin-bottom: 12px;
+}
+
+.card-action-btns {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.card-action-btns .btn-icon-sm {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-mid);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.card-action-btns .btn-icon-sm svg {
+  display: block;
+  pointer-events: none;
+}
+
+.card-action-btns .btn-icon-sm:hover {
+  background: var(--bg-highlight);
+  border-color: var(--accent-blue);
+  color: var(--accent-blue);
+  transform: translateY(-1px);
+}
+
+.card-action-btns .btn-icon-sm.btn-del {
+  color: var(--text-dim);
+}
+
+.card-action-btns .btn-icon-sm.btn-del:hover {
+  background: rgba(248, 113, 113, 0.18);
+  border-color: var(--accent-red);
+  color: var(--accent-red);
 }
 
 .box-title {
@@ -1300,8 +1602,9 @@ dialog {
 }
 
 dialog#modalYearCalendar {
-  max-width: 1220px;
-  width: 96vw;
+  max-width: 960px;
+  width: 94vw;
+  height: fit-content;
   max-height: 94vh;
 }
 
@@ -1554,6 +1857,40 @@ dialog::backdrop {
   color: var(--accent-cyan);
 }
 
+/* Calendar settings checklist & tab styles */
+.settings-tab-bar .btn.active {
+  background: var(--accent-blue);
+  color: #fff;
+  border-color: var(--accent-blue);
+}
+
+.field-checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-dim);
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.84rem;
+  color: var(--text-main);
+  transition: all 0.15s ease;
+}
+
+.field-checkbox-item:hover {
+  border-color: var(--accent-blue);
+  background: var(--bg-card);
+}
+
+.field-checkbox-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-blue);
+  cursor: pointer;
+}
+
 /* ================= MOBILE BOTTOM NAV & FAB ================= */
 .mobile-bottom-nav {
   display: none;
@@ -1718,7 +2055,39 @@ dialog::backdrop {
     display: none;
   }
   .theme-select-wrap {
-    display: none;
+    display: inline-flex;
+    position: relative;
+    width: 32px;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+    cursor: pointer;
+    box-sizing: border-box;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .theme-select-wrap:hover {
+    background: var(--bg-highlight);
+    border-color: var(--accent-blue);
+  }
+  .theme-select-wrap .theme-btn-icon {
+    font-size: 1.05rem;
+    pointer-events: none;
+    line-height: 1;
+  }
+  .theme-select-wrap select {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+    padding: 0;
+    margin: 0;
+    -webkit-appearance: menulist-button;
   }
   .search-box {
     padding: 0 6px;
@@ -1888,23 +2257,37 @@ dialog::backdrop {
   .mobile-sort-wrap {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     background: var(--bg-card);
-    padding: 2px 8px;
-    border-radius: 6px;
+    padding: 4px 10px;
+    border-radius: var(--radius-sm);
     border: 1px solid var(--border-dim);
-    flex: 1 1 auto;
-    min-width: 130px;
-    max-width: 100%;
-    height: 28px;
+    flex: 1 1 100%;
+    min-width: 0;
+    height: 32px;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .mobile-sort-wrap:focus-within {
+    border-color: var(--accent-blue);
+    background: var(--bg-surface);
   }
   .mobile-sort-label {
-    font-size: 0.9rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.74rem;
+    font-weight: 600;
     color: var(--accent-blue);
-    font-weight: bold;
+    flex-shrink: 0;
+    cursor: pointer;
+    user-select: none;
+  }
+  .mobile-sort-label svg {
     flex-shrink: 0;
   }
   .mobile-sort-select {
+    flex: 1 1 auto;
     background: transparent;
     border: none;
     color: var(--text-main);
@@ -1913,7 +2296,13 @@ dialog::backdrop {
     outline: none;
     cursor: pointer;
     width: 100%;
+    min-width: 0;
     text-overflow: ellipsis;
+    padding: 0;
+  }
+  .mobile-sort-select option {
+    background: var(--bg-surface);
+    color: var(--text-main);
   }
 
   /* DATE HEADER */
@@ -2169,8 +2558,10 @@ dialog::backdrop {
   flex-shrink: 0;
   gap: 12px;
 }
-.mobile-sort-wrap {
-  display: none;
+@media (min-width: 769px) {
+  .mobile-sort-wrap {
+    display: none !important;
+  }
 }
 .page-size-selector {
   display: flex;
@@ -2389,31 +2780,34 @@ dialog::backdrop {
 /* Modal Yearly Calendar (12 Months Grid) */
 .modal-card-fullscreen {
   width: 100%;
-  height: 92vh;
+  max-height: 92vh;
   display: flex;
   flex-direction: column;
+}
+#modalYearCalendar .modal-hdr {
+  padding: 8px 14px;
 }
 .year-hdr-nav {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 .year-input-wrap {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   background: var(--bg-app);
   border: 1px solid var(--border-bright);
   border-radius: var(--radius-sm);
-  padding: 2px 8px;
+  padding: 1px 6px;
 }
 .year-input-num {
   background: transparent;
   border: none;
   color: var(--accent-blue);
-  font-size: 1.15rem;
+  font-size: 1.05rem;
   font-weight: 700;
-  width: 68px;
+  width: 58px;
   text-align: center;
   outline: none;
   font-family: var(--font-mono);
@@ -2423,7 +2817,7 @@ dialog::backdrop {
   opacity: 1;
 }
 .year-input-suffix {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 700;
   color: var(--text-muted);
 }
@@ -2437,6 +2831,7 @@ dialog::backdrop {
 @media (max-width: 600px) {
   .modal-card-fullscreen {
     height: 96dvh;
+    max-height: 96dvh;
   }
   .modal-card-fullscreen .modal-hdr {
     display: flex;
@@ -2483,34 +2878,34 @@ dialog::backdrop {
 }
 .year-grid-body {
   overflow-y: auto;
-  padding: 16px;
-  flex: 1;
+  padding: 6px 10px;
+  flex: 1 1 auto;
 }
 .year-months-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
+  gap: 6px 8px;
 }
-@media (max-width: 1100px) {
+@media (max-width: 900px) {
   .year-months-grid {
     grid-template-columns: repeat(3, 1fr);
   }
 }
-@media (max-width: 800px) {
+@media (max-width: 680px) {
   .year-months-grid {
     grid-template-columns: repeat(2, 1fr);
   }
 }
-@media (max-width: 500px) {
+@media (max-width: 360px) {
   .year-months-grid {
     grid-template-columns: 1fr;
   }
 }
 .year-month-card {
   background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  padding: 10px 12px;
+  border: 1px solid var(--border-dim);
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
   display: flex;
   flex-direction: column;
   transition: all 0.15s ease;
@@ -2524,9 +2919,9 @@ dialog::backdrop {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 2px;
   cursor: pointer;
-  padding-bottom: 4px;
+  padding-bottom: 2px;
   border-bottom: 1px solid var(--border-dim);
 }
 .year-month-hdr:hover .year-month-name {
@@ -2534,14 +2929,14 @@ dialog::backdrop {
 }
 .year-month-name {
   font-weight: 700;
-  font-size: 0.84rem;
+  font-size: 0.76rem;
   color: var(--text-main);
   transition: color 0.1s ease;
 }
 .year-month-badge {
-  font-size: 0.68rem;
-  padding: 1px 6px;
-  border-radius: 10px;
+  font-size: 0.60rem;
+  padding: 0 4px;
+  border-radius: 8px;
   background: var(--bg-highlight);
   color: var(--accent-orange);
   font-family: var(--font-mono);
@@ -2549,28 +2944,29 @@ dialog::backdrop {
 .year-month-grid {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
-  gap: 3px;
+  gap: 1px 1.5px;
   text-align: center;
-  font-size: 0.74rem;
+  font-size: 0.66rem;
 }
 .year-day-header {
   font-weight: 700;
   color: var(--text-dim);
-  font-size: 0.68rem;
-  padding-bottom: 3px;
+  font-size: 0.60rem;
+  padding-bottom: 1px;
 }
 .year-day-cell {
-  height: 25px;
+  height: 16.5px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-sm);
+  border-radius: 2px;
   cursor: pointer;
   color: var(--text-muted);
   user-select: none;
   position: relative;
   transition: all 0.1s ease;
-  font-size: 0.74rem;
+  font-size: 0.65rem;
+  line-height: 1;
 }
 .year-day-cell:hover {
   background: var(--bg-highlight);
@@ -2592,9 +2988,9 @@ dialog::backdrop {
 .year-day-cell.has-events::after {
   content: "";
   position: absolute;
-  bottom: 2px;
-  width: 4px;
-  height: 4px;
+  bottom: 1px;
+  width: 2.5px;
+  height: 2.5px;
   border-radius: 50%;
   background: var(--accent-orange);
 }
@@ -2602,13 +2998,13 @@ dialog::backdrop {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 18px;
+  padding: 5px 14px;
 }
 .year-legend {
   display: flex;
   align-items: center;
-  gap: 14px;
-  font-size: 0.74rem;
+  gap: 10px;
+  font-size: 0.70rem;
   color: var(--text-dim);
 }
 .legend-item {

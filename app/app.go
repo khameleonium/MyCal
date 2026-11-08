@@ -39,6 +39,7 @@ type App struct {
 	cfg     *models.Config
 	cfgPath string
 	ctx     context.Context
+	version string
 
 	in          *bufio.Reader
 	stdinClosed bool
@@ -54,20 +55,43 @@ type App struct {
 
 // NewApp creates an App. ctx is used for persistence so a cancelled context
 // (SIGINT) aborts in-flight disk writes.
-func NewApp(ctx context.Context, svc *calendar.Service, cfg *models.Config, cfgPath string) *App {
+func NewApp(ctx context.Context, svc *calendar.Service, cfg *models.Config, cfgPath string, version ...string) *App {
+	ver := "dev"
+	if len(version) > 0 && version[0] != "" {
+		ver = version[0]
+	}
 	return &App{
 		svc:     svc,
 		cfg:     cfg,
 		cfgPath: cfgPath,
 		ctx:     ctx,
+		version: ver,
 		in:      bufio.NewReader(os.Stdin),
 		tty:     isTerminal(os.Stdin.Fd()) && isTerminal(os.Stdout.Fd()),
 	}
 }
 
+// PrintBanner prints the styled ASCII title and regular text version.
+func (a *App) PrintBanner() {
+	banner := `  __  __       ____      _ 
+ |  \/  |_   _/ ___|__ _| |
+ | |\/| | | | | |  / _` + "`" + ` | |
+ | |  | |_| | | |__| (_| | |
+ |_|  |_|\__, |\____\__,_|_|
+         |___/              `
+	fmt.Println(color.Cyan(banner))
+	v := a.version
+	if v == "" {
+		v = "dev"
+	}
+	fmt.Println("  версия " + v)
+	fmt.Println()
+}
+
 // Start runs an interactive session: report load warnings, validate the clock,
 // run the integrity check, then enter the main menu.
 func (a *App) Start() {
+	a.PrintBanner()
 	a.reportWarnings()
 	a.checkClock()
 	a.checkIntegrity()
@@ -94,6 +118,15 @@ func (a *App) today() time.Time {
 }
 
 func (a *App) forgetToday() { a.todayCache = time.Time{} }
+
+// effectiveConfig returns the configuration for the active calendar, taking into
+// account calendar-level settings overriding global ones.
+func (a *App) effectiveConfig() *models.Config {
+	if a.svc != nil {
+		return a.svc.EffectiveConfig(a.cfg)
+	}
+	return a.cfg
+}
 
 // checkClock prompts for the date only when the system clock is obviously wrong.
 func (a *App) checkClock() {
@@ -158,13 +191,13 @@ var mainMenuItems = []struct {
 	{[]string{"3", "d", "у"}, " d | 3. Удалить запись", "Удаление по номеру/ID, за дату, диапазон или всех", func(a *App) bool { a.deleteMenu(); return true }},
 	{[]string{"4", "t", "с"}, " t | 4. Сегодня", "Быстрый просмотр расписания на текущий день", func(a *App) bool { a.todayView(); return true }},
 	{[]string{"5", "x", "э"}, " x | 5. Экспорт в CSV", "Выгрузка записей в таблицу для Excel / Calc (.csv)", func(a *App) bool { a.exportMenu(); return true }},
-	{[]string{"6", "s", "н"}, " s | 6. Настройки", "Параметры хранения, автоисправление дат, подсказки", func(a *App) bool { a.settingsMenu(); return true }},
-	{[]string{"7", "h", "?", "м"}, " h | 7. Справка", "Руководство пользователя, горячие клавиши и параметры CLI", func(a *App) bool { PrintHelp(); return true }},
-	{[]string{"8", "q", "в"}, " q | 8. Выход", "Завершение работы программы (также работает Ctrl+C)", func(a *App) bool { return false }},
-	{[]string{"9", "c", "к"}, " c | 9. Выбрать календарь записей", "Переключение между календарями записей в папке данных", func(a *App) bool { a.selectCalendarDialog(); return true }},
-	{[]string{"10", "n", "сз"}, " n | 10. Создать календарь записей", "Создание нового календаря с префиксом (единый или погодовой файл)", func(a *App) bool { a.createCalendarDialog(); return true }},
-	{[]string{"11", "i", "и"}, " i | 11. Импорт из CSV / JSON", "Импорт записей из файла .csv или .json с пропуском дубликатов", func(a *App) bool { a.importMenu(); return true }},
-	{[]string{"12", "u", "о", "г"}, " u | 12. Отменить действие", "Отмена последнего добавления, изменения или удаления записей", func(a *App) bool { a.undoCLI(); return true }},
+	{[]string{"6", "c", "к"}, " c | 6. Выбрать календарь записей", "Переключение между календарями записей в папке данных", func(a *App) bool { a.selectCalendarDialog(); return true }},
+	{[]string{"7", "n", "сз"}, " n | 7. Создать календарь записей", "Создание нового календаря с префиксом (единый или погодовой файл)", func(a *App) bool { a.createCalendarDialog(); return true }},
+	{[]string{"8", "i", "и"}, " i | 8. Импорт из CSV / JSON", "Импорт записей из файла .csv или .json с пропуском дубликатов", func(a *App) bool { a.importMenu(); return true }},
+	{[]string{"9", "u", "о", "г"}, " u | 9. Отменить действие", "Отмена последнего добавления, изменения или удаления записей", func(a *App) bool { a.undoCLI(); return true }},
+	{[]string{"10", "s", "н"}, " s | 10. Настройки", "Параметры хранения, автоисправление дат, подсказки", func(a *App) bool { a.settingsMenu(); return true }},
+	{[]string{"11", "h", "?", "м"}, " h | 11. Справка", "Руководство пользователя, горячие клавиши и параметры CLI", func(a *App) bool { PrintHelp(); return true }},
+	{[]string{"12", "0", "q", "в"}, " q | 12. Выход", "Завершение работы программы (также работает Ctrl+C)", func(a *App) bool { return false }},
 }
 
 func mainMenuKeys() [][]string {

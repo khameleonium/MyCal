@@ -198,11 +198,15 @@ HTTP-сервер инициализируется в `web/server.go` вызов
 ```
 
 ### Поддерживаемые темы:
-- `dark` (по умолчанию, контрастная графитовая палитра)
-- `catppuccin` (мягкая пастельная тема Macchiato/Mocha)
-- `nord` (холодные арктические оттенки)
-- `cyberpunk` (высококонтрастная неоновая тема)
-- `light` (светлая чистая тема)
+- `tokyo` (Tokyo Night, по умолчанию — контрастная графитовая палитра)
+- `catppuccin` (Catppuccin Mocha — мягкая пастельная палитра)
+- `nord` (Nord Frost — холодные арктические серо-стальные оттенки)
+- `dracula` (Dracula — глубокая фиолетово-неоновая тема)
+- `monokai` (Monokai Pro — матовая темная тема с радужными акцентами)
+- `solarized` (Solarized Dark — классическая циан-изумрудная палитра)
+- `cyberpunk` (Cyberpunk Neon — сверхконтрастная неоновая желто-бирюзовая тема)
+- `matrix` (Matrix Emerald — ностальгическая изумрудно-зеленая терминальная тема)
+- `paper` (Paper Light — чистая, мягкая светлая тема для работы при ярком освещении)
 
 ---
 
@@ -227,6 +231,10 @@ const state = {
   activeTypeFilters: new Set(), // Активные фильтры по категориям
   types: [],                // Справочник типов
   statuses: [],             // Справочник статусов
+  effectiveConfig: {},      // Эффективная конфигурация текущего календаря
+  calendarSettings: null,   // Персональные переопределения активного календаря
+  defaultVisibleFields: "", // Эталонный список всех доступных полей
+  activeSettingsTab: "global", // Активная вкладка модального окна настроек
   mobileTab: "feed"         // Активный мобильный таб
 };
 ```
@@ -334,6 +342,25 @@ const state = {
      ```
 3. В структуре Go `models.Session` убедиться, что поле поддержано для сохранения в JSON.
 
+### 8.5. Персональные настройки календарей и видимость полей (`visible_fields`)
+1. Каждый календарь записей (`mycal.json`, `mycal--<key>.json`) может содержать персональный блок `"settings"`:
+   ```json
+   {
+     "settings": {
+       "visible_fields": "Дата; Наименование; Заметка",
+       "theme": "nord",
+       "default_duration": 0
+     },
+     "sessions": [ ... ]
+   }
+   ```
+2. Параметры из блока `"settings"` календаря автоматически перекрывают глобальные настройки из `config_mycal.json`.
+3. Скрытые поля:
+   - Автоматически исключаются из сетки ленты (`--feed-grid-template`) и заголовков таблицы.
+   - Скрываются из инспектора карточки записи и аналитики.
+   - Скрываются из формы добавления и редактирования записи.
+   - Не запрашиваются при добавлении записей в CLI (`mycal add`).
+
 ---
 
 ## 9. Сборка, верификация и синхронизация
@@ -357,11 +384,11 @@ const state = {
 3. **Сборка релизных бинарников и синхронизация в `~/Sync/myCal`** (согласно правилам проекта `AGENTS.md`):
    ```bash
    # Linux x86-64
-   CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=v2.11.0" -o ~/Sync/myCal/mycal .
+   CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=v2.13.0" -o ~/Sync/myCal/mycal .
 
    # Linux ARM64
-   CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=v2.11.0" -o ~/Sync/myCal/mycala .
+   CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=v2.13.0" -o ~/Sync/myCal/mycala .
 
    # Windows x86-64
-   CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=v2.11.0" -o ~/Sync/myCal/mycal.exe .
+   CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=v2.13.0" -o ~/Sync/myCal/mycal.exe .
    ```

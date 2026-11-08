@@ -573,6 +573,96 @@ var SettingsSchema = []SettingSpec{
 			return nil
 		},
 	},
+	{
+		Key:        "theme",
+		CLIKey:     "th",
+		Label:      "Тема оформления (стиль)",
+		ShortLabel: "Тема",
+		Hint:       "Визуальный стиль интерфейса (Tokyo, Nord, Dracula, Monokai, Solarized, Cyberpunk, Matrix, Paper)",
+		Kind:       "enum",
+		Modes:      []string{models.ModeCLI, models.ModeTUI, models.ModeWeb},
+		Options: func(_ *models.Config, _ []string) []OptionSpec {
+			return []OptionSpec{
+				{Value: "tokyo", Label: "Tokyo Night (по умолч.)"},
+				{Value: "nord", Label: "Nord Frost"},
+				{Value: "dracula", Label: "Dracula"},
+				{Value: "monokai", Label: "Monokai Pro"},
+				{Value: "solarized", Label: "Solarized Dark"},
+				{Value: "cyberpunk", Label: "Cyberpunk Neon"},
+				{Value: "matrix", Label: "Matrix Emerald"},
+				{Value: "catppuccin", Label: "Catppuccin Mocha"},
+				{Value: "paper", Label: "Paper Light"},
+			}
+		},
+		GetValue: func(cfg *models.Config) string {
+			if cfg.Theme == "" {
+				return "tokyo"
+			}
+			return cfg.Theme
+		},
+		GetDisplay: func(cfg *models.Config) string {
+			switch cfg.Theme {
+			case "nord":
+				return "Nord Frost"
+			case "dracula":
+				return "Dracula"
+			case "monokai":
+				return "Monokai Pro"
+			case "solarized":
+				return "Solarized Dark"
+			case "cyberpunk":
+				return "Cyberpunk Neon"
+			case "matrix":
+				return "Matrix Emerald"
+			case "catppuccin":
+				return "Catppuccin Mocha"
+			case "paper":
+				return "Paper Light"
+			default:
+				return "Tokyo Night"
+			}
+		},
+		SetValue: func(cfg *models.Config, raw string) error {
+			val := strings.ToLower(strings.TrimSpace(raw))
+			switch val {
+			case "tokyo", "nord", "dracula", "monokai", "solarized", "cyberpunk", "matrix", "catppuccin", "paper":
+				cfg.Theme = val
+				return nil
+			default:
+				return fmt.Errorf("неизвестная тема %q, допустимые: tokyo, nord, dracula, monokai, solarized, cyberpunk, matrix, catppuccin, paper", raw)
+			}
+		},
+	},
+	{
+		Key:        "visible_fields",
+		CLIKey:     "vf",
+		Label:      "Отображаемые поля",
+		ShortLabel: "Поля записей",
+		Hint:       "Список отображаемых и запрашиваемых полей через ';' (Дата; Время; Наименование; Категория; Длительность; Статус; Кэш; Заметка)",
+		Kind:       "string",
+		Modes:      []string{models.ModeCLI, models.ModeTUI, models.ModeWeb},
+		GetValue: func(cfg *models.Config) string {
+			if strings.TrimSpace(cfg.VisibleFields) == "" {
+				return "Дата; Время; Наименование; Категория; Длительность; Статус; Кэш; Заметка"
+			}
+			return cfg.VisibleFields
+		},
+		GetDisplay: func(cfg *models.Config) string {
+			if strings.TrimSpace(cfg.VisibleFields) == "" {
+				return "Все поля (по умолч.)"
+			}
+			return cfg.VisibleFields
+		},
+		SetValue: func(cfg *models.Config, raw string) error {
+			raw = strings.TrimSpace(raw)
+			if raw == "" {
+				cfg.VisibleFields = "Дата; Время; Наименование; Категория; Длительность; Статус; Кэш; Заметка"
+				return nil
+			}
+			cfg.VisibleFields = raw
+			return nil
+		},
+	},
 }
 
 // FindSetting looks up a SettingSpec by its JSON key.

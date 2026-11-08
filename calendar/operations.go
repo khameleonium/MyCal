@@ -60,22 +60,41 @@ func (s *Service) CreateEntries(ctx context.Context, cfg *models.Config, in Entr
 		names = []string{trimmed}
 	}
 
+	eff := s.EffectiveConfig(cfg)
+
 	dur := in.Duration
-	if dur <= 0 {
-		if cfg != nil && cfg.DefaultDuration > 0 {
-			dur = cfg.DefaultDuration
+	if !IsFieldVisible(eff.VisibleFields, FieldDuration) {
+		dur = 0
+	} else if dur <= 0 {
+		if eff != nil && eff.DefaultDuration > 0 {
+			dur = eff.DefaultDuration
 		} else {
 			dur = 60
 		}
 	}
 
 	typ := strings.TrimSpace(in.Type)
-	if typ == "" && cfg != nil && cfg.DefaultType != "" {
-		typ = cfg.DefaultType
+	if !IsFieldVisible(eff.VisibleFields, FieldType) {
+		typ = ""
+	} else if typ == "" && eff != nil && eff.DefaultType != "" {
+		typ = eff.DefaultType
 	}
 	status := NormalizeStatus(in.Status)
+	if !IsFieldVisible(eff.VisibleFields, FieldStatus) {
+		status = ""
+	}
 	notes := strings.TrimSpace(in.Notes)
-	hhmm := in.Time.Format("15:04")
+	if !IsFieldVisible(eff.VisibleFields, FieldNotes) {
+		notes = ""
+	}
+	cash := in.Cash
+	if !IsFieldVisible(eff.VisibleFields, FieldCash) {
+		cash = 0
+	}
+	hhmm := ""
+	if IsFieldVisible(eff.VisibleFields, FieldTime) || !in.Time.IsZero() {
+		hhmm = in.Time.Format("15:04")
+	}
 
 	s.BeginUndoTx("добавление записи")
 	defer s.EndUndoTx()
@@ -89,7 +108,7 @@ func (s *Service) CreateEntries(ctx context.Context, cfg *models.Config, in Entr
 			cfg.AddCustomStatus(status)
 			res.ConfigMod = true
 		}
-		if cfg.SilentAddNames {
+		if eff.SilentAddNames {
 			for _, n := range names {
 				if cfg.AddCustomName(n) {
 					res.ConfigMod = true
@@ -112,7 +131,7 @@ func (s *Service) CreateEntries(ctx context.Context, cfg *models.Config, in Entr
 			Name:     nameItem,
 			Type:     typ,
 			Duration: dur,
-			Cash:     in.Cash,
+			Cash:     cash,
 			Status:   status,
 			Notes:    notes,
 		}

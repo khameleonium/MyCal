@@ -352,3 +352,46 @@ func TestRenameFamilyDataFilesAndExpandPath(t *testing.T) {
 		t.Fatalf("ExpandPath with %%VAR%% = %q, want %q", got, want)
 	}
 }
+
+func TestStorageCalendarSettingsSplit(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+
+	dur := 15
+	vf := "Дата; Наименование; Заметка"
+	settings := &models.CalendarSettings{
+		DefaultDuration: &dur,
+		VisibleFields:   &vf,
+	}
+
+	cal := &models.Calendar{
+		Settings: settings,
+		Sessions: []models.Session{
+			{ID: "20250601100000", Time: "10:00", Name: "Session 2025"},
+			{ID: "20260702110000", Time: "11:00", Name: "Session 2026"},
+		},
+	}
+
+	// 1. Save in SplitYear mode
+	if err := Save(ctx, dir, "diary", cal, models.SplitYear); err != nil {
+		t.Fatalf("Save SplitYear: %v", err)
+	}
+
+	// 2. Load back
+	loaded, _, err := Load(ctx, dir, "diary", models.SplitYear)
+	if err != nil {
+		t.Fatalf("Load SplitYear: %v", err)
+	}
+	if len(loaded.Sessions) != 2 {
+		t.Fatalf("expected 2 sessions, got %d", len(loaded.Sessions))
+	}
+	if loaded.Settings == nil {
+		t.Fatalf("expected settings to be loaded from split calendar")
+	}
+	if loaded.Settings.DefaultDuration == nil || *loaded.Settings.DefaultDuration != 15 {
+		t.Fatalf("expected DefaultDuration 15 in split calendar settings")
+	}
+	if loaded.Settings.VisibleFields == nil || *loaded.Settings.VisibleFields != vf {
+		t.Fatalf("expected VisibleFields in split calendar settings")
+	}
+}

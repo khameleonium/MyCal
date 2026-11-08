@@ -43,44 +43,60 @@ func (a *App) addLoop(quick bool, presetDate *time.Time) {
 
 // addOne runs one pass of the wizard. Returns true only when an entry was saved.
 func (a *App) addOne(presetDate *time.Time) bool {
+	eff := a.effectiveConfig()
+
 	var date time.Time
 	if presetDate != nil {
 		date = *presetDate
-	} else {
+	} else if calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldDate) {
 		var ok bool
 		date, ok = a.askDate("Дата записи:",
 			"DD-MM-YYYY, DD.MM.YYYY, YYYY-MM-DD; Enter — сегодня, 0 — отмена")
 		if !ok {
 			return false
 		}
+	} else {
+		date = a.today()
 	}
 
-	tm, ok := a.askTime()
-	if !ok {
-		return false
+	var tm time.Time
+	if calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldTime) {
+		var ok bool
+		tm, ok = a.askTime()
+		if !ok {
+			return false
+		}
 	}
-	name := a.askName("Наименование записи:", "")
-	if name == "" {
-		return false
+
+	var name string
+	if calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldName) {
+		name = a.askName("Наименование записи:", "")
+		if name == "" {
+			return false
+		}
+	} else {
+		name = "(Запись " + parser.FormatDate(date) + ")"
 	}
 
 	iso := date.Format("2006-01-02")
-	hhmm := tm.Format("15:04")
-	if !a.resolveConflicts(iso, hhmm) {
-		return false
+	if calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldTime) && !tm.IsZero() {
+		hhmm := tm.Format("15:04")
+		if !a.resolveConflicts(iso, hhmm) {
+			return false
+		}
 	}
 
 	// Optional questions: can be skipped individually with Enter,
 	// or all at once by typing "8" at any prompt.
 	skipRest := false
 
-	typ := a.cfg.DefaultType
+	typ := eff.DefaultType
 	if typ == "" {
 		if types := a.svc.Types(); len(types) > 0 {
 			typ = types[0]
 		}
 	}
-	if !skipRest {
+	if calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldType) && !skipRest {
 		t, ok, skip := a.askTypeAdd(typ)
 		if !ok {
 			return false
@@ -89,10 +105,12 @@ func (a *App) addOne(presetDate *time.Time) bool {
 		if skip {
 			skipRest = true
 		}
+	} else if !calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldType) {
+		typ = ""
 	}
 
-	duration := a.cfg.DefaultDuration
-	if !skipRest {
+	duration := eff.DefaultDuration
+	if calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldDuration) && !skipRest {
 		d, ok, skip := a.askDurationAdd(duration)
 		if !ok {
 			return false
@@ -101,10 +119,12 @@ func (a *App) addOne(presetDate *time.Time) bool {
 		if skip {
 			skipRest = true
 		}
+	} else if !calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldDuration) {
+		duration = 0
 	}
 
 	cash := 0.0
-	if !skipRest {
+	if calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldCash) && !skipRest {
 		c, ok, skip := a.askCashAdd()
 		if !ok {
 			return false
@@ -116,7 +136,7 @@ func (a *App) addOne(presetDate *time.Time) bool {
 	}
 
 	notes := ""
-	if !skipRest {
+	if calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldNotes) && !skipRest {
 		n, ok, skip := a.askNotesAdd()
 		if !ok {
 			return false
@@ -128,7 +148,7 @@ func (a *App) addOne(presetDate *time.Time) bool {
 	}
 
 	status := ""
-	if !skipRest {
+	if calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldStatus) && !skipRest {
 		st, ok, skip := a.askStatusAdd()
 		if !ok {
 			return false
@@ -352,7 +372,8 @@ func (a *App) askStatusAdd() (string, bool, bool) {
 // resolveConflicts shows existing sessions at the same date/time and lets the
 // user edit/delete one or proceed. Returns false if the user backed out.
 func (a *App) resolveConflicts(iso, hhmm string) bool {
-	if !a.cfg.AskOnConflict {
+	eff := a.effectiveConfig()
+	if !eff.AskOnConflict || hhmm == "" {
 		return true
 	}
 	conflicts := a.svc.Conflicts(iso, hhmm)
@@ -365,7 +386,7 @@ func (a *App) resolveConflicts(iso, hhmm string) bool {
 		if c.IsRepeat() {
 			t = "* " + t
 		}
-		durStr := calendar.FormatDuration(c.Duration, a.cfg.DurationUnit)
+		durStr := calendar.FormatDuration(c.Duration, eff.DurationUnit)
 		extra := ""
 		if c.Cash != 0 {
 			extra += " Кэш: " + formatCashDetail(c.Cash)

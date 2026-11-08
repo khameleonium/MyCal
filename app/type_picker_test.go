@@ -189,8 +189,8 @@ func TestViewByTypes_Interactive(t *testing.T) {
 	// pickTypes: "стрельб", "1", "" (confirm)
 	// period: "4" (все записи)
 	// detailLoop: "" (Enter to back)
-	// main menu: "8" (exit)
-	script := lines("2", "5", "стрельб", "1", "", "4", "", "8")
+	// main menu: "q" (exit)
+	script := lines("2", "5", "стрельб", "1", "", "4", "", "q")
 	cfg := config.DefaultConfig()
 	a := &App{
 		svc:     svc,
@@ -223,8 +223,8 @@ func TestFilterByTypesInsideList_Interactive(t *testing.T) {
 	// 4. Type picker opens: "1" (Плавание/Стрельба), "" (confirm)
 	// 5. Filtered view: "" (Enter to back)
 	// 6. Back in All records: "" (Enter to back) -> returns to Main menu
-	// 7. Main menu: "8" (Выход)
-	script := lines("2", "4", "t", "1", "", "", "", "8")
+	// 7. Main menu: "q" (Выход)
+	script := lines("2", "4", "t", "1", "", "", "", "q")
 	cfg := config.DefaultConfig()
 	a := &App{
 		svc:     svc,
@@ -254,8 +254,8 @@ func TestExportByTypes_Interactive(t *testing.T) {
 	// "5" (экспорт) -> "5" (по типам)
 	// pickTypes: "стрельб", "1", "" (confirm)
 	// period: "4" (все)
-	// main menu: "8" (exit)
-	script := lines("5", "5", "стрельб", "1", "", "4", "8")
+	// main menu: "q" (exit)
+	script := lines("5", "5", "стрельб", "1", "", "4", "q")
 	cfg := config.DefaultConfig()
 	a := &App{
 		svc:     svc,
@@ -292,8 +292,8 @@ func TestFilterByTypesInsideList_RedisplaysParentListOnBack(t *testing.T) {
 	// 3. "1", "" (pick first type and confirm)
 	// 4. "" (Enter - back to All records, should re-display All records)
 	// 5. "" (Enter - back to Main menu)
-	// 6. "8" (exit)
-	script := lines("2", "4", "t", "1", "", "", "", "8")
+	// 6. "q" (exit)
+	script := lines("2", "4", "t", "1", "", "", "", "q")
 
 	oldStdout := os.Stdout
 	r, w, err := os.Pipe()

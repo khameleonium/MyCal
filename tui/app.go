@@ -84,6 +84,15 @@ type App struct {
 
 // NewApp creates a new TUI application instance.
 func NewApp(svc *calendar.Service, cfg *models.Config, cfgPath, version string) *App {
+	eff := cfg
+	if svc != nil {
+		eff = svc.EffectiveConfig(cfg)
+	}
+	if eff != nil && eff.Theme != "" {
+		ApplyTheme(eff.Theme)
+	} else {
+		ApplyTheme("tokyo")
+	}
 	now := config.EffectiveToday(cfg)
 	var dataMod, cfgMod time.Time
 	if svc != nil {
@@ -96,16 +105,16 @@ func NewApp(svc *calendar.Service, cfg *models.Config, cfgPath, version string) 
 	}
 	sortField := "date"
 	sortAsc := false
-	if cfg != nil {
-		if cfg.SortField != "" {
-			sortField = cfg.SortField
+	if eff != nil {
+		if eff.SortField != "" {
+			sortField = eff.SortField
 		}
-		sortAsc = cfg.SortAsc
+		sortAsc = eff.SortAsc
 	}
 	initialPeriod := "today"
 	initialSidebarIdx := 1
-	if cfg != nil && cfg.TUIDefaultPeriod != "" {
-		switch cfg.TUIDefaultPeriod {
+	if eff != nil && eff.TUIDefaultPeriod != "" {
+		switch eff.TUIDefaultPeriod {
 		case "all":
 			initialPeriod = "all"
 			initialSidebarIdx = 0
@@ -454,6 +463,10 @@ func (a *App) handleKey(k Key) bool {
 
 	case k.Matches('o', 'щ'):
 		a.activeModal = NewModalSettings(a.cfg)
+		return false
+
+	case k.Matches('T', 'Е'):
+		a.activeModal = NewModalThemePicker(a)
 		return false
 
 	case k.Matches('b', 'и') || k.Matches('B', 'И'):
@@ -2069,23 +2082,38 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 	}
 	s.DrawBox(x, y, w, h, title, FgBlue, borderCol, BgSurface, isFocused)
 
-	// Adaptive column layouts based on width w
-	showTime := w >= 50
-	showDur := w >= 56
-	showCash := w >= 68
-	showType := w >= 88
+	// Adaptive column layouts based on width w and visible_fields
+	eff := a.svc.EffectiveConfig(a.cfg)
+	fieldDateVis := calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldDate)
+	fieldTimeVis := calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldTime)
+	fieldDurVis := calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldDuration)
+	fieldCashVis := calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldCash)
+	fieldTypeVis := calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldType)
+	fieldStatusVis := calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldStatus)
+
+	showTime := (w >= 50) && fieldTimeVis
+	showDur := (w >= 56) && fieldDurVis
+	showCash := (w >= 68) && fieldCashVis
+	showType := (w >= 88) && fieldTypeVis
 
 	colCheck := x + 2
 	colDate := x + 6
 	colTime := x + 17
-
-	wStatus := 14
-	if w < 54 {
-		wStatus = 11
+	if !fieldDateVis {
+		colTime = x + 6
 	}
-	colStatus := x + w - 1 - wStatus
-	if colStatus < x+2 {
-		colStatus = x + 2
+
+	wStatus := 0
+	colStatus := x + w - 1
+	if fieldStatusVis {
+		wStatus = 14
+		if w < 54 {
+			wStatus = 11
+		}
+		colStatus = x + w - 1 - wStatus
+		if colStatus < x+2 {
+			colStatus = x + 2
+		}
 	}
 
 	rightBound := colStatus - 1
@@ -2102,8 +2130,10 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 	var colName, wName, colType, wType int
 	if showTime {
 		colName = colTime + 6
-	} else {
+	} else if fieldDateVis {
 		colName = colDate + 11
+	} else {
+		colName = x + 6
 	}
 
 	avail := rightBound - colName
@@ -2133,13 +2163,15 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 		sortArrow = "▲"
 	}
 
-	dateHdr := "Дата"
-	dateFg := FgMuted
-	if a.sortField == "date" {
-		dateHdr += " " + sortArrow
-		dateFg = FgCyan
+	if fieldDateVis {
+		dateHdr := "Дата"
+		dateFg := FgMuted
+		if a.sortField == "date" {
+			dateHdr += " " + sortArrow
+			dateFg = FgCyan
+		}
+		s.DrawText(colDate, colY, dateHdr, dateFg, BgCard, 10, true, false, false)
 	}
-	s.DrawText(colDate, colY, dateHdr, dateFg, BgCard, 10, true, false, false)
 
 	if showTime {
 		timeHdr := "Время"
@@ -2255,7 +2287,9 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 		s.DrawText(colCheck, rowY, checkStr, FgCyan, rowBg, 3, isSelected, false, false)
 
 		// Date
-		s.DrawText(colDate, rowY, sess.Date(), FgDim, rowBg, 10, false, false, false)
+		if fieldDateVis {
+			s.DrawText(colDate, rowY, sess.Date(), FgDim, rowBg, 10, false, false, false)
+		}
 
 		// Time
 		if showTime {
@@ -2281,7 +2315,7 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 		// Duration
 		if showDur {
 			unit := "min"
-			if a.cfg != nil && a.cfg.DurationUnit == "hours" {
+			if eff != nil && eff.DurationUnit == "hours" {
 				unit = "hours"
 			}
 			durStr := calendar.FormatDuration(sess.Duration, unit)
@@ -2303,8 +2337,8 @@ func (a *App) renderFeed(s *Screen, x, y, w, h int) {
 		}
 
 		// Status pill
-		badgeText, bFg, _ := StatusBadge(sess.Status)
-		if wStatus > 0 {
+		if wStatus > 0 && fieldStatusVis {
+			badgeText, bFg, _ := StatusBadge(sess.Status)
 			s.DrawText(colStatus, rowY, badgeText, bFg, rowBg, wStatus, true, false, false)
 		}
 	}
@@ -2356,31 +2390,44 @@ func (a *App) renderInspector(s *Screen, x, y, w, h int) {
 		curY++
 	}
 
+	eff := a.svc.EffectiveConfig(a.cfg)
+
 	// Status badge
-	badgeText, bFg, _ := StatusBadge(sess.Status)
-	s.DrawText(x+2, curY, badgeText, bFg, BgSurface, maxContentW, true, false, false)
-	curY++
-	if h >= 18 {
-		curY++ // extra space on taller terminals
+	if calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldStatus) {
+		badgeText, bFg, _ := StatusBadge(sess.Status)
+		s.DrawText(x+2, curY, badgeText, bFg, BgSurface, maxContentW, true, false, false)
+		curY++
+		if h >= 18 {
+			curY++ // extra space on taller terminals
+		}
 	}
 
 	// Details list
 	durDisp := fmt.Sprintf("%d мин (%.1f ч)", sess.Duration, float64(sess.Duration)/60.0)
-	if a.cfg != nil && a.cfg.DurationUnit == "hours" {
+	if eff != nil && eff.DurationUnit == "hours" {
 		durDisp = fmt.Sprintf("%.1f ч (%d мин)", float64(sess.Duration)/60.0, sess.Duration)
 	}
 
-	details := []struct {
+	var details []struct {
 		lbl string
 		val string
-	}{
-		{"Дата:     ", sess.Date()},
-		{"Время:    ", sess.Time},
-		{"Длит.:    ", durDisp},
-		{"Кэш:      ", strconv.FormatFloat(sess.Cash, 'f', -1, 64)},
-		{"Категория:", sess.Type},
-		{"ID:       ", sess.ID},
 	}
+	if calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldDate) {
+		details = append(details, struct{ lbl, val string }{"Дата:     ", sess.Date()})
+	}
+	if calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldTime) {
+		details = append(details, struct{ lbl, val string }{"Время:    ", sess.Time})
+	}
+	if calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldDuration) {
+		details = append(details, struct{ lbl, val string }{"Длит.:    ", durDisp})
+	}
+	if calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldCash) {
+		details = append(details, struct{ lbl, val string }{"Кэш:      ", strconv.FormatFloat(sess.Cash, 'f', -1, 64)})
+	}
+	if calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldType) {
+		details = append(details, struct{ lbl, val string }{"Категория:", sess.Type})
+	}
+	details = append(details, struct{ lbl, val string }{"ID:       ", sess.ID})
 
 	valW := maxContentW - 10
 	if valW < 6 {
@@ -2408,7 +2455,7 @@ func (a *App) renderInspector(s *Screen, x, y, w, h int) {
 	}
 
 	// Notes wrapping
-	if curY < actionTop {
+	if calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldNotes) && curY < actionTop {
 		s.DrawText(x+2, curY, "Заметки:", FgDim, BgSurface, maxContentW, true, false, false)
 		curY++
 		notes := sess.Notes

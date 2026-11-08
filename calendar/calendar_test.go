@@ -611,3 +611,83 @@ func TestUndoMoveImportAndEmptyStatus(t *testing.T) {
 		t.Fatalf("expected imported CSV session with empty status, got %+v", csvSess)
 	}
 }
+
+func TestCalendarSettingsAndEffectiveConfig(t *testing.T) {
+	globalCfg := &models.Config{
+		DefaultDuration: 60,
+		DefaultType:     "Общее",
+		Theme:           "tokyo",
+		VisibleFields:   DefaultVisibleFields,
+	}
+
+	// 1. Calendar with no overrides inherits global config
+	svc, err := NewService(context.Background(), t.TempDir(), "testcal", models.SplitNone)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	eff := svc.EffectiveConfig(globalCfg)
+	if eff.DefaultDuration != 60 || eff.DefaultType != "Общее" || eff.Theme != "tokyo" {
+		t.Fatalf("expected inherited defaults, got duration=%d type=%s theme=%s", eff.DefaultDuration, eff.DefaultType, eff.Theme)
+	}
+
+	// 2. Calendar with custom Diary overrides
+	zeroDur := 0
+	diaryType := "Дневник"
+	diaryTheme := "paper"
+	diaryFields := "Дата; Наименование; Заметка"
+	svc.SetSettings(&models.CalendarSettings{
+		DefaultDuration: &zeroDur,
+		DefaultType:     &diaryType,
+		Theme:           &diaryTheme,
+		VisibleFields:   &diaryFields,
+	})
+
+	eff2 := svc.EffectiveConfig(globalCfg)
+	if eff2.DefaultDuration != 0 {
+		t.Errorf("expected overridden duration 0, got %d", eff2.DefaultDuration)
+	}
+	if eff2.DefaultType != "Дневник" {
+		t.Errorf("expected overridden type Дневник, got %s", eff2.DefaultType)
+	}
+	if eff2.Theme != "paper" {
+		t.Errorf("expected overridden theme paper, got %s", eff2.Theme)
+	}
+	if eff2.VisibleFields != diaryFields {
+		t.Errorf("expected overridden visible_fields, got %s", eff2.VisibleFields)
+	}
+
+	// 3. Test field visibility helper
+	if !IsFieldVisible(diaryFields, FieldDate) {
+		t.Errorf("expected Date to be visible in Diary")
+	}
+	if !IsFieldVisible(diaryFields, FieldName) {
+		t.Errorf("expected Name to be visible in Diary")
+	}
+	if !IsFieldVisible(diaryFields, FieldNotes) {
+		t.Errorf("expected Notes to be visible in Diary")
+	}
+	if IsFieldVisible(diaryFields, FieldDuration) {
+		t.Errorf("expected Duration to NOT be visible in Diary")
+	}
+	if IsFieldVisible(diaryFields, FieldStatus) {
+		t.Errorf("expected Status to NOT be visible in Diary")
+	}
+	if IsFieldVisible(diaryFields, FieldCash) {
+		t.Errorf("expected Cash to NOT be visible in Diary")
+	}
+
+	// 4. Persistence test: Save and reload
+	if err := svc.Save(context.Background()); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	svcReloaded, err := NewService(context.Background(), svc.DataDir(), svc.BaseName(), svc.Mode())
+	if err != nil {
+		t.Fatalf("Reload NewService: %v", err)
+	}
+	if svcReloaded.Settings() == nil {
+		t.Fatalf("expected settings to persist on disk, got nil")
+	}
+	if svcReloaded.Settings().DefaultType == nil || *svcReloaded.Settings().DefaultType != "Дневник" {
+		t.Fatalf("expected persisted DefaultType 'Дневник'")
+	}
+}

@@ -2845,7 +2845,7 @@ func (m *ModalSettings) applyPickerOption(opt ModalSettingsOption, app *App) {
 
 func (m *ModalSettings) Draw(s *Screen) {
 	w := 68
-	h := 22
+	h := 24
 	if w > s.Width-2 {
 		w = s.Width - 2
 	}
@@ -2960,7 +2960,12 @@ func (m *ModalSettings) Draw(s *Screen) {
 		{"14. Доступ к Web из сети:   ", webLANDisplay},
 	}
 
-	availRows := h - 4
+	hasAuthorBlock := (h >= 16)
+	reservedBottom := 3
+	if hasAuthorBlock {
+		reservedBottom = 7
+	}
+	availRows := h - reservedBottom
 	if availRows < 1 {
 		availRows = 1
 	}
@@ -3021,13 +3026,21 @@ func (m *ModalSettings) Draw(s *Screen) {
 		s.DrawText(x+w-3, y+1, "▲", FgYellow, BgModal, 1, false, false, false)
 	}
 	if m.scrollOffset+availRows < len(fields) {
-		s.DrawText(x+w-3, y+h-2, "▼", FgYellow, BgModal, 1, false, false, false)
+		s.DrawText(x+w-3, y+availRows+1, "▼", FgYellow, BgModal, 1, false, false, false)
+	}
+
+	if hasAuthorBlock {
+		divY := y + h - 6
+		s.Fill(x+2, divY, w-4, 1, '─', BorderDim, BgModal)
+		s.DrawText(x+2, divY+1, "Создатель: Илья Ульянов | khameleonium", FgCyan, BgModal, w-4, false, false, false)
+		s.DrawText(x+2, divY+2, "https://github.com/khameleonium/MyCal", FgDim, BgModal, w-4, false, false, false)
+		s.DrawText(x+2, divY+3, "Поддержать автора: https://boosty.to/khameleonium", FgYellow, BgModal, w-4, false, false, false)
 	}
 
 	if m.pickerOpen {
-		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор  [Enter/Space] Применить  [Esc/←] Закрыть список", FgDim, BgModal)
+		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 1, "[↑↓] Выбор  [Enter/Space] Применить  [Esc/←] Закрыть список", FgDim, BgModal)
 	} else {
-		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[↑↓] Выбор  [Space/→] Изменить  [Enter] Сохранить  [Esc]", FgDim, BgModal)
+		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 1, "[↑↓] Выбор  [Space/→] Изменить  [Enter] Сохранить  [Esc]", FgDim, BgModal)
 	}
 
 	// Draw dropdown popup if open
@@ -3375,6 +3388,127 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 		app.persistConfig()
 		app.reloadSessions()
 		app.setStatusMsg("Настройки сохранены")
+		app.activeModal = nil
+		return true
+	}
+	return false
+}
+
+// ----------------- THEME PICKER MODAL -----------------
+
+type ModalThemePicker struct {
+	themes   []ThemeDef
+	selected int
+	origID   string
+}
+
+func NewModalThemePicker(app *App) *ModalThemePicker {
+	list := AvailableThemes()
+	cur := CurrentTheme()
+	if app != nil && app.cfg != nil && app.cfg.Theme != "" {
+		cur = app.cfg.Theme
+	}
+	sel := 0
+	for i, t := range list {
+		if t.ID == cur {
+			sel = i
+			break
+		}
+	}
+	return &ModalThemePicker{
+		themes:   list,
+		selected: sel,
+		origID:   cur,
+	}
+}
+
+func (m *ModalThemePicker) Draw(s *Screen) {
+	w := 58
+	h := len(m.themes) + 6
+	if w > s.Width-2 {
+		w = s.Width - 2
+	}
+	if h > s.Height-2 {
+		h = s.Height - 2
+	}
+	x := (s.Width - w) / 2
+	y := (s.Height - h) / 2
+	if x < 1 {
+		x = 1
+	}
+	if y < 1 {
+		y = 1
+	}
+
+	s.DimBackdrop(x, y, w, h)
+	s.DrawBox(x, y, w, h, "🎨 Тема оформления TUI", FgCyan, BorderFocus, BgModal, true)
+
+	hint := "↑/↓ выбор • Enter применить • Esc отмена"
+	s.DrawText(x+2, y+1, hint, FgMuted, BgModal, w-4, false, false, false)
+
+	for i, t := range m.themes {
+		rowY := y + 3 + i
+		if rowY >= y+h-1 {
+			break
+		}
+		isCur := i == m.selected
+		isApplied := t.ID == CurrentTheme()
+
+		bullet := "( )"
+		if isApplied {
+			bullet = "(●)"
+		}
+
+		bg := BgModal
+		fg := FgMain
+		if isApplied {
+			fg = FgCyan
+		}
+		if isCur {
+			bg = BgHighlight
+			fg = FgYellow
+		}
+
+		line := fmt.Sprintf("%s %-16s %s", bullet, t.Name, Dim+t.Description+Reset)
+		s.DrawText(x+2, rowY, line, fg, bg, w-4, isCur, false, false)
+	}
+}
+
+func (m *ModalThemePicker) HandleKey(k Key, app *App) bool {
+	switch {
+	case k.Type == KeyEsc:
+		if CurrentTheme() != m.origID {
+			ApplyTheme(m.origID)
+		}
+		app.activeModal = nil
+		return true
+
+	case k.Type == KeyUp || k.Matches('k', 'л'):
+		if m.selected > 0 {
+			m.selected--
+		} else {
+			m.selected = len(m.themes) - 1
+		}
+		ApplyTheme(m.themes[m.selected].ID)
+		return true
+
+	case k.Type == KeyDown || k.Matches('j', 'о'):
+		if m.selected < len(m.themes)-1 {
+			m.selected++
+		} else {
+			m.selected = 0
+		}
+		ApplyTheme(m.themes[m.selected].ID)
+		return true
+
+	case k.Type == KeyEnter || k.Type == KeySpace:
+		chosen := m.themes[m.selected]
+		ApplyTheme(chosen.ID)
+		if app != nil && app.cfg != nil {
+			app.cfg.Theme = chosen.ID
+			app.persistConfig()
+			app.setStatusMsg("Тема оформления сохранена: " + chosen.Name)
+		}
 		app.activeModal = nil
 		return true
 	}
@@ -4053,7 +4187,7 @@ func (m *ModalCalendarManager) Draw(s *Screen) {
 		}
 	}
 
-	hint := "[↑↓/1-9] Выбор (сразу)  [+ / n] Создать  [m] Режим (файл/год)  [Enter/Esc] Готово"
+	hint := "[↑↓/1-9] Выбор  [s/v] Настройки  [+ / n] Создать  [m] Режим  [Enter/Esc] Готово"
 	s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, hint, FgDim, BgModal)
 }
 
@@ -4243,6 +4377,14 @@ func (m *ModalCalendarManager) HandleKey(k Key, app *App) bool {
 		app.activeModal = nil
 		return true
 
+	case (k.Matches('s', 'ы') || k.Matches('v', 'м')) && m.selected < len(m.calendars):
+		cal := m.calendars[m.selected]
+		if app != nil && app.svc != nil {
+			_ = app.svc.SwitchCalendar(app.ctx, app.cfg, cal.Key)
+			app.activeModal = NewModalCalendarSettings(app)
+			return true
+		}
+
 	case k.Matches('+', '=') || k.Matches('n', 'т'):
 		m.creating = true
 		m.newKey = ""
@@ -4322,6 +4464,450 @@ func (m *ModalCalendarManager) HandleKey(k Key, app *App) bool {
 		}
 		m.switchRealtime(app, m.selected)
 		if k.Type == KeyEnter {
+			app.activeModal = nil
+		}
+		return true
+	}
+	return false
+}
+
+// ----------------- CALENDAR SETTINGS MODAL -----------------
+
+type ModalCalendarSettings struct {
+	calKey        string
+	calLabel      string
+	visibleFields map[string]bool
+	durOptions    []string
+	durIdx        int
+	unitOptions   []string
+	unitIdx       int
+	typeOptions   []string
+	typeIdx       int
+	themeOptions  []string
+	themeIdx      int
+	focusRow      int // 0..7: fields, 8: dur, 9: type, 10: unit, 11: theme, 12: reset, 13: save, 14: cancel
+}
+
+var modalCalendarStandardKeys = []string{
+	calendar.FieldDate,
+	calendar.FieldTime,
+	calendar.FieldName,
+	calendar.FieldType,
+	calendar.FieldDuration,
+	calendar.FieldStatus,
+	calendar.FieldCash,
+	calendar.FieldNotes,
+}
+
+func NewModalCalendarSettings(app *App) *ModalCalendarSettings {
+	m := &ModalCalendarSettings{
+		visibleFields: calendar.AllVisibleFieldsMap(),
+		focusRow:      0,
+	}
+	if app == nil || app.svc == nil {
+		return m
+	}
+	m.calKey = app.cfg.ActiveCalendar
+	m.calLabel = app.cfg.ActiveCalendarDisplayName()
+
+	eff := app.svc.EffectiveConfig(app.cfg)
+	m.visibleFields = calendar.ParseVisibleFields(eff.VisibleFields)
+
+	settings := app.svc.Settings()
+
+	// Duration
+	m.durOptions = []string{"наследуется", "15", "30", "45", "60", "90", "120"}
+	m.durIdx = 0
+	if settings != nil && settings.DefaultDuration != nil {
+		dStr := strconv.Itoa(*settings.DefaultDuration)
+		found := false
+		for i, o := range m.durOptions {
+			if o == dStr {
+				m.durIdx = i
+				found = true
+				break
+			}
+		}
+		if !found {
+			m.durOptions = append(m.durOptions, dStr)
+			m.durIdx = len(m.durOptions) - 1
+		}
+	}
+
+	// Unit
+	m.unitOptions = []string{"наследуется", "Минуты (мин)", "Часы (ч)"}
+	m.unitIdx = 0
+	if settings != nil && settings.DurationUnit != nil {
+		if *settings.DurationUnit == "hours" {
+			m.unitIdx = 2
+		} else {
+			m.unitIdx = 1
+		}
+	}
+
+	// Type
+	m.typeOptions = []string{"наследуется"}
+	types := app.getAvailableTypes()
+	for _, t := range types {
+		m.typeOptions = append(m.typeOptions, t)
+	}
+	m.typeIdx = 0
+	if settings != nil && settings.DefaultType != nil {
+		for i, o := range m.typeOptions {
+			if strings.EqualFold(o, *settings.DefaultType) {
+				m.typeIdx = i
+				break
+			}
+		}
+	}
+
+	// Theme
+	m.themeOptions = []string{"наследуется", "tokyo", "nord", "dracula", "monokai", "solarized", "cyberpunk", "matrix", "catppuccin", "paper"}
+	m.themeIdx = 0
+	if settings != nil && settings.Theme != nil {
+		for i, o := range m.themeOptions {
+			if strings.EqualFold(o, *settings.Theme) {
+				m.themeIdx = i
+				break
+			}
+		}
+	}
+
+	return m
+}
+
+func (m *ModalCalendarSettings) toggleField(key string) {
+	newVal := !m.visibleFields[key]
+	if !newVal {
+		// Safety check: at least Name or Notes must remain visible
+		if key == calendar.FieldName && !m.visibleFields[calendar.FieldNotes] {
+			return
+		}
+		if key == calendar.FieldNotes && !m.visibleFields[calendar.FieldName] {
+			return
+		}
+	}
+	m.visibleFields[key] = newVal
+}
+
+func (m *ModalCalendarSettings) save(app *App) {
+	if app == nil || app.svc == nil {
+		return
+	}
+	settings := app.svc.Settings()
+	if settings == nil {
+		settings = &models.CalendarSettings{}
+	}
+
+	// Visible fields
+	formatted := calendar.FormatVisibleFieldsMap(m.visibleFields)
+	settings.VisibleFields = &formatted
+
+	// Duration
+	if m.durIdx == 0 {
+		settings.DefaultDuration = nil
+	} else {
+		if d, err := strconv.Atoi(m.durOptions[m.durIdx]); err == nil {
+			settings.DefaultDuration = &d
+		}
+	}
+
+	// Unit
+	if m.unitIdx == 0 {
+		settings.DurationUnit = nil
+	} else if m.unitIdx == 1 {
+		min := "min"
+		settings.DurationUnit = &min
+	} else {
+		hours := "hours"
+		settings.DurationUnit = &hours
+	}
+
+	// Type
+	if m.typeIdx == 0 {
+		settings.DefaultType = nil
+	} else {
+		t := m.typeOptions[m.typeIdx]
+		settings.DefaultType = &t
+	}
+
+	// Theme
+	if m.themeIdx == 0 {
+		settings.Theme = nil
+	} else {
+		th := m.themeOptions[m.themeIdx]
+		settings.Theme = &th
+	}
+
+	if settings.IsEmpty() {
+		app.svc.SetSettings(nil)
+	} else {
+		app.svc.SetSettings(settings)
+	}
+	if err := app.svc.Save(app.ctx); err != nil {
+		app.setStatusMsg("⚠ Ошибка сохранения: " + err.Error())
+		return
+	}
+
+	eff := app.svc.EffectiveConfig(app.cfg)
+	if eff != nil && eff.Theme != "" {
+		ApplyTheme(eff.Theme)
+	}
+	app.lastDataMod = app.svc.DataFilesModTime()
+	app.reloadSessions()
+	app.setStatusMsg("Настройки календаря сохранены")
+}
+
+func (m *ModalCalendarSettings) reset(app *App) {
+	if app == nil || app.svc == nil {
+		return
+	}
+	app.svc.SetSettings(nil)
+	_ = app.svc.Save(app.ctx)
+	eff := app.svc.EffectiveConfig(app.cfg)
+	if eff != nil && eff.Theme != "" {
+		ApplyTheme(eff.Theme)
+	}
+	app.lastDataMod = app.svc.DataFilesModTime()
+	app.reloadSessions()
+	app.setStatusMsg("Настройки календаря сброшены к общим")
+}
+
+func (m *ModalCalendarSettings) Draw(s *Screen) {
+	w := 64
+	h := 22
+	if w > s.Width-2 {
+		w = s.Width - 2
+	}
+	if h > s.Height-2 {
+		h = s.Height - 2
+	}
+	x := (s.Width - w) / 2
+	y := (s.Height - h) / 2
+	if x < 1 {
+		x = 1
+	}
+	if y < 1 {
+		y = 1
+	}
+
+	s.DimBackdrop(x, y, w, h)
+	s.DrawBox(x, y, w, h, "Настройки календаря: "+m.calLabel, FgBlue, BorderBright, BgModal, true)
+
+	s.DrawText(x+2, y+1, "Отображаемые поля [Space — переключить]:", FgCyan, BgModal, w-4, true, false, false)
+
+	for i, key := range modalCalendarStandardKeys {
+		rowY := y + 2 + i
+		chk := "[ ]"
+		if m.visibleFields[key] {
+			chk = "[✓]"
+		}
+		cur := "  "
+		fg := FgMain
+		bg := BgModal
+		if m.focusRow == i {
+			cur = "► "
+			bg = BgSelected
+			fg = FgWhite
+		}
+		s.Fill(x+2, rowY, w-4, 1, ' ', fg, bg)
+		chkFg := FgCyan
+		if !m.visibleFields[key] {
+			chkFg = FgDim
+		}
+		s.DrawText(x+2, rowY, cur, FgCyan, bg, 2, m.focusRow == i, false, false)
+		s.DrawText(x+4, rowY, chk, chkFg, bg, 4, false, false, false)
+		s.DrawText(x+8, rowY, calendar.FieldLabel(key), fg, bg, w-10, m.focusRow == i, false, false)
+	}
+
+	divY := y + 10
+	s.DrawText(x+2, divY, "Параметры по умолчанию [←/→/Space]:", FgCyan, BgModal, w-4, true, false, false)
+
+	// Row 8: Dur
+	row8Y := y + 11
+	bg8 := BgModal
+	fg8 := FgMuted
+	cur8 := "  "
+	if m.focusRow == 8 {
+		bg8 = BgSelected
+		fg8 = FgWhite
+		cur8 = "► "
+	}
+	s.Fill(x+2, row8Y, w-4, 1, ' ', fg8, bg8)
+	durVal := m.durOptions[m.durIdx]
+	if durVal != "наследуется" {
+		durVal += " мин"
+	}
+	s.DrawText(x+2, row8Y, cur8+"Продолж. по умолч.: ◄ "+durVal+" ►", fg8, bg8, w-4, m.focusRow == 8, false, false)
+
+	// Row 9: Type
+	row9Y := y + 12
+	bg9 := BgModal
+	fg9 := FgMuted
+	cur9 := "  "
+	if m.focusRow == 9 {
+		bg9 = BgSelected
+		fg9 = FgWhite
+		cur9 = "► "
+	}
+	s.Fill(x+2, row9Y, w-4, 1, ' ', fg9, bg9)
+	s.DrawText(x+2, row9Y, cur9+"Тип по умолчанию:    ◄ "+m.typeOptions[m.typeIdx]+" ►", fg9, bg9, w-4, m.focusRow == 9, false, false)
+
+	// Row 10: Unit
+	row10Y := y + 13
+	bg10 := BgModal
+	fg10 := FgMuted
+	cur10 := "  "
+	if m.focusRow == 10 {
+		bg10 = BgSelected
+		fg10 = FgWhite
+		cur10 = "► "
+	}
+	s.Fill(x+2, row10Y, w-4, 1, ' ', fg10, bg10)
+	s.DrawText(x+2, row10Y, cur10+"Формат длительности: ◄ "+m.unitOptions[m.unitIdx]+" ►", fg10, bg10, w-4, m.focusRow == 10, false, false)
+
+	// Row 11: Theme
+	row11Y := y + 14
+	bg11 := BgModal
+	fg11 := FgMuted
+	cur11 := "  "
+	if m.focusRow == 11 {
+		bg11 = BgSelected
+		fg11 = FgWhite
+		cur11 = "► "
+	}
+	s.Fill(x+2, row11Y, w-4, 1, ' ', fg11, bg11)
+	s.DrawText(x+2, row11Y, cur11+"Тема оформления:     ◄ "+m.themeOptions[m.themeIdx]+" ►", fg11, bg11, w-4, m.focusRow == 11, false, false)
+
+	// Buttons: Row 12 (Reset), 13 (Save), 14 (Cancel)
+	btnY := y + h - 4
+	resetBg := BgInput
+	resetFg := FgRed
+	if m.focusRow == 12 {
+		resetBg = BgSelected
+		resetFg = FgWhite
+	}
+	saveBg := BgInput
+	saveFg := FgGreen
+	if m.focusRow == 13 {
+		saveBg = BgSelected
+		saveFg = FgWhite
+	}
+	cancelBg := BgInput
+	cancelFg := FgMuted
+	if m.focusRow == 14 {
+		cancelBg = BgSelected
+		cancelFg = FgWhite
+	}
+	s.DrawText(x+4, btnY, " [ Сбросить всё ] ", resetFg, resetBg, 18, m.focusRow == 12, false, false)
+	s.DrawText(x+25, btnY, " [ Сохранить ] ", saveFg, saveBg, 15, m.focusRow == 13, false, false)
+	s.DrawText(x+43, btnY, " [ Отмена ] ", cancelFg, cancelBg, 13, m.focusRow == 14, false, false)
+
+	s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 2, "[Tab/↑↓] Навигация  [Space] Чекбокс/Смена  [←→] Выбор  [Enter] Применить  [Esc] Назад", FgDim, BgModal)
+}
+
+func (m *ModalCalendarSettings) HandleKey(k Key, app *App) bool {
+	switch {
+	case k.Type == KeyEsc:
+		app.activeModal = nil
+		return true
+
+	case k.Type == KeyTab || k.Type == KeyDown || k.Matches('j', 'о'):
+		m.focusRow = (m.focusRow + 1) % 15
+		return true
+
+	case k.Type == KeyBackTab || k.Type == KeyUp || k.Matches('k', 'л'):
+		m.focusRow = (m.focusRow + 14) % 15
+		return true
+
+	case k.Type == KeyLeft || k.Matches('h', 'р'):
+		switch m.focusRow {
+		case 8:
+			if m.durIdx > 0 {
+				m.durIdx--
+			} else {
+				m.durIdx = len(m.durOptions) - 1
+			}
+		case 9:
+			if m.typeIdx > 0 {
+				m.typeIdx--
+			} else {
+				m.typeIdx = len(m.typeOptions) - 1
+			}
+		case 10:
+			if m.unitIdx > 0 {
+				m.unitIdx--
+			} else {
+				m.unitIdx = len(m.unitOptions) - 1
+			}
+		case 11:
+			if m.themeIdx > 0 {
+				m.themeIdx--
+			} else {
+				m.themeIdx = len(m.themeOptions) - 1
+			}
+		case 13, 14:
+			m.focusRow--
+		}
+		return true
+
+	case k.Type == KeyRight || k.Matches('l', 'д'):
+		switch m.focusRow {
+		case 8:
+			m.durIdx = (m.durIdx + 1) % len(m.durOptions)
+		case 9:
+			m.typeIdx = (m.typeIdx + 1) % len(m.typeOptions)
+		case 10:
+			m.unitIdx = (m.unitIdx + 1) % len(m.unitOptions)
+		case 11:
+			m.themeIdx = (m.themeIdx + 1) % len(m.themeOptions)
+		case 12, 13:
+			m.focusRow++
+		}
+		return true
+
+	case k.Type == KeySpace:
+		switch {
+		case m.focusRow >= 0 && m.focusRow <= 7:
+			m.toggleField(modalCalendarStandardKeys[m.focusRow])
+		case m.focusRow == 8:
+			m.durIdx = (m.durIdx + 1) % len(m.durOptions)
+		case m.focusRow == 9:
+			m.typeIdx = (m.typeIdx + 1) % len(m.typeOptions)
+		case m.focusRow == 10:
+			m.unitIdx = (m.unitIdx + 1) % len(m.unitOptions)
+		case m.focusRow == 11:
+			m.themeIdx = (m.themeIdx + 1) % len(m.themeOptions)
+		case m.focusRow == 12:
+			m.reset(app)
+			app.activeModal = nil
+		case m.focusRow == 13:
+			m.save(app)
+			app.activeModal = nil
+		case m.focusRow == 14:
+			app.activeModal = nil
+		}
+		return true
+
+	case k.Type == KeyEnter:
+		switch {
+		case m.focusRow >= 0 && m.focusRow <= 7:
+			m.toggleField(modalCalendarStandardKeys[m.focusRow])
+		case m.focusRow == 8:
+			m.durIdx = (m.durIdx + 1) % len(m.durOptions)
+		case m.focusRow == 9:
+			m.typeIdx = (m.typeIdx + 1) % len(m.typeOptions)
+		case m.focusRow == 10:
+			m.unitIdx = (m.unitIdx + 1) % len(m.unitOptions)
+		case m.focusRow == 11:
+			m.themeIdx = (m.themeIdx + 1) % len(m.themeOptions)
+		case m.focusRow == 12:
+			m.reset(app)
+			app.activeModal = nil
+		case m.focusRow == 13:
+			m.save(app)
+			app.activeModal = nil
+		case m.focusRow == 14:
 			app.activeModal = nil
 		}
 		return true

@@ -52,10 +52,10 @@ func TestMainMenuExitsOnEOF(t *testing.T) {
 
 func TestAddThenDeleteInteractive(t *testing.T) {
 	// add: date, time, name, type(1), duration, cash(empty), notes(empty), status(0), no repeat
-	// then main menu: 8 to quit
+	// then main menu: q to quit
 	script := lines(
 		"1", "15.06.2026", "14:30", "Совещание", "1", "45", "", "", "0", "",
-		"8",
+		"q",
 	)
 	a, dir := newTestApp(t, script)
 	a.mainMenu()
@@ -73,7 +73,7 @@ func TestAddThenDeleteInteractive(t *testing.T) {
 
 	// New app over the same dir: delete the entry by ID.
 	id := all[0].ID
-	a2, _ := newTestAppInDir(t, dir, lines("3", "1", id, "да", "8"))
+	a2, _ := newTestAppInDir(t, dir, lines("3", "1", id, "да", "q"))
 	a2.mainMenu()
 	if a2.svc.Count() != 0 {
 		t.Fatalf("expected 0 after delete, got %d", a2.svc.Count())
@@ -85,7 +85,7 @@ func TestRepeatSeriesAddEditDelete(t *testing.T) {
 	script := lines(
 		"1", "06.01.2026", "09:00", "Зарядка", "1", "15", "", "", "0",
 		"d", "08.01.2026", "",
-		"8",
+		"q",
 	)
 	a, dir := newTestApp(t, script)
 	a.mainMenu()
@@ -107,7 +107,7 @@ func TestRepeatSeriesAddEditDelete(t *testing.T) {
 	// 1. Edit "this and following" (option 2) on session 2 (07.01).
 	// Changes duration to 25 for sessions 2 & 3, session 1 remains 15.
 	a2, _ := newTestAppInDir(t, dir, lines(
-		"2", "4", "\\2", "2", "4", "25", "", "0", "8",
+		"2", "4", "\\2", "2", "4", "25", "", "0", "q",
 	))
 	a2.mainMenu()
 	all2 := a2.svc.All()
@@ -127,7 +127,7 @@ func TestRepeatSeriesAddEditDelete(t *testing.T) {
 	// 2. Edit "whole series" (option 3) on branched series (session 2 & 3).
 	// Changes duration to 30 for both.
 	a3, _ := newTestAppInDir(t, dir, lines(
-		"2", "4", "\\2", "3", "4", "30", "", "0", "8",
+		"2", "4", "\\2", "3", "4", "30", "", "0", "q",
 	))
 	a3.mainMenu()
 	all3 := a3.svc.All()
@@ -139,7 +139,7 @@ func TestRepeatSeriesAddEditDelete(t *testing.T) {
 	}
 
 	// 3. Delete "this and following" (option 2) from session 2: deletes sessions 2 and 3.
-	a4, _ := newTestAppInDir(t, dir, lines("3", "1", all3[1].ID, "2", "8"))
+	a4, _ := newTestAppInDir(t, dir, lines("3", "1", all3[1].ID, "2", "q"))
 	a4.mainMenu()
 	if a4.svc.Count() != 1 {
 		t.Fatalf("expected 1 session remaining (session 1), got %d", a4.svc.Count())
@@ -149,7 +149,7 @@ func TestRepeatSeriesAddEditDelete(t *testing.T) {
 	}
 
 	// 4. Delete the remaining single session (not a series anymore, or delete as single).
-	a5, _ := newTestAppInDir(t, dir, lines("3", "1", all3[0].ID, "1", "8"))
+	a5, _ := newTestAppInDir(t, dir, lines("3", "1", all3[0].ID, "1", "q"))
 	a5.mainMenu()
 	if a5.svc.Count() != 0 {
 		t.Fatalf("series not fully deleted, %d left", a5.svc.Count())
@@ -158,7 +158,7 @@ func TestRepeatSeriesAddEditDelete(t *testing.T) {
 
 func TestRunCLIView(t *testing.T) {
 	a, dir := newTestApp(t, lines(
-		"1", "10.03.2026", "10:00", "X", "1", "30", "", "", "0", "", "8",
+		"1", "10.03.2026", "10:00", "X", "1", "30", "", "", "0", "", "q",
 	))
 	a.mainMenu()
 
@@ -192,10 +192,10 @@ func newTestAppInDir(t *testing.T, dir, script string) (*App, string) {
 
 func TestAddWithSkip8(t *testing.T) {
 	// add: date, time, name, then "8" to skip all remaining optional questions and save
-	// then main menu: 8 to quit
+	// then main menu: q to quit
 	script := lines(
 		"1", "15.06.2026", "14:30", "Быстрая встреча", "8",
-		"8",
+		"q",
 	)
 	a, dir := newTestApp(t, script)
 	a.mainMenu()
@@ -217,7 +217,7 @@ func TestConflictDefaultsAndEnterAdd(t *testing.T) {
 	script := lines(
 		"1", "15.06.2026", "14:30", "Первая", "8",
 		"1", "15.06.2026", "14:30", "Вторая", "8",
-		"8",
+		"q",
 	)
 	a, dir := newTestApp(t, script)
 	a.mainMenu()
@@ -229,7 +229,7 @@ func TestConflictDefaultsAndEnterAdd(t *testing.T) {
 	a.cfg.AskOnConflict = true
 	a.feed(lines(
 		"1", "15.06.2026", "14:30", "Третья", "", "8", // "" presses Enter at conflict resolution
-		"8",
+		"q",
 	))
 	a.mainMenu()
 	if a.svc.Count() != 3 {
@@ -239,10 +239,10 @@ func TestConflictDefaultsAndEnterAdd(t *testing.T) {
 }
 
 func TestSettingsToggleAskConflictAndShowHints(t *testing.T) {
-	// 6 (settings), 10 (toggle conflict), 11 (toggle hints), 0 (save & exit), 8 (main menu quit)
+	// 10 (settings), 10 (toggle conflict), 11 (toggle hints), 0 (save & exit), q (main menu quit)
 	script := lines(
-		"6", "10", "11", "0",
-		"8",
+		"10", "10", "11", "0",
+		"q",
 	)
 	a, dir := newTestApp(t, script)
 	a.mainMenu()
@@ -280,7 +280,7 @@ func TestCLICashAddEditViewExport(t *testing.T) {
 	// 1. Add session with cash "1500,50" (comma decimal)
 	scriptAdd := lines(
 		"1", "17.10.2026", "10:00", "Платное занятие", "1", "60", "1500,50", "Заметка", "0", "",
-		"8",
+		"q",
 	)
 	a, dir := newTestApp(t, scriptAdd)
 	a.mainMenu()
@@ -295,7 +295,7 @@ func TestCLICashAddEditViewExport(t *testing.T) {
 
 	// 2. Edit cash to 2000 via field 7
 	scriptEdit := lines(
-		"2", "4", "\\1", "7", "2000", "", "8",
+		"2", "4", "\\1", "7", "2000", "", "q",
 	)
 	a2, _ := newTestAppInDir(t, dir, scriptEdit)
 	a2.mainMenu()
@@ -306,7 +306,7 @@ func TestCLICashAddEditViewExport(t *testing.T) {
 
 	// 3. Clear cash to 0 via "-"
 	scriptClear := lines(
-		"2", "4", "\\1", "7", "-", "", "8",
+		"2", "4", "\\1", "7", "-", "", "q",
 	)
 	a3, _ := newTestAppInDir(t, dir, scriptClear)
 	a3.mainMenu()
@@ -317,7 +317,7 @@ func TestCLICashAddEditViewExport(t *testing.T) {
 
 	// 4. Edit cash via fullEdit (choice 8) to negative cash -350
 	scriptFullEdit := lines(
-		"2", "4", "\\1", "8", "", "", "", "", "-350", "", "", "", "8",
+		"2", "4", "\\1", "8", "", "", "", "", "-350", "", "", "", "q",
 	)
 	a4, _ := newTestAppInDir(t, dir, scriptFullEdit)
 	a4.mainMenu()
@@ -351,14 +351,14 @@ func TestCLICashAddEditViewExport(t *testing.T) {
 }
 
 func TestCLICreateAndSelectCalendar(t *testing.T) {
-	// 1. Add entry to default calendar ("1"), then create calendar "work" with yearly mode ("10", "work", "2"),
-	// add an entry to "work" ("1"), then switch back to default calendar ("9", "1"), and exit ("8").
+	// 1. Add entry to default calendar ("1"), then create calendar "work" with yearly mode ("7", "work", "2"),
+	// add an entry to "work" ("1"), then switch back to default calendar ("6", "1"), and exit ("q").
 	script := lines(
 		"1", "17.10.2026", "10:00", "Запись в основном", "8",
-		"10", "work", "2",
+		"7", "work", "2",
 		"1", "17.10.2026", "11:00", "Запись в рабочем", "8",
-		"9", "1",
-		"8",
+		"6", "1",
+		"q",
 	)
 	a, dir := newTestApp(t, script)
 	a.mainMenu()
@@ -373,10 +373,45 @@ func TestCLICreateAndSelectCalendar(t *testing.T) {
 		t.Fatalf("expected 2026_mycal--work.json on disk: %v", err)
 	}
 
-	// Switch back to "work" via CLI dialog ("9", "2")
-	a.feed(lines("9", "2", "8"))
+	// Switch back to "work" via CLI dialog ("6", "2")
+	a.feed(lines("6", "2", "q"))
 	a.mainMenu()
 	if a.cfg.ActiveCalendar != "work" || a.svc.Count() != 1 || a.svc.All()[0].Name != "Запись в рабочем" {
 		t.Fatalf("expected work calendar with 1 entry, got active=%q count=%d", a.cfg.ActiveCalendar, a.svc.Count())
+	}
+}
+
+func TestAddWithDiaryVisibleFields(t *testing.T) {
+	// Active calendar settings has VisibleFields = "Дата; Наименование; Заметка"
+	// When adding: only asks date, name, notes! No time, type, duration, cash, status questions.
+	vis := "Дата; Наименование; Заметка"
+	script := lines(
+		"1", "15.06.2026", "Дневниковая запись", "Моя заметка в дневнике",
+		"q", // main menu quit
+	)
+	a, _ := newTestApp(t, script)
+	a.svc.SetSettings(&models.CalendarSettings{
+		VisibleFields: &vis,
+	})
+	a.mainMenu()
+
+	if a.svc.Count() != 1 {
+		t.Fatalf("expected 1 session, got %d", a.svc.Count())
+	}
+	s := a.svc.All()[0]
+	if s.Name != "Дневниковая запись" {
+		t.Errorf("expected name 'Дневниковая запись', got %q", s.Name)
+	}
+	if s.Notes != "Моя заметка в дневнике" {
+		t.Errorf("expected notes 'Моя заметка в дневнике', got %q", s.Notes)
+	}
+	if s.Duration != 0 {
+		t.Errorf("expected duration 0, got %d", s.Duration)
+	}
+	if s.Time != "" {
+		t.Errorf("expected empty time, got %q", s.Time)
+	}
+	if s.Status != "" {
+		t.Errorf("expected empty status, got %q", s.Status)
 	}
 }

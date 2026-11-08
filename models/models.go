@@ -73,6 +73,8 @@ var DefaultConfig = Config{
 	ActiveCalendar:   "",
 	CalendarSplits:   map[string]string{},
 	SettingModes:     DefaultSettingModes(),
+	Theme:            "tokyo",
+	VisibleFields:    "Дата; Время; Наименование; Категория; Длительность; Статус; Кэш; Заметка",
 }
 
 // CalendarInfo describes one calendar discovered on disk or configured in settings.
@@ -112,6 +114,8 @@ type Config struct {
 	ActiveCalendar   string              `json:"active_calendar"`
 	CalendarSplits   map[string]string   `json:"calendar_splits"`
 	SettingModes     map[string][]string `json:"setting_modes"`
+	Theme            string              `json:"theme,omitempty"`
+	VisibleFields    string              `json:"visible_fields,omitempty"`
 }
 
 // SanitizeBaseName cleans a filename base, removing path separators, ".json",
@@ -450,10 +454,118 @@ func (c *Config) Normalize() {
 	}
 }
 
-// Calendar is the on-disk document: a flat, self-contained list of sessions.
-// (There is no date grouping on disk; grouping is a display concern.)
+// CalendarSettings defines per-calendar overrides for visual, behavioral,
+// and default session attributes stored directly in the calendar data file.
+// Any non-nil / non-empty field overrides the corresponding global Config setting.
+type CalendarSettings struct {
+	VisibleFields    *string  `json:"visible_fields,omitempty"`
+	DefaultDuration  *int     `json:"default_duration,omitempty"`
+	DurationUnit     *string  `json:"duration_unit,omitempty"`
+	DefaultType      *string  `json:"default_type,omitempty"`
+	CustomStatuses   []string `json:"custom_statuses,omitempty"`
+	CustomTypes      []string `json:"custom_types,omitempty"`
+	Theme            *string  `json:"theme,omitempty"`
+	SortField        *string  `json:"sort_field,omitempty"`
+	SortAsc          *bool    `json:"sort_asc,omitempty"`
+	TUIDefaultPeriod *string  `json:"tui_default_period,omitempty"`
+	DateCheckMode    *string  `json:"date_check_mode,omitempty"`
+	AskOnConflict    *bool    `json:"ask_on_conflict,omitempty"`
+	SilentAddNames   *bool    `json:"silent_add_names,omitempty"`
+}
+
+// Clone returns a deep copy of CalendarSettings.
+func (s *CalendarSettings) Clone() *CalendarSettings {
+	if s == nil {
+		return nil
+	}
+	cp := *s
+	if s.CustomStatuses != nil {
+		cp.CustomStatuses = append([]string(nil), s.CustomStatuses...)
+	}
+	if s.CustomTypes != nil {
+		cp.CustomTypes = append([]string(nil), s.CustomTypes...)
+	}
+	return &cp
+}
+
+// IsEmpty reports whether no setting override is configured.
+func (s *CalendarSettings) IsEmpty() bool {
+	if s == nil {
+		return true
+	}
+	return s.VisibleFields == nil &&
+		s.DefaultDuration == nil &&
+		s.DurationUnit == nil &&
+		s.DefaultType == nil &&
+		len(s.CustomStatuses) == 0 &&
+		len(s.CustomTypes) == 0 &&
+		s.Theme == nil &&
+		s.SortField == nil &&
+		s.SortAsc == nil &&
+		s.TUIDefaultPeriod == nil &&
+		s.DateCheckMode == nil &&
+		s.AskOnConflict == nil &&
+		s.SilentAddNames == nil
+}
+
+// Calendar is the on-disk document: an optional block of calendar-specific
+// settings and a flat, self-contained list of sessions.
 type Calendar struct {
-	Sessions []Session `json:"sessions"`
+	Settings *CalendarSettings `json:"settings,omitempty"`
+	Sessions []Session         `json:"sessions"`
+}
+
+// EffectiveConfig returns a merged Config where non-nil CalendarSettings
+// override the base global Config values.
+func (c *Calendar) EffectiveConfig(global *Config) *Config {
+	if global == nil {
+		global = &DefaultConfig
+	}
+	res := *global
+	if c == nil || c.Settings == nil {
+		return &res
+	}
+	s := c.Settings
+	if s.VisibleFields != nil && strings.TrimSpace(*s.VisibleFields) != "" {
+		res.VisibleFields = strings.TrimSpace(*s.VisibleFields)
+	}
+	if s.DefaultDuration != nil && *s.DefaultDuration >= 0 {
+		res.DefaultDuration = *s.DefaultDuration
+	}
+	if s.DurationUnit != nil && *s.DurationUnit != "" {
+		res.DurationUnit = *s.DurationUnit
+	}
+	if s.DefaultType != nil {
+		res.DefaultType = *s.DefaultType
+	}
+	if len(s.CustomStatuses) > 0 {
+		res.CustomStatuses = append([]string(nil), s.CustomStatuses...)
+	}
+	if len(s.CustomTypes) > 0 {
+		res.CustomTypes = append([]string(nil), s.CustomTypes...)
+	}
+	if s.Theme != nil && *s.Theme != "" {
+		res.Theme = *s.Theme
+	}
+	if s.SortField != nil && *s.SortField != "" {
+		res.SortField = *s.SortField
+	}
+	if s.SortAsc != nil {
+		res.SortAsc = *s.SortAsc
+	}
+	if s.TUIDefaultPeriod != nil && *s.TUIDefaultPeriod != "" {
+		res.TUIDefaultPeriod = *s.TUIDefaultPeriod
+	}
+	if s.DateCheckMode != nil && *s.DateCheckMode != "" {
+		res.DateCheckMode = *s.DateCheckMode
+	}
+	if s.AskOnConflict != nil {
+		res.AskOnConflict = *s.AskOnConflict
+	}
+	if s.SilentAddNames != nil {
+		res.SilentAddNames = *s.SilentAddNames
+	}
+	return &res
 }
 
 // Session is one calendar entry. Every field is stored explicitly — occurrences

@@ -48,11 +48,22 @@ const state = {
   // Sorting state
   sortField: localStorage.getItem("mycal_sort_field") || "date",
   sortAsc: localStorage.getItem("mycal_sort_asc") === "true",
+
+  // Per-calendar settings and field visibility
+  effectiveConfig: {},
+  calendarSettings: null,
+  defaultVisibleFields: "",
+  activeSettingsTab: "global",
 };
 
 // ======================== INITIALIZATION ========================
 
 document.addEventListener("DOMContentLoaded", () => {
+  const savedTheme = localStorage.getItem("mycal_theme") || "tokyo";
+  changeTheme(savedTheme);
+  const themeSelect = document.getElementById("themeSelect");
+  if (themeSelect) themeSelect.value = savedTheme;
+
   initLiveClock();
   initGlobalKeyboard();
   initOutsideClickDismiss();
@@ -171,10 +182,24 @@ async function fetchConfig() {
   try {
     const data = await apiFetch("/api/config");
     state.config = data.config || {};
+    state.effectiveConfig = data.effective_config || data.config || {};
+    state.calendarSettings = data.calendar_settings || null;
+    state.defaultVisibleFields = data.default_visible_fields || "";
     state.lanIPs = Array.isArray(data.lan_ips) ? data.lan_ips : [];
     state.calendars = Array.isArray(data.calendars) ? data.calendars : [];
     state.activeSplitMode = data.active_split_mode || state.config.split_mode || "none";
+    state.version = data.version || "";
+    const verEl = document.getElementById("appVersion");
+    if (verEl && state.version) {
+      verEl.textContent = state.version;
+    }
+    const effTheme = state.effectiveConfig.theme || state.config.theme;
+    if (effTheme) {
+      changeTheme(effTheme, true);
+    }
     renderCalendarSelect();
+    updateFeedGridTemplate();
+    updateSortHeadersUI();
     updateNamesDatalist();
     const defaultMode = state.config.default_mode || "cli";
     if (document.getElementById("cfgDefaultMode")) {
@@ -429,12 +454,66 @@ function onMobileSortChange(val) {
   renderFeed();
 }
 
+function getEffectiveConfig() {
+  return (state.effectiveConfig && Object.keys(state.effectiveConfig).length > 0)
+    ? state.effectiveConfig
+    : (state.config || {});
+}
+
+function isFieldVisible(key) {
+  const eff = getEffectiveConfig();
+  const raw = eff.visible_fields || eff.VisibleFields;
+  if (!raw || typeof raw !== "string" || !raw.trim()) {
+    return true; // All fields visible by default
+  }
+  const low = key.toLowerCase();
+  const parts = raw.split(";").map(s => s.trim().toLowerCase()).filter(Boolean);
+  if (parts.length === 0) return true;
+
+  if (low === "date" || low === "дата") return parts.includes("дата") || parts.includes("date");
+  if (low === "time" || low === "время") return parts.includes("время") || parts.includes("time");
+  if (low === "name" || low === "наименование" || low === "название") {
+    return parts.includes("наименование") || parts.includes("название") || parts.includes("name");
+  }
+  if (low === "type" || low === "категория" || low === "тип") {
+    return parts.includes("категория") || parts.includes("тип") || parts.includes("type");
+  }
+  if (low === "duration" || low === "длительность" || low === "время_работы" || low === "dur") {
+    return parts.includes("длительность") || parts.includes("duration");
+  }
+  if (low === "status" || low === "статус") return parts.includes("статус") || parts.includes("status");
+  if (low === "cash" || low === "кэш" || low === "оплата") {
+    return parts.includes("кэш") || parts.includes("оплата") || parts.includes("cash");
+  }
+  if (low === "notes" || low === "заметка" || low === "комментарий" || low === "коммент") {
+    return parts.includes("заметка") || parts.includes("комментарий") || parts.includes("notes") || parts.includes("comment");
+  }
+  return parts.includes(low);
+}
+
+function updateFeedGridTemplate() {
+  const cols = ["24px", "16px"];
+  if (isFieldVisible("date")) cols.push("78px");
+  if (isFieldVisible("time")) cols.push("50px");
+  cols.push("minmax(130px, 1fr)");
+  if (isFieldVisible("type")) cols.push("115px");
+  if (isFieldVisible("duration")) cols.push("58px");
+  if (isFieldVisible("cash")) cols.push("72px");
+  if (isFieldVisible("status")) cols.push("95px");
+  cols.push("28px");
+
+  const templateStr = cols.join(" ");
+  document.documentElement.style.setProperty("--feed-grid-template", templateStr);
+}
+
 function updateSortHeadersUI() {
+  updateFeedGridTemplate();
   const fields = ["date", "time", "name", "type", "duration", "cash", "status"];
   for (const f of fields) {
     const btn = document.querySelector(`.th-col[data-sort="${f}"]`);
     const arrow = document.getElementById(`sortArrow-${f}`);
     if (btn) {
+      btn.style.display = isFieldVisible(f) ? "" : "none";
       if (state.sortField === f) {
         btn.classList.add("active");
         if (arrow) {
@@ -453,6 +532,11 @@ function updateSortHeadersUI() {
 
   const mobileSelect = document.getElementById("mobileSortSelect");
   if (mobileSelect) {
+    for (const opt of mobileSelect.options) {
+      const parts = opt.value.split("_");
+      const f = parts[0] === "dur" ? "duration" : parts[0];
+      opt.style.display = isFieldVisible(f) ? "" : "none";
+    }
     const val = `${state.sortField === "duration" ? "dur" : state.sortField}_${state.sortAsc ? "asc" : "desc"}`;
     for (const opt of mobileSelect.options) {
       if (opt.value === val) {
@@ -475,6 +559,18 @@ function renderSessionRowHTML(s) {
     : `<span class="row-cash row-cash-empty" aria-hidden="true"></span>`;
   const dateStr = formatRowDate(s.id);
 
+  const showDate = isFieldVisible("date");
+  const showTime = isFieldVisible("time");
+  const showType = isFieldVisible("type");
+  const showDur = isFieldVisible("duration");
+  const showCash = isFieldVisible("cash");
+  const showStatus = isFieldVisible("status");
+  const showNotes = isFieldVisible("notes");
+
+  const noteSnippet = (showNotes && s.notes)
+    ? `<span class="row-note-preview" style="display: block; font-size: 0.74rem; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(s.notes)}</span>`
+    : '';
+
   return `
     <div class="session-row ${isSelected ? 'selected' : ''} ${isBatchChecked ? 'batch-selected' : ''}" 
          data-id="${s.id}" 
@@ -485,20 +581,21 @@ function renderSessionRowHTML(s) {
         <input type="checkbox" class="row-check" data-id="${s.id}" ${isBatchChecked ? 'checked' : ''} onchange="onToggleRowSelect(event, '${s.id}')">
       </label>
       <span class="row-cursor">${isSelected ? '▶' : ''}</span>
-      <span class="row-date" title="${dateStr}">${dateStr}</span>
-      <span class="row-time">${s.time || '--:--'}</span>
+      <span class="row-date" title="${dateStr}" ${showDate ? '' : 'style="display:none;"'}>${dateStr}</span>
+      <span class="row-time" ${showTime ? '' : 'style="display:none;"'}>${s.time || '--:--'}</span>
       <span class="row-name" title="${escapeHtml(s.name)}">
         ${escapeHtml(s.name)}
         ${repeatIcon}
+        ${noteSnippet}
       </span>
       <div class="row-meta">
-        <span class="row-type" title="${escapeHtml(s.type || '(без типа)')}">
+        <span class="row-type" title="${escapeHtml(s.type || '(без типа)')}" ${showType ? '' : 'style="display:none;"'}>
           ${escapeHtml(s.type || '—')}
         </span>
-        <span class="row-duration">${formatDuration(s.duration)}</span>
-        ${cashBadge}
+        <span class="row-duration" ${showDur ? '' : 'style="display:none;"'}>${formatDuration(s.duration)}</span>
+        ${showCash ? cashBadge : '<span class="row-cash" style="display:none;"></span>'}
       </div>
-      <div class="row-status-wrap">
+      <div class="row-status-wrap" ${showStatus ? '' : 'style="display:none;"'}>
         <span class="status-pill ${statusClass}" 
               onclick="onStatusPillClick(event, '${s.id}')" 
               title="Нажмите, чтобы изменить статус">
@@ -1043,6 +1140,24 @@ function renderMiniCalendar() {
 }
 
 function renderStats(data) {
+  const showDur = isFieldVisible("duration");
+  const showCash = isFieldVisible("cash");
+  const showType = isFieldVisible("type");
+
+  const totalHoursEl = document.getElementById("statsTotalHours")?.parentElement;
+  if (totalHoursEl) totalHoursEl.style.display = showDur ? "" : "none";
+
+  const totalCashElWrap = document.getElementById("statsTotalCash")?.parentElement;
+  if (totalCashElWrap) totalCashElWrap.style.display = showCash ? "" : "none";
+
+  const avgDurEl = document.getElementById("statsAvgDur");
+  if (avgDurEl) avgDurEl.style.display = showDur ? "" : "none";
+
+  const breakdownTitle = document.querySelector(".stats-breakdown-title");
+  const barsContainer = document.getElementById("statsBars");
+  if (breakdownTitle) breakdownTitle.style.display = (showDur && showType) ? "" : "none";
+  if (barsContainer) barsContainer.style.display = (showDur && showType) ? "" : "none";
+
   document.getElementById("statsTotalHours").textContent = `${data.total_hours.toFixed(1)} ч`;
   document.getElementById("statsTotalMin").textContent = `${data.total_minutes} минут`;
   document.getElementById("statsTotalCount").textContent = data.count;
@@ -1057,45 +1172,46 @@ function renderStats(data) {
   }
 
   // Breakdown by type
-  const byType = {};
-  for (const s of state.sessions) {
-    const t = s.type || "(без типа)";
-    byType[t] = (byType[t] || 0) + (s.duration || 0);
-  }
+  if (showDur && showType) {
+    const byType = {};
+    for (const s of state.sessions) {
+      const t = s.type || "(без типа)";
+      byType[t] = (byType[t] || 0) + (s.duration || 0);
+    }
 
-  const sortedTypes = Object.entries(byType).sort((a, b) => b[1] - a[1]);
-  const barsContainer = document.getElementById("statsBars");
+    const sortedTypes = Object.entries(byType).sort((a, b) => b[1] - a[1]);
 
-  if (sortedTypes.length === 0) {
-    barsContainer.innerHTML = '<div style="color: var(--text-dim); font-size: 0.74rem;">Нет данных</div>';
-    return;
-  }
+    if (sortedTypes.length === 0) {
+      barsContainer.innerHTML = '<div style="color: var(--text-dim); font-size: 0.74rem;">Нет данных</div>';
+      return;
+    }
 
-  const colors = [
-    "var(--accent-blue)", "var(--accent-orange)", "var(--accent-green)",
-    "var(--accent-cyan)", "var(--accent-magenta)", "var(--accent-yellow)"
-  ];
+    const colors = [
+      "var(--accent-blue)", "var(--accent-orange)", "var(--accent-green)",
+      "var(--accent-cyan)", "var(--accent-magenta)", "var(--accent-yellow)"
+    ];
 
-  let barsHtml = "";
-  sortedTypes.forEach(([type, mins], idx) => {
-    const pct = data.total_minutes > 0 ? Math.round((mins / data.total_minutes) * 100) : 0;
-    const hrs = (mins / 60).toFixed(1);
-    const color = colors[idx % colors.length];
+    let barsHtml = "";
+    sortedTypes.forEach(([type, mins], idx) => {
+      const pct = data.total_minutes > 0 ? Math.round((mins / data.total_minutes) * 100) : 0;
+      const hrs = (mins / 60).toFixed(1);
+      const color = colors[idx % colors.length];
 
-    barsHtml += `
-      <div class="bar-row">
-        <div class="bar-labels">
-          <span>${escapeHtml(type)}</span>
-          <span style="font-family: var(--font-mono);">${hrs} ч (${pct}%)</span>
+      barsHtml += `
+        <div class="bar-row">
+          <div class="bar-labels">
+            <span>${escapeHtml(type)}</span>
+            <span style="font-family: var(--font-mono);">${hrs} ч (${pct}%)</span>
+          </div>
+          <div class="bar-track">
+            <div class="bar-fill" style="width: ${pct}%; background: ${color};"></div>
+          </div>
         </div>
-        <div class="bar-track">
-          <div class="bar-fill" style="width: ${pct}%; background: ${color};"></div>
-        </div>
-      </div>
-    `;
-  });
+      `;
+    });
 
-  barsContainer.innerHTML = barsHtml;
+    barsContainer.innerHTML = barsHtml;
+  }
 }
 
 function renderInspector(s) {
@@ -1109,47 +1225,90 @@ function renderInspector(s) {
   const statusLabel = s.status ? s.status : "~пусто~";
   const repeatText = s.series_id ? `Серия: ${s.series_id}` : "Одиночная запись";
 
-  box.innerHTML = `
+  const showDate = isFieldVisible("date");
+  const showTime = isFieldVisible("time");
+  const showName = isFieldVisible("name");
+  const showType = isFieldVisible("type");
+  const showDur = isFieldVisible("duration");
+  const showCash = isFieldVisible("cash");
+  const showStatus = isFieldVisible("status");
+  const showNotes = isFieldVisible("notes");
+
+  let html = `
     <div class="detail-field">
       <span class="detail-label">ИД:</span>
       <span class="detail-val" style="font-family: var(--font-mono); color: var(--accent-yellow);">${s.id}</span>
     </div>
+  `;
+
+  if (showDate) {
+    html += `
     <div class="detail-field">
       <span class="detail-label">Дата:</span>
       <span class="detail-val detail-val-editable" onclick="editFocusedField('date')" title="Нажмите для правки">
         📅 ${formatISODate(sessionDate(s))}
       </span>
     </div>
+    `;
+  }
+
+  if (showTime) {
+    html += `
     <div class="detail-field">
       <span class="detail-label">Время:</span>
       <span class="detail-val detail-val-editable" onclick="editFocusedField('time')" title="Нажмите для правки">
-        🕒 ${s.time}
+        🕒 ${s.time || '--:--'}
       </span>
     </div>
+    `;
+  }
+
+  if (showName) {
+    html += `
     <div class="detail-field">
       <span class="detail-label">Название:</span>
       <span class="detail-val detail-val-editable" style="color: var(--accent-green); font-weight: 700;" onclick="editFocusedField('name')" title="Нажмите для правки">
         ${escapeHtml(s.name)}
       </span>
     </div>
+    `;
+  }
+
+  if (showType) {
+    html += `
     <div class="detail-field">
       <span class="detail-label">Тип:</span>
       <span class="detail-val detail-val-editable" onclick="editFocusedField('type')" title="Нажмите для правки">
         🏷️ ${escapeHtml(s.type || '(без типа)')}
       </span>
     </div>
+    `;
+  }
+
+  if (showDur) {
+    html += `
     <div class="detail-field">
       <span class="detail-label">Длительность:</span>
       <span class="detail-val detail-val-editable" style="color: var(--accent-orange);" onclick="editFocusedField('duration')" title="Нажмите для правки">
         ⏱️ ${s.duration} мин (${(s.duration / 60).toFixed(1)} ч)
       </span>
     </div>
+    `;
+  }
+
+  if (showCash) {
+    html += `
     <div class="detail-field">
       <span class="detail-label">Кэш:</span>
       <span class="detail-val detail-val-editable" style="color: var(--accent-yellow); font-family: var(--font-mono);" onclick="editFocusedField('cash')" title="Нажмите для правки">
         ${formatCash(s.cash)}
       </span>
     </div>
+    `;
+  }
+
+  if (showStatus) {
+    html += `
     <div class="detail-field">
       <span class="detail-label">Статус:</span>
       <span class="detail-val">
@@ -1158,17 +1317,28 @@ function renderInspector(s) {
         </span>
       </span>
     </div>
+    `;
+  }
+
+  html += `
     <div class="detail-field">
       <span class="detail-label">Повтор:</span>
       <span class="detail-val" style="color: var(--accent-magenta);">${repeatText}</span>
     </div>
+  `;
+
+  if (showNotes) {
+    html += `
     <div class="detail-field" style="flex-direction: column; gap: 4px; margin-top: 6px;">
       <span class="detail-label">Комментарий:</span>
       <div class="detail-notes-box" onclick="editFocusedField('notes')" title="Нажмите для правки заметки">
         ${s.notes ? escapeHtml(s.notes) : '<span style="color: var(--text-dim); font-style: italic;">Нажмите, чтобы добавить заметку...</span>'}
       </div>
     </div>
-  `;
+    `;
+  }
+
+  box.innerHTML = html;
 }
 
 function clearInspector() {
@@ -2501,16 +2671,80 @@ function closeModal(id) {
 
 // ----------------- ADD / EDIT SESSION -----------------
 
+function updateModalFieldVisibility() {
+  const showDate = isFieldVisible("date");
+  const showTime = isFieldVisible("time");
+  const showName = isFieldVisible("name");
+  const showType = isFieldVisible("type");
+  const showDur = isFieldVisible("duration");
+  const showStatus = isFieldVisible("status");
+  const showCash = isFieldVisible("cash");
+  const showNotes = isFieldVisible("notes");
+
+  const dateGrp = document.getElementById("formDateGroup");
+  const timeGrp = document.getElementById("formTimeGroup");
+  const dtRow = document.getElementById("formRowDateTime");
+  if (dateGrp) dateGrp.style.display = showDate ? "" : "none";
+  if (timeGrp) timeGrp.style.display = showTime ? "" : "none";
+  if (dtRow) {
+    dtRow.style.display = (!showDate && !showTime) ? "none" : "";
+    if (showDate && !showTime) dtRow.style.gridTemplateColumns = "1fr";
+    else if (!showDate && showTime) dtRow.style.gridTemplateColumns = "1fr";
+    else dtRow.style.gridTemplateColumns = "";
+  }
+
+  const nameGrp = document.getElementById("formNameGroup");
+  if (nameGrp) nameGrp.style.display = showName ? "" : "none";
+
+  const typeGrp = document.getElementById("formTypeGroup");
+  const durGrp = document.getElementById("formDurationGroup");
+  const tdRow = document.getElementById("formRowTypeDur");
+  if (typeGrp) typeGrp.style.display = showType ? "" : "none";
+  if (durGrp) durGrp.style.display = showDur ? "" : "none";
+  const durInput = document.getElementById("formDuration");
+  if (durInput) {
+    if (showDur) {
+      durInput.setAttribute("required", "required");
+    } else {
+      durInput.removeAttribute("required");
+    }
+  }
+  if (tdRow) {
+    tdRow.style.display = (!showType && !showDur) ? "none" : "";
+    if (showType && !showDur) tdRow.style.gridTemplateColumns = "1fr";
+    else if (!showType && showDur) tdRow.style.gridTemplateColumns = "1fr";
+    else tdRow.style.gridTemplateColumns = "";
+  }
+
+  const statusGrp = document.getElementById("formStatusGroup");
+  const cashGrp = document.getElementById("formCashGroup");
+  const scRow = document.getElementById("formRowStatusCash");
+  if (statusGrp) statusGrp.style.display = showStatus ? "" : "none";
+  if (cashGrp) cashGrp.style.display = showCash ? "" : "none";
+  if (scRow) {
+    scRow.style.display = (!showStatus && !showCash) ? "none" : "";
+    if (showStatus && !showCash) scRow.style.gridTemplateColumns = "1fr";
+    else if (!showStatus && showCash) scRow.style.gridTemplateColumns = "1fr";
+    else scRow.style.gridTemplateColumns = "";
+  }
+
+  const notesGrp = document.getElementById("formNotesGroup");
+  if (notesGrp) notesGrp.style.display = showNotes ? "" : "none";
+}
+
 function openAddModal() {
   document.getElementById("modalSessionTitle").textContent = "Новая запись";
   document.getElementById("formSessionId").value = "";
 
+  const eff = getEffectiveConfig();
   const todayIso = state.selectedDate || new Date().toISOString().slice(0, 10);
   document.getElementById("formDate").value = todayIso;
   updateTimeSelect("10:00");
   document.getElementById("formName").value = "";
-  updateTypeSelect(state.types[0] || "Стрельба из лука");
-  document.getElementById("formDuration").value = state.config.default_duration || 60;
+  const defType = eff.default_type || state.types[0] || "Стрельба из лука";
+  updateTypeSelect(defType);
+  const defDur = (eff.default_duration !== undefined && eff.default_duration !== null) ? eff.default_duration : (state.config.default_duration || 60);
+  document.getElementById("formDuration").value = defDur;
   document.getElementById("formCash").value = "0.0";
   updateStatusSelect("Активно");
   document.getElementById("formNotes").value = "";
@@ -2520,6 +2754,7 @@ function openAddModal() {
   document.getElementById("repeatUntilGroup").style.display = "none";
   document.getElementById("seriesEditSection").style.display = "none";
 
+  updateModalFieldVisibility();
   openModal("modalSession");
 }
 
@@ -2562,6 +2797,7 @@ function editFocusedSession() {
     if (singleRadio) singleRadio.checked = true;
   }
 
+  updateModalFieldVisibility();
   openModal("modalSession");
 }
 
@@ -2668,23 +2904,29 @@ async function handleSessionFormSubmit(e) {
   }
   const id = document.getElementById("formSessionId").value;
   const isEdit = !!id;
+  const eff = getEffectiveConfig();
 
-  const date = document.getElementById("formDate").value;
-  const time = document.getElementById("formTime").value;
+  const date = isFieldVisible("date") ? document.getElementById("formDate").value : (isEdit ? undefined : toISODate(new Date()));
+  const time = isFieldVisible("time") ? document.getElementById("formTime").value : (isEdit ? undefined : "");
   const rawName = document.getElementById("formName").value;
-  const type = document.getElementById("formType").value;
-  const duration = parseInt(document.getElementById("formDuration").value, 10);
-  const cash = parseCash(document.getElementById("formCash").value);
-  const status = document.getElementById("formStatus").value;
-  const notes = document.getElementById("formNotes").value;
+  const type = isFieldVisible("type") ? document.getElementById("formType").value : (isEdit ? undefined : (eff.default_type || ""));
+  let duration = isFieldVisible("duration") ? parseInt(document.getElementById("formDuration").value, 10) : (isEdit ? undefined : ((eff.default_duration !== undefined && eff.default_duration !== null) ? eff.default_duration : 0));
+  if (isNaN(duration)) duration = 0;
+  const cash = isFieldVisible("cash") ? parseCash(document.getElementById("formCash").value) : (isEdit ? undefined : 0.0);
+  const status = isFieldVisible("status") ? document.getElementById("formStatus").value : (isEdit ? undefined : "");
+  const notes = isFieldVisible("notes") ? document.getElementById("formNotes").value : (isEdit ? undefined : "");
 
-  const names = isEdit
+  let names = isEdit
     ? [rawName.trim()]
     : rawName.split(/[\n;]/).map(n => n.trim()).filter(Boolean);
 
   if (names.length === 0) {
-    alert("Укажите наименование записи");
-    return;
+    if (notes && !isFieldVisible("name")) {
+      names = ["Заметка"];
+    } else {
+      alert("Укажите наименование записи");
+      return;
+    }
   }
 
   try {
@@ -2852,7 +3094,183 @@ function applyModalTypes() {
 
 // ----------------- SETTINGS MODAL & SERVICE -----------------
 
+function switchSettingsTab(tab) {
+  state.activeSettingsTab = tab;
+  const globalBtn = document.getElementById("tabBtnGlobalSettings");
+  const calBtn = document.getElementById("tabBtnCalendarSettings");
+  const globalPanel = document.getElementById("tabPanelGlobalSettings");
+  const calPanel = document.getElementById("tabPanelCalendarSettings");
+
+  if (tab === "calendar") {
+    if (globalBtn) globalBtn.classList.remove("active");
+    if (calBtn) calBtn.classList.add("active");
+    if (globalPanel) globalPanel.style.display = "none";
+    if (calPanel) calPanel.style.display = "block";
+    loadCalendarSettingsTab();
+  } else {
+    if (globalBtn) globalBtn.classList.add("active");
+    if (calBtn) calBtn.classList.remove("active");
+    if (globalPanel) globalPanel.style.display = "block";
+    if (calPanel) calPanel.style.display = "none";
+  }
+}
+
+function loadCalendarSettingsTab() {
+  const calKey = (state.config && state.config.active_calendar) ? state.config.active_calendar : "";
+  const calLabel = calKey ? calKey : "Основной (mycal)";
+  const titleSpan = document.getElementById("settingsCalName");
+  if (titleSpan) titleSpan.textContent = calLabel;
+
+  const fields = [
+    { id: "calFieldDate", key: "date" },
+    { id: "calFieldTime", key: "time" },
+    { id: "calFieldName", key: "name" },
+    { id: "calFieldType", key: "type" },
+    { id: "calFieldDuration", key: "duration" },
+    { id: "calFieldStatus", key: "status" },
+    { id: "calFieldCash", key: "cash" },
+    { id: "calFieldNotes", key: "notes" },
+  ];
+  for (const f of fields) {
+    const el = document.getElementById(f.id);
+    if (el) el.checked = isFieldVisible(f.key);
+  }
+
+  const calTheme = document.getElementById("calThemeOverride");
+  if (calTheme) {
+    calTheme.value = (state.calendarSettings && state.calendarSettings.theme) ? state.calendarSettings.theme : "";
+  }
+
+  const calDur = document.getElementById("calDurationOverride");
+  if (calDur) {
+    if (state.calendarSettings && state.calendarSettings.default_duration !== undefined && state.calendarSettings.default_duration !== null) {
+      calDur.value = String(state.calendarSettings.default_duration);
+    } else {
+      calDur.value = "";
+    }
+  }
+
+  const calType = document.getElementById("calTypeOverride");
+  if (calType) {
+    const curVal = (state.calendarSettings && state.calendarSettings.default_type) ? state.calendarSettings.default_type : "";
+    calType.innerHTML = '<option value="">(Наследовать из общих настроек)</option>';
+    (state.types || []).forEach(t => {
+      const opt = document.createElement("option");
+      opt.value = t;
+      opt.textContent = t;
+      calType.appendChild(opt);
+    });
+    calType.value = curVal;
+  }
+}
+
+function onCalendarFieldCheckChange() {
+  const nameBox = document.getElementById("calFieldName");
+  const notesBox = document.getElementById("calFieldNotes");
+  if (nameBox && notesBox && !nameBox.checked && !notesBox.checked) {
+    alert("Хотя бы одно из полей «Наименование» или «Заметка» должно оставаться включённым!");
+    nameBox.checked = true;
+  }
+}
+
+function previewCalTheme(theme) {
+  if (theme) {
+    changeTheme(theme, true);
+  } else {
+    const eff = getEffectiveConfig();
+    const fallback = eff.theme || state.config.theme || "tokyo";
+    changeTheme(fallback, true);
+  }
+}
+
+async function saveCalendarSettings() {
+  const fieldOrder = [
+    { id: "calFieldDate", val: "Дата" },
+    { id: "calFieldTime", val: "Время" },
+    { id: "calFieldName", val: "Наименование" },
+    { id: "calFieldType", val: "Категория" },
+    { id: "calFieldDuration", val: "Длительность" },
+    { id: "calFieldStatus", val: "Статус" },
+    { id: "calFieldCash", val: "Кэш" },
+    { id: "calFieldNotes", val: "Заметка" },
+  ];
+  const checkedFields = [];
+  for (const item of fieldOrder) {
+    const cb = document.getElementById(item.id);
+    if (cb && cb.checked) {
+      checkedFields.push(item.val);
+    }
+  }
+  if (checkedFields.length === 0) {
+    alert("Необходимо выбрать хотя бы одно поле");
+    return;
+  }
+  const visible_fields = checkedFields.join("; ");
+  const themeVal = document.getElementById("calThemeOverride")?.value || "";
+  const durVal = document.getElementById("calDurationOverride")?.value;
+  const typeVal = document.getElementById("calTypeOverride")?.value || "";
+
+  const payload = {
+    visible_fields: visible_fields,
+    theme: themeVal ? themeVal : null,
+    default_duration: (durVal !== "" && durVal !== undefined && durVal !== null) ? parseInt(durVal, 10) : null,
+    default_type: typeVal ? typeVal : null,
+  };
+
+  try {
+    const res = await apiFetch("/api/calendars/settings", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    if (res.effective_config) {
+      state.effectiveConfig = res.effective_config;
+      state.calendarSettings = res.settings;
+      const effTheme = state.effectiveConfig.theme || state.config.theme;
+      if (effTheme) changeTheme(effTheme, true);
+    }
+    closeModal("modalSettings");
+    updateFeedGridTemplate();
+    updateSortHeadersUI();
+    renderFeed();
+    if (state.focusedId) {
+      const s = state.sessions.find(x => x.id === state.focusedId);
+      renderInspector(s);
+    }
+    alert("Настройки календаря успешно сохранены!");
+  } catch (err) {
+    alert("Ошибка сохранения настроек календаря: " + err.message);
+  }
+}
+
+async function resetCalendarSettings() {
+  if (!confirm("Сбросить все персональные настройки текущего календаря к общим?")) return;
+  try {
+    const res = await apiFetch("/api/calendars/settings", {
+      method: "POST",
+      body: JSON.stringify({ reset: true }),
+    });
+    if (res.effective_config) {
+      state.effectiveConfig = res.effective_config;
+      state.calendarSettings = null;
+      const effTheme = state.effectiveConfig.theme || state.config.theme;
+      if (effTheme) changeTheme(effTheme, true);
+    }
+    loadCalendarSettingsTab();
+    updateFeedGridTemplate();
+    updateSortHeadersUI();
+    renderFeed();
+    if (state.focusedId) {
+      const s = state.sessions.find(x => x.id === state.focusedId);
+      renderInspector(s);
+    }
+    alert("Настройки календаря сброшены к общим!");
+  } catch (err) {
+    alert("Ошибка сброса настроек календаря: " + err.message);
+  }
+}
+
 function openSettingsModal() {
+  switchSettingsTab("global");
   fetchServiceStatus();
   renderSettingsManageLists();
   if (document.getElementById("cfgDurationUnit")) {
@@ -2887,6 +3305,9 @@ function openSettingsModal() {
   }
   if (document.getElementById("cfgTUIDefaultPeriod")) {
     document.getElementById("cfgTUIDefaultPeriod").value = state.config.tui_default_period || "today";
+  }
+  if (document.getElementById("cfgTheme")) {
+    document.getElementById("cfgTheme").value = state.config.theme || localStorage.getItem("mycal_theme") || "tokyo";
   }
   if (document.getElementById("cfgWebLAN")) {
     document.getElementById("cfgWebLAN").value = state.config.web_lan ? "true" : "false";
@@ -2936,6 +3357,10 @@ function applySettingModesVisibility() {
 }
 
 async function saveSettings() {
+  if (state.activeSettingsTab === "calendar") {
+    await saveCalendarSettings();
+    return;
+  }
   const default_mode = document.getElementById("cfgDefaultMode") ? document.getElementById("cfgDefaultMode").value : "cli";
   const web_port = (document.getElementById("cfgWebPort") ? parseInt(document.getElementById("cfgWebPort").value, 10) : 8080) || 8080;
   const web_lan = document.getElementById("cfgWebLAN") ? (document.getElementById("cfgWebLAN").value === "true") : !!state.config.web_lan;
@@ -2950,6 +3375,7 @@ async function saveSettings() {
   const custom_date = document.getElementById("cfgCustomDate") ? document.getElementById("cfgCustomDate").value.trim() : (state.config.custom_date || "");
   const data_path = document.getElementById("cfgDataPath") ? document.getElementById("cfgDataPath").value.trim() : "";
   const tui_default_period = document.getElementById("cfgTUIDefaultPeriod") ? document.getElementById("cfgTUIDefaultPeriod").value : "today";
+  const theme = document.getElementById("cfgTheme") ? document.getElementById("cfgTheme").value : (localStorage.getItem("mycal_theme") || "tokyo");
 
   try {
     const updated = {
@@ -2957,6 +3383,7 @@ async function saveSettings() {
       default_mode,
       web_port,
       web_lan,
+      theme,
       default_duration,
       duration_unit,
       default_type,
@@ -3054,11 +3481,38 @@ async function serviceAction(action) {
 
 // ----------------- THEME & RESPONSIVE TABS -----------------
 
-function changeTheme(theme) {
+let themePersistTimer = null;
+function persistThemeConfig(theme) {
+  if (themePersistTimer) clearTimeout(themePersistTimer);
+  themePersistTimer = setTimeout(async () => {
+    if (!state.config) return;
+    try {
+      await apiFetch("/api/config", {
+        method: "POST",
+        body: JSON.stringify({ ...state.config, theme }),
+      });
+    } catch (_) {}
+  }, 400);
+}
+
+function changeTheme(theme, skipPersist = false) {
   if (theme === "tokyo") {
     document.documentElement.removeAttribute("data-theme");
   } else {
     document.documentElement.setAttribute("data-theme", theme);
+  }
+  localStorage.setItem("mycal_theme", theme);
+  const themeSelect = document.getElementById("themeSelect");
+  if (themeSelect && themeSelect.value !== theme) {
+    themeSelect.value = theme;
+  }
+  const cfgTheme = document.getElementById("cfgTheme");
+  if (cfgTheme && cfgTheme.value !== theme) {
+    cfgTheme.value = theme;
+  }
+  if (!skipPersist && state.config) {
+    state.config.theme = theme;
+    persistThemeConfig(theme);
   }
 }
 
@@ -3355,9 +3809,17 @@ async function onCalendarSelectChange(val) {
       body: JSON.stringify({ action: "select", key: val }),
     });
     if (res.config) state.config = res.config;
+    if (res.effective_config) {
+      state.effectiveConfig = res.effective_config;
+      state.calendarSettings = res.calendar_settings || null;
+      const effTheme = state.effectiveConfig.theme || state.config.theme;
+      if (effTheme) changeTheme(effTheme, true);
+    }
     if (Array.isArray(res.calendars)) state.calendars = res.calendars;
     state.activeSplitMode = res.active_split_mode || "none";
     renderCalendarSelect();
+    updateFeedGridTemplate();
+    updateSortHeadersUI();
     await Promise.all([fetchTypes(), fetchStatuses()]);
     await refreshData();
   } catch (err) {
@@ -3412,10 +3874,18 @@ async function handleCreateCalendarSubmit(e) {
       body: JSON.stringify({ action: "create", key, split_mode }),
     });
     if (res.config) state.config = res.config;
+    if (res.effective_config) {
+      state.effectiveConfig = res.effective_config;
+      state.calendarSettings = res.calendar_settings || null;
+      const effTheme = state.effectiveConfig.theme || state.config.theme;
+      if (effTheme) changeTheme(effTheme, true);
+    }
     if (Array.isArray(res.calendars)) state.calendars = res.calendars;
     state.activeSplitMode = res.active_split_mode || split_mode;
     closeModal("modalCreateCalendar");
     renderCalendarSelect();
+    updateFeedGridTemplate();
+    updateSortHeadersUI();
     await Promise.all([fetchTypes(), fetchStatuses()]);
     await refreshData();
   } catch (err) {

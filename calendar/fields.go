@@ -25,7 +25,153 @@ const (
 
 	// EmptyStatusLabel is the universal label representing an empty status ("").
 	EmptyStatusLabel = "~пусто~"
+
+	// DefaultVisibleFields is the default semicolon-separated list of visible fields.
+	DefaultVisibleFields = "Дата; Время; Наименование; Категория; Длительность; Статус; Кэш; Заметка"
 )
+
+// StandardFieldKeys lists the user-controllable standard field keys in logical presentation order.
+var StandardFieldKeys = []string{
+	FieldDate,
+	FieldTime,
+	FieldName,
+	FieldType,
+	FieldDuration,
+	FieldStatus,
+	FieldCash,
+	FieldNotes,
+}
+
+// FieldLabel returns the standard Russian label for a canonical field key.
+func FieldLabel(key string) string {
+	switch key {
+	case FieldDate:
+		return "Дата"
+	case FieldTime:
+		return "Время"
+	case FieldName:
+		return "Наименование"
+	case FieldType:
+		return "Категория"
+	case FieldDuration:
+		return "Длительность"
+	case FieldStatus:
+		return "Статус"
+	case FieldCash:
+		return "Кэш"
+	case FieldNotes:
+		return "Заметка"
+	default:
+		return key
+	}
+}
+
+// CanonicalFieldKey maps user input, Russian names, or English keys to a canonical Field* key.
+// Returns "" if the field name is not recognized.
+func CanonicalFieldKey(raw string) string {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	switch raw {
+	case "дата", "день", "число", "date", "d":
+		return FieldDate
+	case "время", "time", "t":
+		return FieldTime
+	case "наименование", "название", "имя", "заголовок", "name", "title", "n":
+		return FieldName
+	case "категория", "тип", "раздел", "type", "category", "c":
+		return FieldType
+	case "длительность", "продолжительность", "продолж", "время_работы", "duration", "dur":
+		return FieldDuration
+	case "статус", "состояние", "status", "st":
+		return FieldStatus
+	case "кэш", "оплата", "стоимость", "цена", "деньги", "cash", "price", "cost":
+		return FieldCash
+	case "заметка", "заметки", "комментарий", "текст", "описание", "notes", "note", "comment":
+		return FieldNotes
+	default:
+		return ""
+	}
+}
+
+// ParseVisibleFields parses a semicolon-separated string into a set of enabled canonical field keys.
+// If the string is empty or invalid, all standard fields are enabled by default.
+func ParseVisibleFields(raw string) map[string]bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return AllVisibleFieldsMap()
+	}
+	parts := strings.Split(raw, ";")
+	res := make(map[string]bool)
+	for _, p := range parts {
+		canon := CanonicalFieldKey(p)
+		if canon != "" {
+			res[canon] = true
+		}
+	}
+	if len(res) == 0 {
+		return AllVisibleFieldsMap()
+	}
+	// Safety constraint: At least FieldName or FieldNotes must be visible so records have substance.
+	if !res[FieldName] && !res[FieldNotes] {
+		res[FieldName] = true
+	}
+	return res
+}
+
+// AllVisibleFieldsMap returns a map where all standard fields are enabled.
+func AllVisibleFieldsMap() map[string]bool {
+	res := make(map[string]bool, len(StandardFieldKeys))
+	for _, k := range StandardFieldKeys {
+		res[k] = true
+	}
+	return res
+}
+
+// FormatVisibleFields formats a slice of canonical keys into a standard semicolon-separated string.
+func FormatVisibleFields(keys []string) string {
+	var parts []string
+	seen := make(map[string]bool)
+	for _, k := range keys {
+		canon := CanonicalFieldKey(k)
+		if canon != "" && !seen[canon] {
+			parts = append(parts, FieldLabel(canon))
+			seen[canon] = true
+		}
+	}
+	if len(parts) == 0 {
+		return DefaultVisibleFields
+	}
+	return strings.Join(parts, "; ")
+}
+
+// FormatVisibleFieldsMap formats a map of canonical keys into a standard semicolon-separated string
+// following the standard field order.
+func FormatVisibleFieldsMap(m map[string]bool) string {
+	var parts []string
+	for _, k := range StandardFieldKeys {
+		if m[k] {
+			parts = append(parts, FieldLabel(k))
+		}
+	}
+	if len(parts) == 0 {
+		return DefaultVisibleFields
+	}
+	return strings.Join(parts, "; ")
+}
+
+// NormalizeVisibleFields parses a semicolon-separated string and returns the standard canonical formatted string.
+func NormalizeVisibleFields(raw string) string {
+	return FormatVisibleFieldsMap(ParseVisibleFields(raw))
+}
+
+// IsFieldVisible checks if a canonical key is visible under the given raw visible_fields specification.
+func IsFieldVisible(visibleFieldsSpec string, fieldKey string) bool {
+	m := ParseVisibleFields(visibleFieldsSpec)
+	canon := CanonicalFieldKey(fieldKey)
+	if canon == "" {
+		canon = fieldKey
+	}
+	return m[canon]
+}
 
 // NormalizeStatus converts UI placeholders for an empty status ("~пусто~",
 // "<пусто>", "<очистить статус>", "-") into an empty string "".

@@ -34,6 +34,7 @@ type undoEntry struct {
 // Service holds the calendar in memory and persists it on demand.
 type Service struct {
 	mu        sync.RWMutex
+	settings  *models.CalendarSettings
 	sessions  []models.Session
 	dir       string
 	baseName  string
@@ -119,6 +120,7 @@ func NewService(ctx context.Context, dir, baseName, mode string) (*Service, erro
 		return nil, err
 	}
 	return &Service{
+		settings: cal.Settings,
 		sessions: cal.Sessions,
 		dir:      dir,
 		baseName: baseName,
@@ -135,6 +137,7 @@ func (s *Service) Reload(ctx context.Context) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.settings = cal.Settings
 	s.sessions = cal.Sessions
 	s.warnings = warnings
 	return nil
@@ -179,7 +182,33 @@ func (s *Service) Warnings() []string {
 func (s *Service) Save(ctx context.Context) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return storage.Save(ctx, s.dir, s.baseName, &models.Calendar{Sessions: s.sessions}, s.mode)
+	return storage.Save(ctx, s.dir, s.baseName, &models.Calendar{
+		Settings: s.settings,
+		Sessions: s.sessions,
+	}, s.mode)
+}
+
+// Settings returns the calendar-specific settings, or nil if none are set.
+func (s *Service) Settings() *models.CalendarSettings {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.settings
+}
+
+// SetSettings updates the calendar-specific settings in memory. Call Save() to persist.
+func (s *Service) SetSettings(settings *models.CalendarSettings) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.settings = settings
+}
+
+// EffectiveConfig computes the merged configuration for this calendar against the provided global config.
+func (s *Service) EffectiveConfig(global *models.Config) *models.Config {
+	s.mu.RLock()
+	st := s.settings
+	s.mu.RUnlock()
+	cal := &models.Calendar{Settings: st}
+	return cal.EffectiveConfig(global)
 }
 
 func (s *Service) DataDir() string {

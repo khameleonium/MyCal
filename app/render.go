@@ -45,9 +45,17 @@ func (a *App) displayList(ordered []models.Session, label string) {
 // running row number. The caller sorts once so the numbers printed here and the
 // numbers detailLoop accepts cannot drift apart.
 func (a *App) printSessions(ordered []models.Session) {
+	eff := a.effectiveConfig()
+	showTime := calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldTime)
+	showType := calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldType)
+	showDur := calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldDuration)
+	showCash := calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldCash)
+	showStatus := calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldStatus)
+	showNotes := calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldNotes)
+
 	lastDate := ""
 	unit := "min"
-	if a.cfg != nil && a.cfg.DurationUnit == "hours" {
+	if eff != nil && eff.DurationUnit == "hours" {
 		unit = "hours"
 	}
 	for i, s := range ordered {
@@ -55,80 +63,125 @@ func (a *App) printSessions(ordered []models.Session) {
 			lastDate = s.Date()
 			fmt.Println(color.Magenta(parser.FormatDate(mustISO(lastDate))))
 		}
-		t := s.Time
-		if s.IsRepeat() {
-			t = "* " + t
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("  %2d.", i+1))
+		if showTime {
+			t := s.Time
+			if s.IsRepeat() {
+				t = "* " + t
+			}
+			b.WriteString(fmt.Sprintf(" %-8s", t))
 		}
-		durStr := calendar.FormatDuration(s.Duration, unit)
-		extra := ""
-		if s.Cash != 0 {
-			extra += " Кэш: " + formatCashDetail(s.Cash)
+		b.WriteString(fmt.Sprintf(" %-18s", color.Green(s.Name)))
+		if showType {
+			b.WriteString(fmt.Sprintf(" %-20s", s.Type))
 		}
-		if s.Status != "" {
-			extra += " [" + s.Status + "]"
+		if showDur {
+			durStr := calendar.FormatDuration(s.Duration, unit)
+			b.WriteString(fmt.Sprintf(" %-8s", color.Orange(durStr)))
 		}
-		fmt.Printf(listFmt+"\n", i+1, t, color.Green(s.Name), s.Type,
-			color.Orange(durStr), extra, color.Yellow(s.ID))
+		if showCash && s.Cash != 0 {
+			b.WriteString(" Кэш: " + formatCashDetail(s.Cash))
+		}
+		if showStatus && s.Status != "" {
+			b.WriteString(" [" + s.Status + "]")
+		}
+		if showNotes && s.Notes != "" && !showType && !showDur {
+			b.WriteString(" — " + s.Notes)
+		}
+		b.WriteString(" [" + color.Yellow(s.ID) + "]")
+		fmt.Println(b.String())
 	}
 }
 
 func (a *App) printSummary(sessions []models.Session) {
+	eff := a.effectiveConfig()
+	showDur := calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldDuration)
+	showCash := calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldCash)
+
 	st := calendar.ComputeStats(sessions)
 	cashPart := ""
-	if st.TotalCash != 0 {
+	if showCash && st.TotalCash != 0 {
 		cashPart = " | Общий кэш: " + formatCashDetail(st.TotalCash)
 	}
-	fmt.Printf("\nОбщее время: %s | Всего записей: %s%s\n",
-		color.Orange(fmt.Sprintf("%.1f ч", st.TotalHours)),
-		color.Green(strconv.Itoa(st.Count)),
-		cashPart)
+	if showDur {
+		fmt.Printf("\nОбщее время: %s | Всего записей: %s%s\n",
+			color.Orange(fmt.Sprintf("%.1f ч", st.TotalHours)),
+			color.Green(strconv.Itoa(st.Count)),
+			cashPart)
+	} else {
+		fmt.Printf("\nВсего записей: %s%s\n",
+			color.Green(strconv.Itoa(st.Count)),
+			cashPart)
+	}
 }
 
 func (a *App) printStats(sessions []models.Session) {
 	if len(sessions) == 0 {
 		return
 	}
+	eff := a.effectiveConfig()
+	showType := calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldType)
+	showDur := calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldDuration)
+	showCash := calendar.IsFieldVisible(eff.VisibleFields, calendar.FieldCash)
+
 	st := calendar.ComputeStats(sessions)
 
 	fmt.Println()
 	fmt.Println(sep)
 	fmt.Printf(statFmt+"\n", "Всего записей:", color.Orange(strconv.Itoa(st.Count)))
-	fmt.Printf(statFmt+"\n", "Средняя продолж.:",
-		color.Orange(fmt.Sprintf("%.1f мин", st.AvgMinutes)))
-	if st.TotalCash != 0 {
+	if showDur {
+		fmt.Printf(statFmt+"\n", "Средняя продолж.:",
+			color.Orange(fmt.Sprintf("%.1f мин", st.AvgMinutes)))
+	}
+	if showCash && st.TotalCash != 0 {
 		fmt.Printf(statFmt+"\n", "Общий кэш:", formatCashDetail(st.TotalCash))
 	}
 
-	fmt.Println()
-	fmt.Println(color.Yellow("  По типам записей:"))
-	for _, ts := range st.ByType {
-		name := ts.Type
-		if name == "" {
-			name = "(без типа)"
+	if showType && len(st.ByType) > 0 {
+		fmt.Println()
+		fmt.Println(color.Yellow("  По типам записей:"))
+		for _, ts := range st.ByType {
+			name := ts.Type
+			if name == "" {
+				name = "(без типа)"
+			}
+			var parts []string
+			if showDur {
+				parts = append(parts, fmt.Sprintf("%.1f ч (%d мин)", ts.Hours, ts.Minutes))
+			} else {
+				parts = append(parts, fmt.Sprintf("%d записей", ts.Count))
+			}
+			if showCash && ts.Cash != 0 {
+				parts = append(parts, fmt.Sprintf("Кэш: %s", formatCashDetail(ts.Cash)))
+			}
+			statStr := color.Orange(strings.Join(parts, " | "))
+			fmt.Printf(statFmt+"\n", "    "+name+":", statStr)
 		}
-		statStr := color.Orange(fmt.Sprintf("%.1f ч (%d мин)", ts.Hours, ts.Minutes))
-		if ts.Cash != 0 {
-			statStr += fmt.Sprintf(" | Кэш: %s", formatCashDetail(ts.Cash))
+		fmt.Println("  " + sep[:36])
+	}
+	if showDur {
+		totalStatStr := color.Orange(fmt.Sprintf("%.1f ч (%d мин)", st.TotalHours, st.TotalMinutes))
+		if showCash && st.TotalCash != 0 {
+			totalStatStr += fmt.Sprintf(" | Кэш: %s", formatCashDetail(st.TotalCash))
 		}
-		fmt.Printf(statFmt+"\n", "    "+name+":", statStr)
+		fmt.Printf(statFmt+"\n", "  Общее время:", totalStatStr)
+		fmt.Println(sep)
 	}
-	fmt.Println("  " + sep[:36])
-	totalStatStr := color.Orange(fmt.Sprintf("%.1f ч (%d мин)", st.TotalHours, st.TotalMinutes))
-	if st.TotalCash != 0 {
-		totalStatStr += fmt.Sprintf(" | Кэш: %s", formatCashDetail(st.TotalCash))
-	}
-	fmt.Printf(statFmt+"\n", "  Общее время:", totalStatStr)
-	fmt.Println(sep)
 }
 
 func (a *App) showSessionDetail(s models.Session) {
 	fmt.Println()
 	fmt.Println(sep)
+	eff := a.effectiveConfig()
 	unit := "min"
-	if a.cfg != nil && a.cfg.DurationUnit == "hours" {
+	if eff != nil && eff.DurationUnit == "hours" {
 		unit = "hours"
 	}
 	for _, fSpec := range calendar.SessionFields {
+		if fSpec.Key != calendar.FieldID && !calendar.IsFieldVisible(eff.VisibleFields, fSpec.Key) {
+			continue
+		}
 		if fSpec.Key == calendar.FieldSeries {
 			if s.IsRepeat() {
 				n := len(a.svc.BySeries(s.SeriesID))

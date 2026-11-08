@@ -65,6 +65,9 @@ func Load(ctx context.Context, dir, baseName, mode string) (cal *models.Calendar
 			return nil, warnings, err
 		}
 		warnings = append(warnings, w...)
+		if merged.Settings == nil && part.Settings != nil {
+			merged.Settings = part.Settings.Clone()
+		}
 		merged.Sessions = append(merged.Sessions, part.Sessions...)
 	}
 	SortSessions(merged.Sessions)
@@ -143,10 +146,15 @@ func decode(data []byte) (*models.Calendar, bool) {
 		return nil, false
 	}
 	var cal models.Calendar
-	if err := json.Unmarshal(data, &cal); err != nil {
-		return nil, false
+	if err := json.Unmarshal(data, &cal); err == nil {
+		return &cal, true
 	}
-	return &cal, true
+	// Support legacy raw session list: [ {...}, {...} ]
+	var rawSessions []models.Session
+	if err := json.Unmarshal(data, &rawSessions); err == nil {
+		return &models.Calendar{Sessions: rawSessions}, true
+	}
+	return nil, false
 }
 
 // Save writes the calendar for the given split mode and deletes data files that
@@ -207,11 +215,17 @@ func saveSplit(dir, baseName string, cal *models.Calendar, keyLen int) error {
 	}
 
 	for key, part := range groups {
+		if cal.Settings != nil {
+			part.Settings = cal.Settings.Clone()
+		}
 		if err := writeJSON(filepath.Join(dir, key+"_"+baseName+".json"), part); err != nil {
 			return err
 		}
 	}
 	if len(orphans.Sessions) > 0 {
+		if cal.Settings != nil {
+			orphans.Settings = cal.Settings.Clone()
+		}
 		if err := writeJSON(orphanPath(dir, baseName), &orphans); err != nil {
 			return err
 		}

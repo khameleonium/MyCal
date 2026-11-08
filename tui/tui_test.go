@@ -2402,3 +2402,109 @@ func TestTUIRepreatSeriesDeleteAndEditOptions(t *testing.T) {
 		t.Fatalf("expected session 1 to remain")
 	}
 }
+
+func TestThemeSwitchingAndModal(t *testing.T) {
+	themes := AvailableThemes()
+	if len(themes) < 8 {
+		t.Fatalf("expected at least 8 themes, got %d", len(themes))
+	}
+
+	// Apply Nord
+	applied := ApplyTheme("nord")
+	if applied != "nord" || CurrentTheme() != "nord" {
+		t.Fatalf("expected theme nord, got %s (current: %s)", applied, CurrentTheme())
+	}
+	if BgPrimary == "" || FgMain == "" {
+		t.Fatalf("expected non-empty colors after applying nord")
+	}
+
+	// Fallback test
+	fallback := ApplyTheme("non_existent_theme_xyz")
+	if fallback != "tokyo" || CurrentTheme() != "tokyo" {
+		t.Fatalf("expected fallback to tokyo, got %s", fallback)
+	}
+
+	// ModalThemePicker test
+	app := &App{
+		cfg: &models.Config{Theme: "tokyo"},
+		ctx: context.Background(),
+	}
+	picker := NewModalThemePicker(app)
+	scr := NewScreen(80, 24)
+	picker.Draw(scr)
+
+	// Move down
+	picker.HandleKey(Key{Type: KeyDown}, app)
+	if picker.selected == 0 {
+		t.Fatalf("expected selected index to change on KeyDown")
+	}
+
+	// Live preview check
+	previewedTheme := picker.themes[picker.selected].ID
+	if CurrentTheme() != previewedTheme {
+		t.Fatalf("expected live preview of %s, got %s", previewedTheme, CurrentTheme())
+	}
+
+	// Press Enter to confirm
+	picker.HandleKey(Key{Type: KeyEnter}, app)
+	if app.cfg.Theme != previewedTheme {
+		t.Fatalf("expected app.cfg.Theme to be %s, got %s", previewedTheme, app.cfg.Theme)
+	}
+
+	// Test Esc reverts preview
+	picker2 := NewModalThemePicker(app)
+	orig := picker2.origID
+	picker2.HandleKey(Key{Type: KeyDown}, app)
+	picker2.HandleKey(Key{Type: KeyEsc}, app)
+	if CurrentTheme() != orig {
+		t.Fatalf("expected revert to %s on Esc, got %s", orig, CurrentTheme())
+	}
+}
+
+func TestModalCalendarSettings(t *testing.T) {
+	tmpDir := t.TempDir()
+	svc, err := calendar.NewService(context.Background(), tmpDir, "mycal", models.SplitNone)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	cfg := &models.Config{
+		Theme: "tokyo",
+	}
+	app := &App{
+		svc: svc,
+		cfg: cfg,
+		ctx: context.Background(),
+	}
+
+	m := NewModalCalendarSettings(app)
+	scr := NewScreen(80, 24)
+	m.Draw(scr)
+
+	// Focus is on field 0 (Date). Let's move down to field 4 (Duration) and toggle it
+	for i := 0; i < 4; i++ {
+		m.HandleKey(Key{Type: KeyDown}, app)
+	}
+	if m.focusRow != 4 {
+		t.Fatalf("expected focusRow 4, got %d", m.focusRow)
+	}
+	// Toggle duration (turns off)
+	m.HandleKey(Key{Type: KeySpace}, app)
+	if m.visibleFields[calendar.FieldDuration] {
+		t.Fatalf("expected duration to be turned off")
+	}
+
+	// Move to save button (focusRow 13)
+	for m.focusRow != 13 {
+		m.HandleKey(Key{Type: KeyDown}, app)
+	}
+	m.HandleKey(Key{Type: KeyEnter}, app)
+
+	// Verify settings saved
+	st := svc.Settings()
+	if st == nil || st.VisibleFields == nil {
+		t.Fatalf("expected settings with VisibleFields, got %+v", st)
+	}
+	if calendar.IsFieldVisible(*st.VisibleFields, calendar.FieldDuration) {
+		t.Fatalf("expected duration to be hidden in saved visible_fields")
+	}
+}
