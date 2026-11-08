@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"mycalendar/locale"
 	"mycalendar/models"
 	"mycalendar/parser"
 	"mycalendar/storage"
@@ -660,6 +661,76 @@ var SettingsSchema = []SettingSpec{
 				return nil
 			}
 			cfg.VisibleFields = raw
+			return nil
+		},
+	},
+	{
+		Key:        "language",
+		CLIKey:     "y",
+		Label:      "Язык интерфейса",
+		ShortLabel: "Язык",
+		Hint:       "Язык интерфейса программы (ru, en, или кастомный)",
+		Kind:       "enum",
+		Modes:      []string{models.ModeCLI, models.ModeTUI, models.ModeWeb},
+		Options: func(_ *models.Config, _ []string) []OptionSpec {
+			langs := locale.AvailableLanguages()
+			var opts []OptionSpec
+			for _, l := range langs {
+				opts = append(opts, OptionSpec{
+					Value: l.Code,
+					Label: fmt.Sprintf("[%s] %s", l.Code, l.Name),
+				})
+			}
+			return opts
+		},
+		GetValue: func(cfg *models.Config) string {
+			if strings.TrimSpace(cfg.Language) == "" {
+				return "ru"
+			}
+			return cfg.Language
+		},
+		GetDisplay: func(cfg *models.Config) string {
+			code := cfg.Language
+			if strings.TrimSpace(code) == "" {
+				code = "ru"
+			}
+			for _, l := range locale.AvailableLanguages() {
+				if l.Code == code {
+					return fmt.Sprintf("[%s] %s", l.Code, l.Name)
+				}
+			}
+			return "[" + code + "]"
+		},
+		SetValue: func(cfg *models.Config, raw string) error {
+			raw = strings.TrimSpace(strings.ToLower(raw))
+			if raw == "" {
+				raw = "ru"
+			}
+			cfg.Language = raw
+			locale.SetLanguage(raw)
+			return nil
+		},
+	},
+	{
+		Key:        "locale_path",
+		CLIKey:     "lp",
+		Label:      "Путь к файлам локализации",
+		ShortLabel: "Путь к переводам",
+		Hint:       "Каталог или файл локализации (mycal_locale--*.json); пусто — рядом с программой",
+		Kind:       "path",
+		Modes:      []string{models.ModeCLI, models.ModeTUI, models.ModeWeb},
+		GetValue: func(cfg *models.Config) string {
+			return cfg.LocalePath
+		},
+		GetDisplay: func(cfg *models.Config) string {
+			if strings.TrimSpace(cfg.LocalePath) == "" {
+				return "Рядом с программой"
+			}
+			return cfg.LocalePath
+		},
+		SetValue: func(cfg *models.Config, raw string) error {
+			cfg.LocalePath = strings.TrimSpace(raw)
+			locale.Init(cfg.LocalePath, cfg.Language)
 			return nil
 		},
 	},

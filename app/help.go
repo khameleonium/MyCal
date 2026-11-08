@@ -30,6 +30,7 @@ func PrintHelp() {
 	p(color.Green("  mycal -tui") + "                 запуск интерактивного полноэкранного TUI")
 	p(color.Green("  mycal web [--lan] [порт]") + "   запуск веб-интерфейса (--lan открывает доступ по сети)")
 	p(color.Green("  mycal service [команда]") + "    управление фоновой службой (install/status/stop/start)")
+	p(color.Green("  mycal locale [list|template]") + " управление языками и создание шаблона перевода")
 	p(color.Green("  mycal help") + "              эта справка (также -h, --help, /?)")
 	p(color.Green("  mycal version") + "           версия программы (-v, --version)")
 	p("")

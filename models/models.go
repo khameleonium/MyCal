@@ -51,6 +51,8 @@ func DefaultSettingModes() map[string][]string {
 		"sort_asc":           {ModeTUI},
 		"show_hints":         {ModeCLI},
 		"silent_add_names":   {ModeCLI},
+		"language":           {ModeCLI, ModeTUI, ModeWeb},
+		"locale_path":        {ModeCLI, ModeTUI, ModeWeb},
 	}
 }
 
@@ -75,6 +77,8 @@ var DefaultConfig = Config{
 	SettingModes:     DefaultSettingModes(),
 	Theme:            "tokyo",
 	VisibleFields:    "Дата; Время; Наименование; Категория; Длительность; Статус; Кэш; Заметка",
+	Language:         "ru",
+	LocalePath:       "",
 }
 
 // CalendarInfo describes one calendar discovered on disk or configured in settings.
@@ -116,6 +120,8 @@ type Config struct {
 	SettingModes     map[string][]string `json:"setting_modes"`
 	Theme            string              `json:"theme,omitempty"`
 	VisibleFields    string              `json:"visible_fields,omitempty"`
+	Language         string              `json:"language,omitempty"`
+	LocalePath       string              `json:"locale_path,omitempty"`
 }
 
 // SanitizeBaseName cleans a filename base, removing path separators, ".json",

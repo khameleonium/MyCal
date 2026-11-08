@@ -415,3 +415,30 @@ func TestAddWithDiaryVisibleFields(t *testing.T) {
 		t.Errorf("expected empty status, got %q", s.Status)
 	}
 }
+
+func TestSettingsLanguageCycleAndTemplateExport(t *testing.T) {
+	tmpFile := filepath.Join(t.TempDir(), "mycal_locale--fr.json")
+	// 10 (settings), 21 (cycle language to en), 23 (export template), "ru" (base), "fr" (code), "Français" (name), tmpFile (path), 0 (save & exit), 12 (exit)
+	script := lines(
+		"10", "21", "23", "ru", "fr", "Français", tmpFile, "0", "12",
+	)
+	a, dir := newTestApp(t, script)
+	a.mainMenu()
+
+	if a.cfg.Language != "en" {
+		t.Errorf("expected language 'en', got %q", a.cfg.Language)
+	}
+
+	saved, err := config.Load(context.Background(), filepath.Join(dir, config.ConfigFile))
+	if err != nil {
+		t.Fatalf("reload config: %v", err)
+	}
+	if saved.Language != "en" {
+		t.Errorf("saved config language want 'en', got %q", saved.Language)
+	}
+
+	// Verify template file was generated
+	if _, err := os.Stat(tmpFile); err != nil {
+		t.Errorf("expected template file to exist at %s: %v", tmpFile, err)
+	}
+}

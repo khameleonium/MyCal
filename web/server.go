@@ -19,6 +19,7 @@ import (
 
 	"mycalendar/calendar"
 	"mycalendar/config"
+	"mycalendar/locale"
 	"mycalendar/models"
 	"mycalendar/parser"
 	"mycalendar/service"
@@ -274,6 +275,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/info", s.handleInfo)
 	mux.HandleFunc("/api/service/status", s.handleServiceStatus)
 	mux.HandleFunc("/api/service/action", s.handleServiceAction)
+	mux.HandleFunc("/api/locale/template", s.handleLocaleTemplate)
+	mux.HandleFunc("/api/locale", s.handleLocale)
 
 	// Embedded Static Frontend
 	mux.Handle("/", StaticHandler())
@@ -1183,6 +1186,8 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			"active_split_mode":      s.cfg.ActiveSplitMode(),
 			"version":                s.version,
 			"lan_ips":                LocalLANIPs(),
+			"languages":              locale.AvailableLanguages(),
+			"current_language":       locale.CurrentLanguage(),
 		})
 	case http.MethodPut, http.MethodPost:
 		updated := *s.cfg
@@ -1226,6 +1231,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		}
 
 		*s.cfg = updated
+		locale.Init(s.cfg.LocalePath, s.cfg.Language)
 		newSplit := s.cfg.ActiveSplitMode()
 		nameChanged := s.cfg.DataFileName != oldDataFileName
 		splitChanged := newSplit != "" && newSplit != oldSplit
@@ -1270,6 +1276,8 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			"active_split_mode":      s.cfg.ActiveSplitMode(),
 			"version":                s.version,
 			"lan_ips":                LocalLANIPs(),
+			"languages":              locale.AvailableLanguages(),
+			"current_language":       locale.CurrentLanguage(),
 		})
 	default:
 		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
@@ -1930,6 +1938,57 @@ func (s *Server) handleServiceAction(w http.ResponseWriter, r *http.Request) {
 		"ok":     true,
 		"status": info,
 	})
+}
+
+func (s *Server) handleLocale(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+		return
+	}
+	s.checkAutoReload(r.Context())
+
+	lang := locale.CurrentLanguage()
+	if qLang := r.URL.Query().Get("lang"); qLang != "" {
+		lang = qLang
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"ok":        true,
+		"lang":      lang,
+		"available": locale.AvailableLanguages(),
+		"strings":   locale.GetAllStrings(lang),
+	})
+}
+
+func (s *Server) handleLocaleTemplate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
+		return
+	}
+	baseLang := r.URL.Query().Get("base")
+	if baseLang == "" {
+		baseLang = "ru"
+	}
+	newCode := r.URL.Query().Get("code")
+	if newCode == "" {
+		newCode = "custom"
+	}
+	newName := r.URL.Query().Get("name")
+	if newName == "" {
+		newName = "Custom Language"
+	}
+
+	data, err := locale.GetTemplateJSON(baseLang, newCode, newName)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	filename := fmt.Sprintf("mycal_locale--%s.json", newCode)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
 }
 
 func respondJSON(w http.ResponseWriter, status int, data interface{}) {

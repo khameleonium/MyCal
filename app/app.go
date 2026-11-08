@@ -14,6 +14,7 @@ import (
 	"mycalendar/calendar"
 	"mycalendar/color"
 	"mycalendar/config"
+	"mycalendar/locale"
 	"mycalendar/models"
 	"mycalendar/parser"
 )
@@ -177,27 +178,35 @@ func (a *App) hint(text string) {
 	}
 }
 
+type mainMenuItem struct {
+	keys   []string
+	prefix string
+	locKey string
+	defVal string
+	hint   string
+	run    func(*App) bool
+}
+
+func (it mainMenuItem) Label() string {
+	return fmt.Sprintf("%s. %s", it.prefix, locale.TDef(it.locKey, it.defVal))
+}
+
 // mainMenuItems is the single source of truth for the top-level menu: the keys
 // each entry accepts (digit, Latin hotkey, Russian mnemonic), its label, and
 // what it does. run returns false to leave the menu.
-var mainMenuItems = []struct {
-	keys  []string
-	label string
-	hint  string
-	run   func(*App) bool
-}{
-	{[]string{"1", "a", "д"}, " a | 1. Добавить запись", "Создание события (напр. 17.10 19:00, тренировка)", func(a *App) bool { a.addEntry(); return true }},
-	{[]string{"2", "v", "п"}, " v | 2. Посмотреть записи", "Список за неделю, месяц, период (напр. 15-20) или все", func(a *App) bool { a.viewMenu(); return true }},
-	{[]string{"3", "d", "у"}, " d | 3. Удалить запись", "Удаление по номеру/ID, за дату, диапазон или всех", func(a *App) bool { a.deleteMenu(); return true }},
-	{[]string{"4", "t", "с"}, " t | 4. Сегодня", "Быстрый просмотр расписания на текущий день", func(a *App) bool { a.todayView(); return true }},
-	{[]string{"5", "x", "э"}, " x | 5. Экспорт в CSV", "Выгрузка записей в таблицу для Excel / Calc (.csv)", func(a *App) bool { a.exportMenu(); return true }},
-	{[]string{"6", "c", "к"}, " c | 6. Выбрать календарь записей", "Переключение между календарями записей в папке данных", func(a *App) bool { a.selectCalendarDialog(); return true }},
-	{[]string{"7", "n", "сз"}, " n | 7. Создать календарь записей", "Создание нового календаря с префиксом (единый или погодовой файл)", func(a *App) bool { a.createCalendarDialog(); return true }},
-	{[]string{"8", "i", "и"}, " i | 8. Импорт из CSV / JSON", "Импорт записей из файла .csv или .json с пропуском дубликатов", func(a *App) bool { a.importMenu(); return true }},
-	{[]string{"9", "u", "о", "г"}, " u | 9. Отменить действие", "Отмена последнего добавления, изменения или удаления записей", func(a *App) bool { a.undoCLI(); return true }},
-	{[]string{"10", "s", "н"}, " s | 10. Настройки", "Параметры хранения, автоисправление дат, подсказки", func(a *App) bool { a.settingsMenu(); return true }},
-	{[]string{"11", "h", "?", "м"}, " h | 11. Справка", "Руководство пользователя, горячие клавиши и параметры CLI", func(a *App) bool { PrintHelp(); return true }},
-	{[]string{"12", "0", "q", "в"}, " q | 12. Выход", "Завершение работы программы (также работает Ctrl+C)", func(a *App) bool { return false }},
+var mainMenuItems = []mainMenuItem{
+	{[]string{"1", "a", "д"}, " a | 1", "menu.add", "Добавить запись", "Создание события (напр. 17.10 19:00, тренировка)", func(a *App) bool { a.addEntry(); return true }},
+	{[]string{"2", "v", "п"}, " v | 2", "menu.view", "Посмотреть записи", "Список за неделю, месяц, период (напр. 15-20) или все", func(a *App) bool { a.viewMenu(); return true }},
+	{[]string{"3", "d", "у"}, " d | 3", "menu.delete", "Удалить запись", "Удаление по номеру/ID, за дату, диапазон или всех", func(a *App) bool { a.deleteMenu(); return true }},
+	{[]string{"4", "t", "с"}, " t | 4", "menu.today", "Сегодня", "Быстрый просмотр расписания на текущий день", func(a *App) bool { a.todayView(); return true }},
+	{[]string{"5", "x", "э"}, " x | 5", "menu.export", "Экспорт в CSV", "Выгрузка записей в таблицу для Excel / Calc (.csv)", func(a *App) bool { a.exportMenu(); return true }},
+	{[]string{"6", "c", "к"}, " c | 6", "menu.select_calendar", "Выбрать календарь записей", "Переключение между календарями записей в папке данных", func(a *App) bool { a.selectCalendarDialog(); return true }},
+	{[]string{"7", "n", "сз"}, " n | 7", "menu.create_calendar", "Создать календарь записей", "Создание нового календаря с префиксом (единый или погодовой файл)", func(a *App) bool { a.createCalendarDialog(); return true }},
+	{[]string{"8", "i", "и"}, " i | 8", "menu.import", "Импорт из CSV / JSON", "Импорт записей из файла .csv или .json с пропуском дубликатов", func(a *App) bool { a.importMenu(); return true }},
+	{[]string{"9", "u", "о", "г"}, " u | 9", "menu.undo", "Отменить действие", "Отмена последнего добавления, изменения или удаления записей", func(a *App) bool { a.undoCLI(); return true }},
+	{[]string{"10", "s", "н"}, " s | 10", "menu.settings", "Настройки", "Параметры хранения, автоисправление дат, подсказки", func(a *App) bool { a.settingsMenu(); return true }},
+	{[]string{"11", "h", "?", "м"}, " h | 11", "menu.help", "Справка", "Руководство пользователя, горячие клавиши и параметры CLI", func(a *App) bool { PrintHelp(); return true }},
+	{[]string{"12", "0", "q", "в"}, " q | 12", "menu.exit", "Выход", "Завершение работы программы (также работает Ctrl+C)", func(a *App) bool { return false }},
 }
 
 func mainMenuKeys() [][]string {
@@ -215,7 +224,7 @@ func (a *App) mainMenu() {
 		fmt.Println()
 		fmt.Printf("%s\n", color.Yellow(fmt.Sprintf("%s Мои записи [%s] %s", hdrSep, a.cfg.ActiveCalendarDisplayName(), hdrSep)))
 		for _, it := range mainMenuItems {
-			fmt.Println(it.label)
+			fmt.Println(it.Label())
 			if a.cfg.ShowHints {
 				fmt.Println(color.Cyan("     → " + it.hint))
 			}

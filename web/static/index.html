@@ -667,6 +667,30 @@
         </select>
       </div>
 
+      <!-- Language and Localization Settings -->
+      <div class="settings-highlight-card" style="margin-top: 12px; border-color: var(--border-dim);" data-setting-key="language">
+        <label for="cfgLanguage" class="form-label" style="color: var(--accent-yellow); font-weight: 700; margin-bottom: 4px;">
+          <span>🌍 Язык интерфейса:</span>
+        </label>
+        <p class="settings-hint">
+          Язык программы (встроенные ru/en или внешние файлы mycal_locale--*.json):
+        </p>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <select id="cfgLanguage" class="form-select" style="font-weight: 600; flex: 1;">
+            <option value="ru">[ru] Русский</option>
+            <option value="en">[en] English</option>
+          </select>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="downloadLocaleTemplate()" title="Скачать шаблон для перевода" style="white-space: nowrap;">📥 Шаблон перевода</button>
+        </div>
+        <div style="margin-top: 10px;" data-setting-key="locale_path">
+          <label for="cfgLocalePath" class="form-label" style="margin-bottom: 4px;">Путь к файлам локализации (каталог или файл):</label>
+          <input type="text" id="cfgLocalePath" class="form-input" placeholder="Рядом с программой (по умолчанию)">
+          <div class="settings-hint" style="margin-top: 4px; font-size: 0.78rem;">
+            Оставьте пустым для поиска файлов <code class="kbd-chip">mycal_locale--&lt;код&gt;.json</code> рядом с бинарником.
+          </div>
+        </div>
+      </div>
+
       <div class="settings-highlight-card" style="border-color: var(--border-bright);">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
           <label class="form-label" style="color: var(--accent-green); font-weight: 700; margin-bottom: 0;">

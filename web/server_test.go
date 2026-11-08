@@ -828,3 +828,63 @@ func TestCalendarSettingsAPI(t *testing.T) {
 		t.Fatalf("expected nil settings after reset, got %+v", svc.Settings())
 	}
 }
+
+func TestLocaleAPI(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	handler := srv.Routes()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/locale", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/locale failed: status %d", rec.Code)
+	}
+
+	var res struct {
+		OK        bool              `json:"ok"`
+		Lang      string            `json:"lang"`
+		Available []map[string]any  `json:"available"`
+		Strings   map[string]string `json:"strings"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&res); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if !res.OK {
+		t.Errorf("expected ok=true")
+	}
+	if res.Lang == "" {
+		t.Errorf("expected non-empty lang")
+	}
+	if len(res.Available) < 2 {
+		t.Errorf("expected at least 2 available languages, got %d", len(res.Available))
+	}
+	if len(res.Strings) == 0 {
+		t.Errorf("expected non-empty strings map")
+	}
+	if res.Strings["menu.add"] == "" {
+		t.Errorf("expected 'menu.add' in strings map")
+	}
+}
+
+func TestLocaleTemplateAPI(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	handler := srv.Routes()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/locale/template?base=en&code=de&name=Deutsch", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/locale/template failed: status %d", rec.Code)
+	}
+
+	var res map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&res); err != nil {
+		t.Fatalf("failed to decode template JSON: %v", err)
+	}
+	meta, ok := res["_meta"].(map[string]any)
+	if !ok || meta["code"] != "de" {
+		t.Errorf("expected template code 'de', got %v", meta["code"])
+	}
+}

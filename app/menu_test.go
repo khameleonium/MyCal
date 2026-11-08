@@ -17,7 +17,7 @@ func TestMainMenuKeysReachTheirOwnEntry(t *testing.T) {
 		for _, k := range item.keys {
 			if got := resolve(k, keys); got != i {
 				t.Errorf("key %q belongs to %q (index %d) but resolved to index %d",
-					k, item.label, i, got)
+					k, item.Label(), i, got)
 			}
 		}
 	}

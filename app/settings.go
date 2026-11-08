@@ -8,6 +8,7 @@ import (
 	"mycalendar/calendar"
 	"mycalendar/color"
 	"mycalendar/config"
+	"mycalendar/locale"
 	"mycalendar/models"
 	"mycalendar/parser"
 	"mycalendar/service"
@@ -95,6 +96,20 @@ func (a *App) settingsMenu() {
 		}
 		fmt.Printf(" v | 20. Настройки активного календаря [%s]\n", a.cfg.ActiveCalendarDisplayName())
 		a.hint("Индивидуальные настройки для текущего календаря (отображаемые поля, переопределения)")
+		if a.cfg.IsSettingForMode("language", models.ModeCLI) {
+			spec, _ := config.FindSetting("language")
+			disp := spec.GetDisplay(a.cfg)
+			fmt.Printf(" y | 21. Язык интерфейса         [%s]\n", disp)
+			a.hint("Переключение языка интерфейса программы (ru / en / кастомный)")
+		}
+		if a.cfg.IsSettingForMode("locale_path", models.ModeCLI) {
+			spec, _ := config.FindSetting("locale_path")
+			disp := spec.GetDisplay(a.cfg)
+			fmt.Printf(" lp | 22. Путь к локализациям    [%s]\n", disp)
+			a.hint("Путь к внешним файлам перевода mycal_locale--*.json")
+		}
+		fmt.Println(" tp | 23. Создать шаблон перевода")
+		a.hint("Экспорт файла шаблона локализации для создания нового перевода")
 		fmt.Println(" q | 0. Сохранить и выйти")
 		a.hint("Применить изменения и вернуться в главное меню")
 		fmt.Println()
@@ -188,11 +203,28 @@ func (a *App) settingsMenu() {
 			config.CycleSetting(a.cfg, "web_lan", nil)
 		case match(choice, "20", "v", "м"):
 			a.calendarSettingsMenu()
+		case match(choice, "21", "y", "я"):
+			config.CycleSetting(a.cfg, "language", nil)
+		case match(choice, "22", "lp"):
+			spec, _ := config.FindSetting("locale_path")
+			cur := a.cfg.LocalePath
+			if cur == "" {
+				cur = "пусто (рядом с программой)"
+			}
+			if v := a.dialog(fmt.Sprintf("Путь к локализациям [%s]:", cur), "папка или файл; '-' чтобы сбросить; 0 — отмена"); v != "" && !isCancel(v) {
+				if v == "-" {
+					_ = spec.SetValue(a.cfg, "")
+				} else {
+					_ = spec.SetValue(a.cfg, v)
+				}
+			}
+		case match(choice, "23", "tp"):
+			a.exportLocaleTemplateDialog()
 		case match(choice, "0", "q"):
 			a.persistSettings(startMode, startName, startEffName, startPath)
 			return
 		default:
-			fmt.Println(color.Red(errMark + " Некорректный выбор (0–20)"))
+			fmt.Println(color.Red(errMark + " Некорректный выбор (0–23)"))
 		}
 	}
 }
@@ -740,5 +772,50 @@ func (a *App) calendarSettingsMenu() {
 		default:
 			fmt.Println(color.Red(errMark + " Некорректный выбор (0–6)"))
 		}
+	}
+}
+
+func (a *App) exportLocaleTemplateDialog() {
+	fmt.Println()
+	fmt.Println(color.Yellow("═══ Создание шаблона локализации ═══"))
+	baseLang := a.dialog("Базовый язык (ru / en) [ru]:", "0 — отмена")
+	if isCancel(baseLang) {
+		return
+	}
+	baseLang = strings.ToLower(strings.TrimSpace(baseLang))
+	if baseLang == "" {
+		baseLang = "ru"
+	}
+	if baseLang != "ru" && baseLang != "en" {
+		baseLang = "ru"
+	}
+
+	code := a.dialog("Код нового языка (напр. de, fr, es, it):", "0 — отмена")
+	if isCancel(code) || strings.TrimSpace(code) == "" {
+		return
+	}
+	code = strings.ToLower(strings.TrimSpace(code))
+
+	name := a.dialog(fmt.Sprintf("Название языка [%s]:", strings.ToUpper(code)), "0 — отмена")
+	if isCancel(name) {
+		return
+	}
+	if strings.TrimSpace(name) == "" {
+		name = strings.ToUpper(code)
+	}
+
+	defaultFile := fmt.Sprintf("mycal_locale--%s.json", code)
+	filePath := a.dialog(fmt.Sprintf("Имя файла для сохранения [%s]:", defaultFile), "0 — отмена")
+	if isCancel(filePath) {
+		return
+	}
+	if strings.TrimSpace(filePath) == "" {
+		filePath = defaultFile
+	}
+
+	if err := locale.ExportTemplate(baseLang, filePath, code, name); err != nil {
+		fmt.Println(color.Red(errMark + " Ошибка создания шаблона: " + err.Error()))
+	} else {
+		fmt.Println(color.Green(okMark + " Шаблон локализации успешно создан: " + filePath))
 	}
 }

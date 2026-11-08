@@ -124,7 +124,7 @@ function initPeriodUI() {
 }
 
 async function loadInitialData() {
-  await Promise.all([fetchTypes(), fetchStatuses(), fetchConfig()]);
+  await Promise.all([fetchLocale(), fetchTypes(), fetchStatuses(), fetchConfig()]);
   restoreSavedPeriod();
 }
 
@@ -133,6 +133,48 @@ async function reloadAll() {
   const searchInput = document.getElementById("topSearchInput");
   if (searchInput) searchInput.value = "";
   restoreSavedPeriod();
+}
+
+window.I18N = {};
+
+async function fetchLocale(lang) {
+  try {
+    const url = lang ? `/api/locale?lang=${encodeURIComponent(lang)}` : `/api/locale`;
+    const data = await apiFetch(url);
+    if (data && data.ok) {
+      window.I18N = data.strings || {};
+      state.languages = Array.isArray(data.available) ? data.available : [];
+      state.currentLanguage = data.lang || "ru";
+    }
+  } catch (err) {
+    console.warn("Could not load locale:", err);
+  }
+}
+
+function t(key, fallback) {
+  if (window.I18N && typeof window.I18N[key] === "string" && window.I18N[key].trim() !== "") {
+    return window.I18N[key];
+  }
+  return fallback !== undefined ? fallback : key;
+}
+
+function downloadLocaleTemplate() {
+  const baseLang = document.getElementById("cfgLanguage")?.value || state.currentLanguage || "ru";
+  const code = prompt("Введите 2-буквенный код нового языка (например: de, fr, es, it):", "custom");
+  if (!code) return;
+  const cleanCode = code.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  if (!cleanCode) {
+    alert("Недопустимый код языка");
+    return;
+  }
+  const name = prompt("Введите название языка (например: Deutsch, Français, Español):", cleanCode.toUpperCase()) || cleanCode.toUpperCase();
+  const url = `/api/locale/template?base=${encodeURIComponent(baseLang)}&code=${encodeURIComponent(cleanCode)}&name=${encodeURIComponent(name.trim())}`;
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `mycal_locale--${cleanCode}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 // ======================== API CLIENT ========================
@@ -3312,6 +3354,24 @@ function openSettingsModal() {
   if (document.getElementById("cfgWebLAN")) {
     document.getElementById("cfgWebLAN").value = state.config.web_lan ? "true" : "false";
   }
+  if (document.getElementById("cfgLanguage")) {
+    const langSelect = document.getElementById("cfgLanguage");
+    langSelect.innerHTML = "";
+    const available = Array.isArray(state.languages) && state.languages.length > 0 ? state.languages : [
+      {code: "ru", name: "Русский"},
+      {code: "en", name: "English"}
+    ];
+    available.forEach(l => {
+      const opt = document.createElement("option");
+      opt.value = l.code;
+      opt.textContent = `[${l.code}] ${l.name}` + (l.is_custom ? " (внешний)" : "");
+      langSelect.appendChild(opt);
+    });
+    langSelect.value = state.config.language || state.currentLanguage || "ru";
+  }
+  if (document.getElementById("cfgLocalePath")) {
+    document.getElementById("cfgLocalePath").value = state.config.locale_path || "";
+  }
   updateLANUrlsHint();
   applySettingModesVisibility();
   openModal("modalSettings");
@@ -3376,6 +3436,8 @@ async function saveSettings() {
   const data_path = document.getElementById("cfgDataPath") ? document.getElementById("cfgDataPath").value.trim() : "";
   const tui_default_period = document.getElementById("cfgTUIDefaultPeriod") ? document.getElementById("cfgTUIDefaultPeriod").value : "today";
   const theme = document.getElementById("cfgTheme") ? document.getElementById("cfgTheme").value : (localStorage.getItem("mycal_theme") || "tokyo");
+  const language = document.getElementById("cfgLanguage") ? document.getElementById("cfgLanguage").value : (state.config.language || "ru");
+  const locale_path = document.getElementById("cfgLocalePath") ? document.getElementById("cfgLocalePath").value.trim() : (state.config.locale_path || "");
 
   try {
     const updated = {
@@ -3384,6 +3446,8 @@ async function saveSettings() {
       web_port,
       web_lan,
       theme,
+      language,
+      locale_path,
       default_duration,
       duration_unit,
       default_type,
@@ -3400,6 +3464,7 @@ async function saveSettings() {
       method: "POST",
       body: JSON.stringify(updated),
     });
+    await fetchLocale(language);
     await fetchConfig();
     await refreshData();
     closeModal("modalSettings");

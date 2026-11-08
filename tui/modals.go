@@ -12,6 +12,7 @@ import (
 
 	"mycalendar/calendar"
 	"mycalendar/config"
+	"mycalendar/locale"
 	"mycalendar/models"
 	"mycalendar/parser"
 	"mycalendar/service"
@@ -2574,6 +2575,8 @@ type ModalSettings struct {
 	dataPath         string
 	tuiDefaultPeriod string // "today", "all", "week", "month"
 	webLAN           bool
+	language         string
+	localePath       string
 	svcStatus        *service.StatusInfo
 	selectedIdx      int
 	scrollOffset     int
@@ -2603,9 +2606,15 @@ func NewModalSettings(cfg *models.Config) *ModalSettings {
 	dataPath := ""
 	tuiDefaultPeriod := "today"
 	webLAN := false
+	language := "ru"
+	localePath := ""
 
 	if cfg != nil {
 		webLAN = cfg.WebLAN
+		if cfg.Language != "" {
+			language = cfg.Language
+		}
+		localePath = cfg.LocalePath
 		if cfg.DurationUnit == "hours" {
 			durUnit = "hours"
 		}
@@ -2649,6 +2658,8 @@ func NewModalSettings(cfg *models.Config) *ModalSettings {
 		dataPath:         dataPath,
 		tuiDefaultPeriod: tuiDefaultPeriod,
 		webLAN:           webLAN,
+		language:         language,
+		localePath:       localePath,
 		selectedIdx:      0,
 		scrollOffset:     0,
 		svcStatus:        st,
@@ -2657,7 +2668,7 @@ func NewModalSettings(cfg *models.Config) *ModalSettings {
 
 func (m *ModalSettings) canHavePicker(fieldIdx int) bool {
 	switch fieldIdx {
-	case 0, 2, 3, 4, 5, 6, 7, 8, 11, 12, 13:
+	case 0, 2, 3, 4, 5, 6, 7, 8, 11, 12, 13, 14:
 		return true
 	default:
 		return false
@@ -2774,6 +2785,17 @@ func (m *ModalSettings) openPicker(fieldIdx int, app *App) {
 			{Code: "true", Label: "Вкл (все устройства в сети, 0.0.0.0)"},
 		}
 		curCode = strconv.FormatBool(m.webLAN)
+
+	case 14:
+		title = " Язык интерфейса [Enter] "
+		for _, l := range locale.AvailableLanguages() {
+			lbl := fmt.Sprintf("[%s] %s", l.Code, l.Name)
+			if l.IsCustom {
+				lbl += " (внешний)"
+			}
+			list = append(list, ModalSettingsOption{Code: l.Code, Label: lbl})
+		}
+		curCode = m.language
 	}
 
 	if len(list) == 0 {
@@ -2840,6 +2862,9 @@ func (m *ModalSettings) applyPickerOption(opt ModalSettingsOption, app *App) {
 		}
 	case 13:
 		m.webLAN = (opt.Code == "true")
+	case 14:
+		m.language = opt.Code
+		locale.SetLanguage(opt.Code)
 	}
 }
 
@@ -2940,6 +2965,22 @@ func (m *ModalSettings) Draw(s *Screen) {
 		webLANDisplay = "Вкл (все устройства в сети, 0.0.0.0)"
 	}
 
+	langDisplay := m.language
+	for _, l := range locale.AvailableLanguages() {
+		if l.Code == m.language {
+			langDisplay = fmt.Sprintf("[%s] %s", l.Code, l.Name)
+			if l.IsCustom {
+				langDisplay += " (кастом)"
+			}
+			break
+		}
+	}
+
+	localePathDisplay := m.localePath
+	if localePathDisplay == "" {
+		localePathDisplay = "Рядом с программой"
+	}
+
 	fields := []struct {
 		lbl string
 		val string
@@ -2958,6 +2999,8 @@ func (m *ModalSettings) Draw(s *Screen) {
 		{"12. Период по умолч. в TUI: ", tuiPeriodDisplay},
 		{"13. Фоновая служба:         ", m.svcStatusText()},
 		{"14. Доступ к Web из сети:   ", webLANDisplay},
+		{"15. Язык интерфейса:       ", langDisplay},
+		{"16. Путь к локализациям:   ", localePathDisplay},
 	}
 
 	hasAuthorBlock := (h >= 16)
@@ -3010,7 +3053,7 @@ func (m *ModalSettings) Draw(s *Screen) {
 		if valW > 0 {
 			s.Fill(valX, rowY, valW, 1, ' ', valFg, valBg)
 			disp := f.val
-			if isCur && (fieldIdx == 1 || fieldIdx == 2 || fieldIdx == 9 || fieldIdx == 10) {
+			if isCur && (fieldIdx == 1 || fieldIdx == 2 || fieldIdx == 9 || fieldIdx == 10 || fieldIdx == 15) {
 				disp += "█"
 			}
 			s.DrawText(valX+1, rowY, disp, valFg, valBg, valW-2, isCur, false, false)
@@ -3040,7 +3083,7 @@ func (m *ModalSettings) Draw(s *Screen) {
 	if m.pickerOpen {
 		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 1, "[↑↓] Выбор  [Enter/Space] Применить  [Esc/←] Закрыть список", FgDim, BgModal)
 	} else {
-		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 1, "[↑↓] Выбор  [Space/→] Изменить  [Enter] Сохранить  [Esc]", FgDim, BgModal)
+		s.DrawBottomWrappedHint(x+2, y+h-2, w-4, 1, "[↑↓] Выбор  [Space/→] Изменить  [Enter] Сохранить  [T] Шаблон  [Esc]", FgDim, BgModal)
 	}
 
 	// Draw dropdown popup if open
@@ -3153,10 +3196,19 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 		return false
 	}
 
-	totalFields := 14
+	totalFields := 16
 	switch {
 	case k.Type == KeyEsc:
 		app.activeModal = nil
+		return true
+
+	case k.Matches('t', 'е') && (m.selectedIdx == 14 || m.selectedIdx == 15):
+		templatePath := "mycal_locale--template.json"
+		if err := locale.ExportTemplate(m.language, templatePath, "custom", "Custom Language"); err == nil {
+			app.setStatusMsg("[✓] Шаблон сохранён: " + templatePath)
+		} else {
+			app.setStatusMsg("[✗] Ошибка экспорта: " + err.Error())
+		}
 		return true
 
 	case k.Type == KeyRight || k.Matches('l', 'д'):
@@ -3195,6 +3247,10 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 			runes := []rune(m.dataPath)
 			m.dataPath = string(runes[:len(runes)-1])
 			return true
+		} else if m.selectedIdx == 15 && len(m.localePath) > 0 {
+			runes := []rune(m.localePath)
+			m.localePath = string(runes[:len(runes)-1])
+			return true
 		}
 
 	case k.Type == KeyRune:
@@ -3210,6 +3266,9 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 			return true
 		} else if m.selectedIdx == 10 && k.Rune >= 32 && len([]rune(m.dataPath)) < 120 {
 			m.dataPath += string(k.Rune)
+			return true
+		} else if m.selectedIdx == 15 && k.Rune >= 32 && len([]rune(m.localePath)) < 120 {
+			m.localePath += string(k.Rune)
 			return true
 		}
 
@@ -3321,6 +3380,21 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 		case 13:
 			m.webLAN = !m.webLAN
 			return true
+		case 14:
+			langs := locale.AvailableLanguages()
+			if len(langs) > 0 {
+				curIdx := 0
+				for i, l := range langs {
+					if l.Code == m.language {
+						curIdx = i
+						break
+					}
+				}
+				nextIdx := (curIdx + 1) % len(langs)
+				m.language = langs[nextIdx].Code
+				locale.SetLanguage(m.language)
+			}
+			return true
 		}
 
 	case k.Type == KeyEnter:
@@ -3345,6 +3419,9 @@ func (m *ModalSettings) HandleKey(k Key, app *App) bool {
 		app.cfg.DefaultMode = m.defaultMode
 		app.cfg.TUIDefaultPeriod = m.tuiDefaultPeriod
 		app.cfg.WebLAN = m.webLAN
+		app.cfg.Language = m.language
+		app.cfg.LocalePath = strings.TrimSpace(m.localePath)
+		locale.Init(app.cfg.LocalePath, app.cfg.Language)
 		if p, err := strconv.Atoi(m.portStr); err == nil && p > 0 {
 			app.cfg.WebPort = p
 		}

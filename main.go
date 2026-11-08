@@ -17,6 +17,7 @@ import (
 	"mycalendar/calendar"
 	"mycalendar/color"
 	"mycalendar/config"
+	"mycalendar/locale"
 	"mycalendar/models"
 	"mycalendar/service"
 	"mycalendar/storage"
@@ -85,6 +86,7 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("не удалось загрузить настройки (%s): %w", loadPath, err)
 	}
+	locale.Init(cfg.LocalePath, cfg.Language)
 
 	// Move a config from the current directory to the global location. A legacy
 	// config kept the data next to it, so pin the data path to that directory.
@@ -130,6 +132,8 @@ func run(ctx context.Context) error {
 	if len(args) > 0 {
 		cmd := strings.ToLower(args[0])
 		switch cmd {
+		case "locale":
+			return handleLocaleCmd(args[1:])
 		case "service":
 			return handleServiceCmd(ctx, args[1:], cfg)
 		case "tui", "-tui", "--tui":
@@ -358,4 +362,51 @@ func extractCalendarFlag(args []string) ([]string, string, bool) {
 		}
 	}
 	return clean, strings.TrimSpace(cal), found
+}
+
+func handleLocaleCmd(args []string) error {
+	subcmd := "list"
+	if len(args) > 0 {
+		subcmd = strings.ToLower(args[0])
+	}
+	switch subcmd {
+	case "list":
+		langs := locale.AvailableLanguages()
+		fmt.Println("Доступные языки интерфейса:")
+		for _, l := range langs {
+			src := "встроенный"
+			if l.IsCustom {
+				src = "внешний файл"
+			}
+			activeMark := " "
+			if l.Code == locale.CurrentLanguage() {
+				activeMark = "*"
+			}
+			author := ""
+			if l.Author != "" {
+				author = fmt.Sprintf(" (%s)", l.Author)
+			}
+			fmt.Printf(" %s [%s] %s%s [%s]\n", activeMark, l.Code, l.Name, author, src)
+		}
+		return nil
+	case "template", "export":
+		baseLang := "ru"
+		outPath := ""
+		if len(args) > 1 {
+			baseLang = strings.ToLower(args[1])
+		}
+		if len(args) > 2 {
+			outPath = args[2]
+		}
+		if outPath == "" {
+			outPath = fmt.Sprintf("mycal_locale--%s.json", baseLang)
+		}
+		if err := locale.ExportTemplate(baseLang, outPath, baseLang, ""); err != nil {
+			return fmt.Errorf("ошибка создания шаблона: %w", err)
+		}
+		fmt.Printf("[✓] Шаблон локализации успешно создан: %s\n", outPath)
+		return nil
+	default:
+		return fmt.Errorf("неизвестная подкоманда: %s. Допустимые: list, template [базовый_язык] [файл]", subcmd)
+	}
 }
